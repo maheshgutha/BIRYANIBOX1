@@ -1,0 +1,6 @@
+/* Styles are moved to index.css or kept inline for dynamic values */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}

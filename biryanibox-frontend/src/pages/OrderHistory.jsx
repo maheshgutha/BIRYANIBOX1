@@ -1,0 +1,204 @@
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+const MotionDiv = motion.div;
+import { ordersAPI, addressesAPI } from '../services/api';
+import { useAuth } from '../context/useContextHooks';
+import {
+  Truck, MapPin, Package, Clock, CheckCircle,
+  ChevronRight, Home, Building, Plus, Loader,
+} from 'lucide-react';
+
+const statusSteps = {
+  pending:   1,
+  preparing: 2,
+  served:    3,
+  paid:      4,
+  delivered: 4,
+};
+
+const OrderHistory = () => {
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState('active');
+  const [activeOrders, setActiveOrders] = useState([]);
+  const [historyOrders, setHistoryOrders] = useState([]);
+  const [addresses, setAddresses] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
+    ordersAPI.history(user._id || user.id)
+      .then(res => {
+        const all = res.data || [];
+        setActiveOrders(all.filter(o => ['pending','preparing','served'].includes(o.status)));
+        setHistoryOrders(all.filter(o => ['paid','cancelled','delivered'].includes(o.status)));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  const getStepStatus = (stepIdx, orderStatus) => {
+    const current = statusSteps[orderStatus] || 1;
+    if (stepIdx < current) return 'completed';
+    if (stepIdx === current) return 'active';
+    return 'pending';
+  };
+
+  return (
+    <div className="min-h-screen bg-bg-main text-white p-6 md:p-12 relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/10 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/2" />
+      <div className="container max-w-5xl mx-auto relative z-10">
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
+          <div>
+            <h1 className="text-4xl font-bold font-heading mb-3">Your Movement Hub</h1>
+            <p className="text-text-muted font-medium">Tracking your flavors across the city.</p>
+          </div>
+          <div className="flex bg-white/5 p-1 rounded-2xl">
+            {['active', 'history', 'addresses'].map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={`px-8 py-3 rounded-xl transition-all text-xs font-bold uppercase tracking-widest ${activeTab === tab ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loading && (
+          <div className="flex items-center justify-center py-20">
+            <Loader size={32} className="animate-spin text-primary" />
+          </div>
+        )}
+
+        <AnimatePresence mode="wait">
+          {activeTab === 'active' && !loading && (
+            <MotionDiv key="active" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-8">
+              {activeOrders.length === 0 ? (
+                <div className="text-center py-20 text-text-muted">
+                  <Package size={48} className="mx-auto mb-4 opacity-30" />
+                  <p className="text-sm font-bold uppercase tracking-widest">No active orders</p>
+                </div>
+              ) : activeOrders.map(order => (
+                <div key={order._id} className="bg-secondary/40 rounded-[40px] border border-white/5 shadow-3xl overflow-hidden relative">
+                  <div className="bg-primary/10 border-b border-white/5 p-8 flex flex-col md:flex-row justify-between items-center gap-6">
+                    <div className="flex items-center gap-6">
+                      <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center text-white shadow-2xl shadow-primary/30">
+                        <Truck size={32} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em] mb-1">Movement Protocol</p>
+                        <h2 className="text-2xl font-black font-heading">{order.order_number}</h2>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-8">
+                      <div className="text-right">
+                        <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Status</p>
+                        <p className="text-xl font-bold text-white capitalize">{order.status}</p>
+                      </div>
+                      <div className="h-10 w-px bg-white/10" />
+                      <div className="text-right">
+                        <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Total Value</p>
+                        <p className="text-xl font-black text-primary font-heading">${order.total?.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-10 md:p-16">
+                    <div className="relative mb-16">
+                      <div className="absolute top-1/2 left-0 w-full h-1 bg-white/5 -translate-y-1/2 rounded-full" />
+                      <MotionDiv
+                        initial={{ width: '25%' }}
+                        animate={{ width: `${(statusSteps[order.status] || 1) * 25}%` }}
+                        className="absolute top-1/2 left-0 h-1 bg-primary -translate-y-1/2 rounded-full shadow-[0_0_20px_rgba(229,138,48,0.5)]"
+                      />
+                      <div className="relative flex justify-between">
+                        {[{label:'Received',idx:1},{label:'Preparing',idx:2},{label:'Dispatch',idx:3},{label:'Delivered',idx:4}].map(step => {
+                          const s = getStepStatus(step.idx, order.status);
+                          return (
+                            <div key={step.idx} className="flex flex-col items-center gap-4">
+                              <div className={`w-10 h-10 rounded-full border-4 flex items-center justify-center transition-all duration-500 z-10 ${s==='completed'?'bg-primary border-primary shadow-xl shadow-primary/20':s==='active'?'bg-bg-main border-primary animate-pulse':'bg-bg-main border-white/10'}`}>
+                                {s==='completed' && <CheckCircle size={16} className="text-white" />}
+                                {s==='active' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                              </div>
+                              <span className={`text-[10px] font-black uppercase tracking-widest ${s!=='pending'?'text-white':'text-white/20'}`}>{step.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="p-8 bg-white/5 rounded-3xl border border-white/5 space-y-3">
+                      <h4 className="text-xs font-black uppercase tracking-[0.3em] text-white/40 mb-4 flex items-center gap-2">
+                        <Package size={14} className="text-primary" /> Payload Data
+                      </h4>
+                      {(order.items || []).map((item, i) => (
+                        <div key={i} className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center font-black text-primary border border-white/10">{item.quantity}x</div>
+                          <div>
+                            <p className="font-bold text-white leading-tight">{item.name}</p>
+                            <p className="text-[10px] text-text-muted uppercase tracking-widest mt-1">${item.unit_price?.toFixed(2)} each</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </MotionDiv>
+          )}
+
+          {activeTab === 'history' && !loading && (
+            <MotionDiv key="history" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-4">
+              {historyOrders.length === 0 ? (
+                <div className="text-center py-20 text-text-muted">
+                  <CheckCircle size={48} className="mx-auto mb-4 opacity-30" />
+                  <p className="text-sm font-bold uppercase tracking-widest">No order history yet</p>
+                </div>
+              ) : historyOrders.map(order => (
+                <div key={order._id} className="flex items-center gap-8 bg-secondary/30 p-8 rounded-3xl border border-white/5 hover:border-white/10 transition-all cursor-pointer group">
+                  <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center text-text-muted group-hover:bg-primary/20 group-hover:text-primary transition-all">
+                    <CheckCircle size={28} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-lg font-bold mb-1">{(order.items || []).map(i => i.name).join(', ') || 'Order'}</p>
+                    <p className="text-xs text-text-muted uppercase tracking-widest">
+                      {new Date(order.created_at).toLocaleDateString()} • {order.order_number}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xl font-bold text-primary font-heading mb-1">${order.total?.toFixed(2)}</p>
+                    <button className="text-[10px] font-bold text-text-muted uppercase tracking-widest hover:text-white flex items-center gap-1 justify-end">
+                      Re-Order Hub <ChevronRight size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </MotionDiv>
+          )}
+
+          {activeTab === 'addresses' && (
+            <MotionDiv key="addresses" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="grid md:grid-cols-2 gap-6">
+              {addresses.map(addr => (
+                <div key={addr._id} className="bg-secondary/40 p-8 rounded-3xl border border-white/5 relative group">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
+                      {addr.type === 'home' ? <Home size={24} /> : <Building size={24} />}
+                    </div>
+                    <h3 className="text-xl font-bold">{addr.label || addr.type}</h3>
+                  </div>
+                  <p className="text-sm text-text-muted font-medium mb-8">{addr.address_line}</p>
+                  <button className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">Revise Protocol</button>
+                </div>
+              ))}
+              <button className="h-full min-h-[160px] border-2 border-dashed border-white/10 rounded-3xl flex flex-col items-center justify-center gap-4 text-text-muted hover:border-primary/50 hover:text-primary transition-all">
+                <Plus size={32} />
+                <span className="text-[10px] font-bold uppercase tracking-widest">New Coordinate Hub</span>
+              </button>
+            </MotionDiv>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
+export default OrderHistory;

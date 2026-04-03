@@ -1,0 +1,19 @@
+const mongoose = require('mongoose');
+
+const CateringOrderSchema = new mongoose.Schema({
+  customer_name: { type: String, required: true },
+  email:         { type: String },
+  phone:         { type: String },
+  event_type:    { type: String },
+  event_date:    { type: Date, required: true },
+  delivery_time: { type: String },
+  guest_count:   { type: Number, required: true, min: 1 },
+  venue:         { type: String },
+  menu_items:    [{ type: String }],
+  budget:        { type: Number, min: 0 },
+  total_price:   { type: Number, min: 0 },
+  status:        { type: String, enum: ['pending','confirmed','cancelled','completed'], default: 'pending' },
+  notes:         { type: String }
+}, { timestamps: { createdAt: 'created_at' } });
+
+module.exports = mongoose.model('CateringOrder', CateringOrderSchema);

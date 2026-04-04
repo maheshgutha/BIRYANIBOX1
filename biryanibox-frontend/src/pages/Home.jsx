@@ -233,38 +233,19 @@ const MenuCategories = () => {
   const [filterSpice, setFilterSpice] = useState('all');
   const [filterHalal, setFilterHalal] = useState(false);
   const [selectedTable, setSelectedTable] = useState(null);
-  const [tableInput, setTableInput] = useState('');
   const [tableConfirmed, setTableConfirmed] = useState(false);
   const { addToCart } = useCart();
   const { menu } = useOrders();
 
-  const QUICK_TABLES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const TABLE_OPTIONS = ['Table 1', 'Table 2', 'VIP 1', 'VIP 2', 'Takeaway'];
 
-  const handleTableSelect = (num) => {
-    setSelectedTable(num);
-    setTableInput(String(num));
+  const handleTableSelect = (t) => {
+    setSelectedTable(t);
     setTableConfirmed(true);
-  };
-
-  const handleTableInputChange = (e) => {
-    const val = e.target.value;
-    setTableInput(val);
-    setTableConfirmed(false);
-    const num = parseInt(val, 10);
-    if (!isNaN(num) && num > 0) {
-      setSelectedTable(num);
-    } else {
-      setSelectedTable(null);
-    }
-  };
-
-  const handleTableConfirm = () => {
-    if (selectedTable) setTableConfirmed(true);
   };
 
   const handleTableClear = () => {
     setSelectedTable(null);
-    setTableInput('');
     setTableConfirmed(false);
   };
 
@@ -363,67 +344,37 @@ const MenuCategories = () => {
 
         {/* ── Table Selection ── */}
         <div className="mb-10 p-6 rounded-[28px] bg-white/[0.03] border border-white/[0.08]">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-            <div className="flex items-center gap-4 shrink-0">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center">
                 <UtensilsCrossed size={18} className="text-primary" />
               </div>
               <span className="text-[11px] font-black uppercase tracking-[0.3em] text-white/40">
-                Table No.
+                Select Your Table
               </span>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Enter #"
-                  value={tableInput}
-                  onChange={handleTableInputChange}
-                  onKeyDown={(e) => e.key === 'Enter' && handleTableConfirm()}
-                  className="w-24 bg-white/5 border border-white/15 rounded-xl px-4 py-2.5 text-sm font-black text-white text-center outline-none focus:border-primary transition-all placeholder:text-white/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-                {selectedTable && !tableConfirmed && (
-                  <button
-                    onClick={handleTableConfirm}
-                    className="px-4 py-2.5 bg-primary rounded-xl text-[10px] font-black uppercase tracking-widest text-white hover:bg-primary/80 transition-all"
-                  >
-                    Set
-                  </button>
-                )}
-                {tableConfirmed && (
-                  <button
-                    onClick={handleTableClear}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-primary/20 border border-primary/40 rounded-xl text-[10px] font-black uppercase tracking-widest text-primary hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-400 transition-all group"
-                  >
-                    <Check size={12} />
-                    Table {selectedTable}
-                    <X size={11} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                )}
-              </div>
             </div>
-
-            <div className="hidden lg:block w-px h-10 bg-white/[0.08] shrink-0" />
-            <span className="hidden lg:block text-[10px] font-black text-white/20 uppercase tracking-widest shrink-0">
-              or pick
-            </span>
-            <div className="hidden lg:block w-px h-10 bg-white/[0.08] shrink-0" />
-
-            <div className="flex flex-wrap gap-2">
-              {QUICK_TABLES.map((n) => (
+            <div className="flex flex-wrap gap-3">
+              {TABLE_OPTIONS.map((t) => (
                 <button
-                  key={n}
-                  onClick={() => handleTableSelect(n)}
-                  className={`w-10 h-10 rounded-xl text-xs font-black transition-all border ${
-                    selectedTable === n && tableConfirmed
-                      ? 'bg-primary border-primary text-white shadow-lg shadow-primary/30 scale-110'
-                      : selectedTable === n
-                      ? 'bg-primary/20 border-primary/50 text-primary'
-                      : 'bg-white/5 border-white/10 text-white/40 hover:border-white/30 hover:text-white hover:bg-white/10'
+                  key={t}
+                  onClick={() => handleTableSelect(t)}
+                  className={`px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all border ${
+                    selectedTable === t && tableConfirmed
+                      ? 'bg-primary border-primary text-white shadow-lg shadow-primary/30 scale-105'
+                      : 'bg-white/5 border-white/10 text-white/50 hover:border-white/30 hover:text-white hover:bg-white/10'
                   }`}
                 >
-                  {n}
+                  {t}
                 </button>
               ))}
+              {tableConfirmed && (
+                <button
+                  onClick={handleTableClear}
+                  className="px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-all"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </div>
 
@@ -438,7 +389,7 @@ const MenuCategories = () => {
                 <div className="flex items-center gap-3 px-5 py-3 bg-primary/10 border border-primary/25 rounded-2xl">
                   <Check size={14} className="text-primary shrink-0" />
                   <span className="text-[11px] font-black text-primary uppercase tracking-widest">
-                    Table {selectedTable} selected — your order will be served here
+                    {selectedTable} selected — your order will be served here
                   </span>
                 </div>
               </MotionDiv>
@@ -705,7 +656,7 @@ const Testimonials = () => (
 const CustomerFeedback = () => {
   const [rating, setRating] = useState(0);
   const [hovered, setHovered] = useState(0);
-  const [form, setForm] = useState({ name: '', email: '', message: '', category: 'general' });
+  const [form, setForm] = useState({ name: '', mobile: '', message: '', category: 'general' });
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
@@ -725,7 +676,7 @@ const CustomerFeedback = () => {
     try {
       await feedbackAPI.create({
         name: form.name,
-        email: form.email,
+        mobile: form.mobile,
         message: form.message,
         rating,
         category: form.category,
@@ -774,7 +725,7 @@ const CustomerFeedback = () => {
               <p className="text-text-muted font-medium mb-3">Your feedback has been sent to our team.</p>
               <p className="text-text-muted text-sm mb-10">We read every message and use it to improve your experience.</p>
               <button
-                onClick={() => { setSubmitted(false); setRating(0); setForm({ name: '', email: '', message: '', category: 'general' }); }}
+                onClick={() => { setSubmitted(false); setRating(0); setForm({ name: '', mobile: '', message: '', category: 'general' }); }}
                 className="text-primary font-black text-xs uppercase tracking-[0.4em] hover:underline"
               >
                 Leave Another Feedback
@@ -823,7 +774,7 @@ const CustomerFeedback = () => {
                 </div>
               </div>
 
-              {/* Name & Email */}
+              {/* Name & Mobile */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">Your Name</label>
@@ -831,8 +782,10 @@ const CustomerFeedback = () => {
                     className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 focus:border-primary outline-none text-white text-sm placeholder:text-white/30" />
                 </div>
                 <div>
-                  <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">Email (optional)</label>
-                  <input type="email" placeholder="for follow-up" value={form.email} onChange={sf('email')}
+                  <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">Mobile Number *</label>
+                  <input type="tel" required placeholder="e.g. 9876543210" value={form.mobile} onChange={sf('mobile')}
+                    pattern="[0-9]{10,13}"
+                    title="Please enter a valid mobile number (10-13 digits)"
                     className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 focus:border-primary outline-none text-white text-sm placeholder:text-white/30" />
                 </div>
               </div>

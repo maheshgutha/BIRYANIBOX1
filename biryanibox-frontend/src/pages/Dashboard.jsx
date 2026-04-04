@@ -1050,15 +1050,31 @@ const AnnouncementsPanel = ({ isAdmin }) => {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [menuItems, setMenuItems] = useState([]);
   const [form, setForm] = useState({
     title: '', message: '', priority: 'normal',
     target_roles: ['chef', 'captain', 'manager', 'owner', 'customer'],
     is_scheduled: false, scheduled_date: '',
     is_festival: false, festival_name: '',
+    has_offer: false, offer_scope: 'all', offer_discount: '', offer_item_ids: [],
   });
   const [msg, setMsg] = useState({ text: '', type: '' });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
   const sb = f => e => setForm(p => ({ ...p, [f]: e.target.checked }));
+
+  // Load menu for offer item selection
+  useEffect(() => {
+    menuAPI.getAll().then(r => setMenuItems(r.data || [])).catch(() => {});
+  }, []);
+
+  const toggleOfferItem = (id) => {
+    setForm(p => ({
+      ...p,
+      offer_item_ids: p.offer_item_ids.includes(id)
+        ? p.offer_item_ids.filter(i => i !== id)
+        : [...p.offer_item_ids, id],
+    }));
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1080,11 +1096,12 @@ const AnnouncementsPanel = ({ isAdmin }) => {
       const payload = {
         ...form,
         scheduled_date: form.is_scheduled && form.scheduled_date ? new Date(form.scheduled_date).toISOString() : null,
+        offer_items: form.has_offer && form.offer_scope === 'selected' ? form.offer_item_ids : form.has_offer ? ['ALL'] : [],
       };
       await announcementsAPI.create(payload);
       flash(form.is_scheduled ? 'Announcement scheduled!' : 'Announcement posted!');
       setShowForm(false);
-      setForm({ title: '', message: '', priority: 'normal', target_roles: ['chef', 'captain', 'manager', 'owner', 'customer'], is_scheduled: false, scheduled_date: '', is_festival: false, festival_name: '' });
+      setForm({ title: '', message: '', priority: 'normal', target_roles: ['chef', 'captain', 'manager', 'owner', 'customer'], is_scheduled: false, scheduled_date: '', is_festival: false, festival_name: '', has_offer: false, offer_scope: 'all', offer_discount: '', offer_item_ids: [] });
       load();
     } catch (err) { flash(err.message, 'error'); }
   };
@@ -1153,6 +1170,61 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                     className="flex-1 bg-bg-main border border-yellow-500/30 p-2.5 rounded-xl focus:border-yellow-400 outline-none text-white text-sm" />
                 )}
               </div>
+              {/* Offer toggle */}
+              <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl space-y-4">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={form.has_offer} onChange={sb('has_offer')}
+                    className="w-4 h-4 rounded accent-green-400" />
+                  <span className="text-sm font-bold text-green-400 flex items-center gap-2"><Star size={14} /> 🎁 Attach an Offer / Discount</span>
+                </label>
+                {form.has_offer && (
+                  <div className="space-y-4 pt-2">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Discount % *</label>
+                        <input type="number" min="1" max="100" required value={form.offer_discount} onChange={sf('offer_discount')}
+                          placeholder="e.g. 20"
+                          className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-green-400" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Apply To</label>
+                        <div className="flex gap-2">
+                          {['all', 'selected'].map(s => (
+                            <button key={s} type="button" onClick={() => setForm(p => ({ ...p, offer_scope: s, offer_item_ids: [] }))}
+                              className={`flex-1 py-2 rounded-xl text-xs font-black uppercase border transition-all ${form.offer_scope === s ? 'bg-green-500/30 border-green-500 text-green-400' : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
+                              {s === 'all' ? '🍽 All Items' : '✅ Pick Items'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {form.offer_scope === 'selected' && (
+                      <div>
+                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">
+                          Select Items ({form.offer_item_ids.length} selected)
+                        </label>
+                        <div className="max-h-48 overflow-y-auto grid grid-cols-2 gap-2 p-2 bg-bg-main rounded-xl border border-white/10">
+                          {menuItems.map(item => {
+                            const id = item._id || item.id;
+                            const picked = form.offer_item_ids.includes(id);
+                            return (
+                              <button key={id} type="button" onClick={() => toggleOfferItem(id)}
+                                className={`px-3 py-2 rounded-lg text-xs font-bold text-left border transition-all flex items-center gap-2 ${picked ? 'bg-green-500/20 border-green-500/40 text-green-300' : 'bg-white/5 border-white/5 text-text-muted hover:border-white/20 hover:text-white'}`}>
+                                <span className={`w-3 h-3 rounded-sm border flex-shrink-0 flex items-center justify-center text-[8px] ${picked ? 'bg-green-500 border-green-500 text-white' : 'border-white/30'}`}>{picked ? '✓' : ''}</span>
+                                <span className="truncate">{item.name}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {form.offer_item_ids.length === 0 && (
+                          <p className="text-[10px] text-red-400 font-bold mt-1">Select at least one item</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               {/* Schedule toggle */}
               <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl space-y-3">
                 <label className="flex items-center gap-3 cursor-pointer">
@@ -1191,6 +1263,11 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                   {a.is_festival && (
                     <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
                       🎉 {a.festival_name || 'Festival Offer'}
+                    </span>
+                  )}
+                  {a.offer_items && a.offer_items.length > 0 && (
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
+                      🎁 {a.offer_discount}% OFF · {a.offer_items.includes('ALL') ? 'All Items' : `${a.offer_items.length} item${a.offer_items.length > 1 ? 's' : ''}`}
                     </span>
                   )}
                   {a.is_scheduled && a.scheduled_date && (
@@ -1667,7 +1744,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
   const [form, setForm] = useState({
     name: '', category: 'Biryani', price: '', description: '',
     spice_level: 1, is_veg: false, is_halal: true,
-    prep_time: 20, stock: 100,
+    stock: 100,
   });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
   const sb = f => e => setForm(p => ({ ...p, [f]: e.target.checked }));
@@ -1687,7 +1764,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
 
   const openAdd = () => {
     setEditItem(null);
-    setForm({ name: '', category: 'Biryani', price: '', description: '', spice_level: 1, is_veg: false, is_halal: true, prep_time: 20, stock: 100 });
+    setForm({ name: '', category: 'Biryani', price: '', description: '', spice_level: 1, is_veg: false, is_halal: true, stock: 100 });
     setShowAddModal(true);
   };
 
@@ -1697,7 +1774,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
       name: item.name, category: item.category, price: item.price,
       description: item.description || '', spice_level: item.spice_level || 1,
       is_veg: item.is_veg || false, is_halal: item.is_halal !== false,
-      prep_time: item.prep_time || 20, stock: item.stock || 100,
+      stock: item.stock || 100,
     });
     setShowAddModal(true);
   };
@@ -1706,7 +1783,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
     e.preventDefault();
     setSubmitting(true);
     try {
-      const payload = { ...form, price: parseFloat(form.price), spice_level: Number(form.spice_level), prep_time: Number(form.prep_time), stock: Number(form.stock) };
+      const payload = { ...form, price: parseFloat(form.price), spice_level: Number(form.spice_level), stock: Number(form.stock) };
       if (editItem) {
         await menuAPI.update(editItem._id || editItem.id, payload);
         flash('Item updated!');
@@ -1796,7 +1873,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
               <div className="flex items-center gap-3 mb-3">
                 <p className="text-lg font-black text-primary">₹{(item.price || 0).toFixed(0)}</p>
                 <span className="text-sm">{spiceLabel[item.spice_level] || '🌶'}</span>
-                {item.prep_time && <span className="text-[10px] text-text-muted"><Clock size={10} className="inline mr-1" />{item.prep_time}m</span>}
+                {item.description && <p className="text-xs text-text-muted mb-3 line-clamp-2">{item.description}</p>}
               </div>
               {item.description && <p className="text-xs text-text-muted mb-3 line-clamp-2">{item.description}</p>}
               <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
@@ -1865,11 +1942,6 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                       <option value={3}>🌶🌶🌶 Hot</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Prep Time (min)</label>
-                    <input type="number" min="1" value={form.prep_time} onChange={sf('prep_time')}
-                      className="w-full bg-[#252525] border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
-                  </div>
                   <div className="col-span-2">
                     <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Description</label>
                     <textarea value={form.description} onChange={sf('description')} rows={2} placeholder="Short description..."
@@ -1905,14 +1977,186 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
 
       {/* Ingredient Manager */}
       <IngredientManager ingredients={ingredients} updateIngredientStock={updateIngredientStock} />
+
+      {/* Waste Management */}
+      <WasteManagement ingredients={ingredients} />
+    </div>
+  );
+};
+
+// ─── WASTE MANAGEMENT ─────────────────────────────────────────────────────────
+const WasteManagement = ({ ingredients }) => {
+  const [entries, setEntries] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bb_waste_log') || '[]'); } catch { return []; }
+  });
+  const [form, setForm] = useState({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
+  const [showForm, setShowForm] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const REASONS = ['spoilage', 'overcooking', 'expiry', 'spillage', 'quality_reject', 'other'];
+
+  const flash = (t) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
+
+  const save = (list) => {
+    setEntries(list);
+    localStorage.setItem('bb_waste_log', JSON.stringify(list));
+  };
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    const ing = ingredients.find(i => (i._id || i.id) === form.ingredient_id);
+    if (!ing) return;
+    const entry = {
+      id: Date.now(),
+      ingredient_id: form.ingredient_id,
+      ingredient_name: ing.name,
+      unit: ing.unit,
+      quantity: Number(form.quantity),
+      reason: form.reason,
+      notes: form.notes,
+      cost: (ing.unit_cost || ing.unitCost || 0) * Number(form.quantity),
+      date: new Date().toISOString(),
+    };
+    save([entry, ...entries]);
+    setForm({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
+    setShowForm(false);
+    flash(`Waste logged: ${ing.name} — ${form.quantity} ${ing.unit}`);
+  };
+
+  const handleDelete = (id) => save(entries.filter(e => e.id !== id));
+
+  const totalCost = entries.reduce((s, e) => s + (e.cost || 0), 0);
+  const byReason = REASONS.map(r => ({ reason: r, count: entries.filter(e => e.reason === r).length, cost: entries.filter(e => e.reason === r).reduce((s, e) => s + (e.cost || 0), 0) })).filter(r => r.count > 0);
+
+  return (
+    <div className="space-y-6 mt-10 pt-8 border-t border-white/5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Trash2 size={20} className="text-red-400" />Waste Management
+          </h3>
+          <p className="text-text-muted text-sm mt-0.5">Track ingredient waste & calculate losses</p>
+        </div>
+        <button onClick={() => setShowForm(s => !s)}
+          className="flex items-center gap-2 px-5 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
+          <Plus size={13} /> Log Waste
+        </button>
+      </div>
+
+      {msg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{msg}</p>}
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 text-center">
+          <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">Total Entries</p>
+          <p className="text-2xl font-black text-red-400">{entries.length}</p>
+        </div>
+        <div className="bg-orange-500/10 border border-orange-500/20 rounded-2xl p-4 text-center">
+          <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">Total Loss</p>
+          <p className="text-2xl font-black text-orange-400">₹{totalCost.toFixed(0)}</p>
+        </div>
+        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-4 text-center">
+          <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">This Week</p>
+          <p className="text-2xl font-black text-yellow-400">{entries.filter(e => new Date(e.date) > new Date(Date.now() - 7*86400000)).length}</p>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
+          <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">Top Reason</p>
+          <p className="text-sm font-black text-white capitalize">{byReason.sort((a,b)=>b.count-a.count)[0]?.reason || '—'}</p>
+        </div>
+      </div>
+
+      {/* Log Waste Form */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+            className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6">
+            <h4 className="text-base font-bold text-white mb-4">Log Waste Entry</h4>
+            <form onSubmit={handleAdd} className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Ingredient *</label>
+                <select required value={form.ingredient_id} onChange={e => setForm(p => ({ ...p, ingredient_id: e.target.value }))}
+                  className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-red-400">
+                  <option value="">Select ingredient...</option>
+                  {ingredients.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} ({i.unit})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Quantity Wasted *</label>
+                <input type="number" required min="0.01" step="0.01" value={form.quantity} onChange={e => setForm(p => ({ ...p, quantity: e.target.value }))}
+                  className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-red-400" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Reason *</label>
+                <select value={form.reason} onChange={e => setForm(p => ({ ...p, reason: e.target.value }))}
+                  className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-red-400">
+                  {REASONS.map(r => <option key={r} value={r}>{r.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Notes</label>
+                <input type="text" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional details..."
+                  className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-red-400" />
+              </div>
+              <div className="md:col-span-2 flex gap-3">
+                <button type="submit" className="px-6 py-2 bg-red-500 text-white rounded-xl text-xs font-black uppercase flex items-center gap-2"><Plus size={12} />Log Waste</button>
+                <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 border border-white/20 rounded-xl text-xs font-black uppercase hover:bg-white/5">Cancel</button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Waste Log Table */}
+      {entries.length > 0 ? (
+        <div className="bg-bg-main/50 border border-white/10 rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/5">
+                  <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Date</th>
+                  <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Ingredient</th>
+                  <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Qty</th>
+                  <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Reason</th>
+                  <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Loss (₹)</th>
+                  <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Notes</th>
+                  <th className="p-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.slice(0, 20).map(e => (
+                  <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
+                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
+                    <td className="p-3 text-white font-bold">{e.ingredient_name}</td>
+                    <td className="p-3 text-white">{e.quantity} {e.unit}</td>
+                    <td className="p-3"><span className="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-300 capitalize">{e.reason.replace('_',' ')}</span></td>
+                    <td className="p-3 text-orange-400 font-bold">₹{(e.cost||0).toFixed(2)}</td>
+                    <td className="p-3 text-text-muted text-xs">{e.notes || '—'}</td>
+                    <td className="p-3">
+                      <button onClick={() => handleDelete(e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="py-12 text-center text-text-muted border border-white/5 rounded-2xl">
+          <Trash2 size={32} className="mx-auto mb-3 opacity-20" />
+          <p className="font-bold text-sm uppercase tracking-widest">No waste logged yet</p>
+        </div>
+      )}
     </div>
   );
 };
 const IngredientManager = ({ ingredients, updateIngredientStock }) => {
   const [localIngredients, setLocalIngredients] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editItem, setEditItem] = useState(null);
   const [newIng, setNewIng] = useState({ name: '', unit: 'kg', stock: 0, min_stock: 0, unit_cost: 0 });
+  const [editForm, setEditForm] = useState({ name: '', unit: 'kg', stock: 0, min_stock: 0, unit_cost: 0 });
   const [msg, setMsg] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => { setLocalIngredients(ingredients); }, [ingredients]);
 
@@ -1920,15 +2164,57 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
 
   const handleAdd = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
-      await ingredientsAPI.create(newIng);
+      await ingredientsAPI.create({ ...newIng, stock: Number(newIng.stock), min_stock: Number(newIng.min_stock), unit_cost: Number(newIng.unit_cost) });
       flash('Ingredient added!');
       setShowAdd(false);
+      setNewIng({ name: '', unit: 'kg', stock: 0, min_stock: 0, unit_cost: 0 });
+      const res = await ingredientsAPI.getAll();
+      setLocalIngredients(res.data || []);
+    } catch (err) { flash(err.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const openEdit = (ing) => {
+    setEditItem(ing);
+    setEditForm({ name: ing.name, unit: ing.unit || 'kg', stock: ing.stock || 0, min_stock: ing.min_stock || ing.minStock || 0, unit_cost: ing.unit_cost || ing.unitCost || 0 });
+  };
+
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    const id = editItem._id || editItem.id;
+    try {
+      await ingredientsAPI.update(id, { ...editForm, stock: Number(editForm.stock), min_stock: Number(editForm.min_stock), unit_cost: Number(editForm.unit_cost) });
+      flash('Ingredient updated!');
+      setEditItem(null);
+      const res = await ingredientsAPI.getAll();
+      setLocalIngredients(res.data || []);
+    } catch (err) { flash(err.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this ingredient?')) return;
+    try {
+      await ingredientsAPI.delete(id);
+      setLocalIngredients(prev => prev.filter(i => (i._id || i.id) !== id));
+      flash('Ingredient deleted.');
     } catch (err) { flash(err.message); }
   };
 
+  const UNITS = ['kg', 'g', 'liters', 'ml', 'units', 'pieces'];
+  const FORM_FIELDS = [
+    { l: 'Name', f: 'name', t: 'text' },
+    { l: 'Stock', f: 'stock', t: 'number' },
+    { l: 'Min Stock (Reorder Level)', f: 'min_stock', t: 'number' },
+    { l: 'Unit Cost (₹)', f: 'unit_cost', t: 'number' },
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 mt-10">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-2xl font-bold text-white flex items-center gap-2"><Package size={20} className="text-primary" />Ingredients</h3>
         <button onClick={() => setShowAdd(s => !s)}
@@ -1936,18 +2222,17 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
           <Plus size={13} /> Add Ingredient
         </button>
       </div>
-      {msg && <p className="text-xs text-primary font-bold">{msg}</p>}
+
+      {msg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{msg}</p>}
+
+      {/* Add Form */}
       <AnimatePresence>
         {showAdd && (
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
             className="bg-secondary/50 rounded-2xl border border-primary/30 p-6">
-            <form onSubmit={handleAdd} className="grid md:grid-cols-3 gap-4">
-              {[
-                { l: 'Name', f: 'name', t: 'text' },
-                { l: 'Stock', f: 'stock', t: 'number' },
-                { l: 'Min Stock', f: 'min_stock', t: 'number' },
-                { l: 'Unit Cost (₹)', f: 'unit_cost', t: 'number' },
-              ].map(({ l, f, t }) => (
+            <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2"><Plus size={14} className="text-primary" />New Ingredient</h4>
+            <form onSubmit={handleAdd} className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {FORM_FIELDS.map(({ l, f, t }) => (
                 <div key={f}>
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{l}</label>
                   <input type={t} required value={newIng[f]} onChange={e => setNewIng(p => ({ ...p, [f]: e.target.value }))}
@@ -1958,45 +2243,123 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Unit</label>
                 <select value={newIng.unit} onChange={e => setNewIng(p => ({ ...p, unit: e.target.value }))}
                   className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary">
-                  {['kg', 'g', 'liters', 'ml', 'units', 'pieces'].map(u => <option key={u} value={u}>{u}</option>)}
+                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
               <div className="md:col-span-full flex gap-3">
-                <button type="submit" className="px-6 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase">Save</button>
+                <button type="submit" disabled={submitting}
+                  className="px-6 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase flex items-center gap-2 disabled:opacity-60">
+                  {submitting ? <Loader size={12} className="animate-spin" /> : <Save size={12} />} Save
+                </button>
                 <button type="button" onClick={() => setShowAdd(false)} className="px-6 py-2 border border-white/20 rounded-xl text-xs font-black uppercase hover:bg-white/5">Cancel</button>
               </div>
             </form>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Edit Modal */}
+      <AnimatePresence>
+        {editItem && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.92 }} animate={{ scale: 1 }} exit={{ scale: 0.92 }}
+              className="bg-[#1a1a1a] rounded-3xl border border-primary/30 w-full max-w-lg shadow-2xl p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-black text-white flex items-center gap-2"><Edit2 size={16} className="text-primary" />Edit Ingredient</h3>
+                <button onClick={() => setEditItem(null)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"><X size={16} /></button>
+              </div>
+              <form onSubmit={handleUpdate} className="grid grid-cols-2 gap-4">
+                {FORM_FIELDS.map(({ l, f, t }) => (
+                  <div key={f} className={f === 'name' ? 'col-span-2' : ''}>
+                    <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{l}</label>
+                    <input type={t} required value={editForm[f]} onChange={e => setEditForm(p => ({ ...p, [f]: e.target.value }))}
+                      className="w-full bg-[#252525] border border-white/10 p-3 rounded-xl text-white text-sm outline-none focus:border-primary" />
+                  </div>
+                ))}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Unit</label>
+                  <select value={editForm.unit} onChange={e => setEditForm(p => ({ ...p, unit: e.target.value }))}
+                    className="w-full bg-[#252525] border border-white/10 p-3 rounded-xl text-white text-sm outline-none focus:border-primary">
+                    {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2 flex gap-3 pt-2">
+                  <button type="button" onClick={() => setEditItem(null)}
+                    className="flex-1 py-3 border border-white/20 rounded-2xl text-sm font-bold text-white/70 hover:bg-white/5">Cancel</button>
+                  <button type="submit" disabled={submitting}
+                    className="flex-1 py-3 bg-primary hover:bg-primary-hover text-white rounded-2xl text-sm font-black uppercase flex items-center justify-center gap-2 disabled:opacity-60">
+                    {submitting ? <Loader size={14} className="animate-spin" /> : <Save size={14} />} Update
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Ingredient Cards */}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {localIngredients.map(ing => {
           const id = ing._id || ing.id;
           const stock = typeof ing.stock === 'number' ? ing.stock : 0;
           const min = ing.min_stock || ing.minStock || 0;
+          const cost = ing.unit_cost || ing.unitCost || 0;
+          const pct = Math.min(100, (stock / Math.max(min * 2, 1)) * 100);
+          const isLow = stock < min;
           return (
-            <div key={id} className="p-5 bg-bg-main/70 border border-white/10 rounded-xl hover:border-primary/30 transition-all">
-              <div className="flex justify-between items-start mb-3">
-                <h4 className="font-bold text-white">{ing.name}</h4>
-                <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${stock < min ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
-                  {stock < min ? 'Reorder' : 'OK'}
+            <div key={id} className="p-5 bg-bg-main/70 border border-white/10 rounded-2xl hover:border-primary/30 transition-all group">
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <h4 className="font-bold text-white">{ing.name}</h4>
+                  <p className="text-[10px] text-text-muted mt-0.5 uppercase tracking-widest">{ing.unit}</p>
+                </div>
+                <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${isLow ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
+                  {isLow ? '⚠ Reorder' : '✓ OK'}
                 </span>
               </div>
-              <p className="text-xs text-text-muted mb-1">{stock} {ing.unit} / Min: {min}</p>
-              <p className="text-xs text-text-muted mb-3">Unit Cost: ₹{ing.unit_cost || ing.unitCost || 0}</p>
+
+              {/* Stock bar */}
               <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-3">
-                <div className={`h-full rounded-full ${stock < min ? 'bg-red-500' : 'bg-green-500'}`}
-                  style={{ width: `${Math.min(100, (stock / Math.max(min * 2, 1)) * 100)}%` }} />
+                <div className={`h-full rounded-full transition-all ${isLow ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${pct}%` }} />
               </div>
-              <button onClick={() => {
-                const v = Number(window.prompt(`Set ${ing.name} stock:`, stock));
-                if (!isNaN(v) && v >= 0) updateIngredientStock(id, v);
-              }} className="w-full py-2 bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-primary hover:text-white transition-all">
-                Update Stock
-              </button>
+
+              {/* Stats row */}
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="bg-white/5 rounded-xl p-2 text-center">
+                  <p className="text-[9px] text-text-muted uppercase tracking-widest mb-0.5">Stock</p>
+                  <p className="text-sm font-black text-white">{stock}</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-2 text-center">
+                  <p className="text-[9px] text-text-muted uppercase tracking-widest mb-0.5">Min</p>
+                  <p className="text-sm font-black text-white">{min}</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-2 text-center">
+                  <p className="text-[9px] text-text-muted uppercase tracking-widest mb-0.5">Cost</p>
+                  <p className="text-sm font-black text-primary">₹{cost}</p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <button onClick={() => openEdit(ing)}
+                  className="flex-1 py-2 bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-primary hover:text-white transition-all flex items-center justify-center gap-1">
+                  <Edit2 size={10} /> Update
+                </button>
+                <button onClick={() => handleDelete(id)}
+                  className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all border border-red-500/20">
+                  <Trash2 size={13} />
+                </button>
+              </div>
             </div>
           );
         })}
+        {localIngredients.length === 0 && (
+          <div className="col-span-full py-16 text-center text-text-muted">
+            <Package size={36} className="mx-auto mb-3 opacity-20" />
+            <p className="font-bold text-sm uppercase tracking-widest">No ingredients yet</p>
+          </div>
+        )}
       </div>
     </div>
   );

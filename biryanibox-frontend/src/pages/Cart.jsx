@@ -281,6 +281,9 @@ const Cart = () => {
   const [copiedCode,    setCopiedCode]    = useState('');
   const [placing,       setPlacing]       = useState(false);
   const [newCoupon,     setNewCoupon]     = useState(null);
+  const [selectedTable, setSelectedTable] = useState(null);
+
+  const TABLE_OPTIONS = ['Table 1', 'Table 2', 'VIP 1', 'VIP 2', 'Takeaway'];
 
   // Tracking state — persisted to localStorage so user can return to tracker anytime
   const [placedOrderId,    setPlacedOrderId]    = useState(() => { const s = loadActiveOrder(); return s?.orderId    || null; });
@@ -379,7 +382,8 @@ const Cart = () => {
 
       const payload = {
         items: cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
-        order_type: 'dine-in',
+        order_type: selectedTable === 'Takeaway' ? 'takeaway' : 'dine-in',
+        table_number: selectedTable || 'Takeaway',
         customer_id: user?._id || user?.id,
         total: grandTotal,
       };
@@ -714,6 +718,20 @@ const Cart = () => {
                 )}
               </div>
 
+              {/* Table Selector */}
+              <div className="p-4 bg-white/5 border border-white/10 rounded-2xl space-y-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Select Table *</p>
+                <div className="flex flex-wrap gap-2">
+                  {TABLE_OPTIONS.map(t => (
+                    <button key={t} type="button" onClick={() => setSelectedTable(t)}
+                      className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${selectedTable === t ? 'bg-primary border-primary text-white' : 'bg-transparent border-white/10 text-text-muted hover:border-white/30 hover:text-white'}`}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                {!selectedTable && <p className="text-[10px] text-red-400 font-bold">Please select a table to place order</p>}
+              </div>
+
               {/* Active order quick-access when cart also has items */}
               {placedOrderId && (
                 <button
@@ -724,7 +742,7 @@ const Cart = () => {
                 </button>
               )}
               {/* Place Order button */}
-              <button onClick={handlePlaceOrder} disabled={placing || cart.length === 0}
+              <button onClick={handlePlaceOrder} disabled={placing || cart.length === 0 || !selectedTable}
                 className="btn-primary w-full py-5 flex items-center justify-center gap-3 group disabled:opacity-60">
                 {placing
                   ? <><Loader size={20} className="animate-spin" /> Placing Order...</>

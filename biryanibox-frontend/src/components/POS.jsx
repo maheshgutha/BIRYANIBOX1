@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const MotionDiv = motion.div;
@@ -121,11 +121,20 @@ const POS = ({ user }) => {
   const [selectedTable, setSelectedTable] = useState('Table 1');
   const [showSuccess, setShowSuccess] = useState(false);
   const [showPlaceOrderConfirm, setShowPlaceOrderConfirm] = useState(false);
-  const [activeTab, setActiveTab] = useState('Biryani');
+  const [activeTab, setActiveTab] = useState('');
   const [couponInput, setCouponInput] = useState('');
   const [couponApplied, setCouponApplied] = useState(null);
 
-  const categories = ['Biryani', 'Appetizers', 'Combos', 'Desserts'];
+  // Derive all categories from menu dynamically
+  const categories = useMemo(() => {
+    const cats = [...new Set(menu.map(i => i.category).filter(Boolean))];
+    return cats;
+  }, [menu]);
+
+  // Auto-select first category when menu loads
+  useEffect(() => {
+    if (categories.length > 0 && !activeTab) setActiveTab(categories[0]);
+  }, [categories]);
 
   const getCategoryImage = (item) => {
     if (item.image_url && item.image_url.startsWith('http')) return item.image_url;
@@ -142,9 +151,9 @@ const POS = ({ user }) => {
     return heroBiryani;
   };
 
-  const filteredMenu = menu.filter(
-    (item) => (item.category || '').toLowerCase() === activeTab.toLowerCase()
-  );
+  const filteredMenu = activeTab
+    ? menu.filter((item) => (item.category || '').toLowerCase() === activeTab.toLowerCase())
+    : menu;
 
   const addToCart = (item) => {
     if (!item.available || item.stock <= 0) return;

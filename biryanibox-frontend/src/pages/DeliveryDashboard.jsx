@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { deliveriesAPI } from '../services/api';
+import { ordersAPI } from '../services/api';
 import { useAuth } from '../context/useContextHooks';
 import {
   Truck, MapPin, CheckCircle, Navigation,
@@ -19,8 +19,8 @@ const DeliveryDashboard = () => {
   const load = () => {
     setLoading(true);
     Promise.all([
-      deliveriesAPI.getAll(`?status=assigned`),
-      deliveriesAPI.completed(),
+      ordersAPI.getAll(`?order_type=delivery&status=pending`),
+      ordersAPI.getAll(`?order_type=delivery&status=paid`),
     ]).then(([pendRes, compRes]) => {
       setPending(pendRes.data || []);
       setCompleted(compRes.data || []);
@@ -31,7 +31,7 @@ const DeliveryDashboard = () => {
 
   const handlePickup = async (id) => {
     try {
-      await deliveriesAPI.updateStatus(id, 'picked-up');
+      await ordersAPI.updateStatus(id, 'served');
       load();
     } catch (e) { console.error(e); }
   };
@@ -79,24 +79,24 @@ const DeliveryDashboard = () => {
                         </div>
                         <div>
                           <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest leading-none mb-1">Assigned Shipment</p>
-                          <p className="text-2xl font-bold font-heading">{ord.order_id?.order_number || ord._id?.slice(-8).toUpperCase()}</p>
+                          <p className="text-2xl font-bold font-heading">{ord.order_number || ord._id?.slice(-8).toUpperCase()}</p>
                         </div>
                       </div>
                       <div className="space-y-4">
                         <div className="flex items-center gap-4 text-sm font-medium">
                           <MapPin size={18} className="text-primary" />
-                          <span>{ord.address || 'Address not provided'}</span>
+                          <span>{ord.delivery_address || ord.table_number || 'Address not provided'}</span>
                           <button className="text-primary hover:text-white transition-colors"><Navigation size={16} /></button>
                         </div>
                         <div className="flex items-center gap-4 text-sm font-medium">
                           <Truck size={18} className="text-primary" />
                           <span className="text-xs uppercase tracking-widest font-bold">
-                            Estimated Path: {ord.distance_km ? `${ord.distance_km} km` : 'N/A'}
+                            Order Type: {ord.order_type?.toUpperCase() || 'DELIVERY'}
                           </span>
                         </div>
-                        {ord.customer_name && (
+                        {ord.customer_id?.name && (
                           <div className="flex items-center gap-4 text-sm font-medium text-text-muted">
-                            Customer: <span className="text-white">{ord.customer_name}</span>
+                            Customer: <span className="text-white">{ord.customer_id.name}</span>
                           </div>
                         )}
                       </div>
@@ -128,11 +128,11 @@ const DeliveryDashboard = () => {
                 <div key={ord._id} className="flex items-center gap-6 bg-secondary/30 p-6 rounded-2xl border border-white/5">
                   <CheckCircle size={28} className="text-green-500 shrink-0" />
                   <div className="flex-1">
-                    <p className="font-bold">{ord.order_id?.order_number || ord._id?.slice(-8)}</p>
-                    <p className="text-xs text-text-muted">{ord.address}</p>
+                    <p className="font-bold">{ord.order_number || ord._id?.slice(-8)}</p>
+                    <p className="text-xs text-text-muted">{ord.delivery_address || ord.table_number}</p>
                   </div>
                   <div className="text-right text-xs text-text-muted">
-                    {ord.delivered_at ? new Date(ord.delivered_at).toLocaleDateString() : 'Delivered'}
+                    {ord.updated_at ? new Date(ord.updated_at).toLocaleDateString() : 'Delivered'}
                   </div>
                 </div>
               ))}

@@ -9,14 +9,30 @@ export const DemoDataProvider = ({ children }) => {
   const [deliveries] = useState([]);
   const [orderHistory] = useState([]);
 
+  // FIX 5A: guard with token check — GET /reservations requires auth (protect middleware).
+  // Without this, every page load fires a 401 before login and spams the console.
   useEffect(() => {
-    reservationsAPI.getAll().then(res => setReservations(res.data)).catch(() => setReservations([]));
-    cateringAPI.getAll().then(res => setCateringOrders(res.data)).catch(() => setCateringOrders([]));
+    const token = localStorage.getItem('bb_token');
+    if (!token) return;
+    reservationsAPI.getAll()
+      .then(res => setReservations(res.data || []))
+      .catch(() => setReservations([]));
+    cateringAPI.getAll()
+      .then(res => setCateringOrders(res.data || []))
+      .catch(() => setCateringOrders([]));
   }, []);
 
+  // FIX 5B: normalize date to ISO string before sending to backend.
+  // Mongoose Reservation schema declares date as { type: Date, required: true }.
+  // Sending a raw "2026-04-10" string causes a cast/validation error → 400.
   const addReservation = async (data) => {
     try {
-      const res = await reservationsAPI.create(data);
+      const payload = {
+        ...data,
+        date: data.date ? new Date(data.date).toISOString() : undefined,
+        guests: Number(data.guests || data.party_size || 1),
+      };
+      const res = await reservationsAPI.create(payload);
       setReservations(prev => [res.data, ...prev]);
       return { success: true };
     } catch (err) {

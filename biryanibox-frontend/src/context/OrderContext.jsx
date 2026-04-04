@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { OrderContext } from './contexts';
-import { menuAPI, ingredientsAPI, ordersAPI, dashboardAPI, normalizeMenuItem, normalizeIngredient, normalizeOrder } from '../services/api';
+import { menuAPI, ingredientsAPI, ordersAPI, normalizeIngredient, normalizeOrder } from '../services/api';
 
 export const OrderProvider = ({ children }) => {
   const [orders, setOrders] = useState([]);
@@ -9,10 +9,20 @@ export const OrderProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [customerNotification, setCustomerNotification] = useState(null);
 
-  // Load menu from API on mount
+  // FIX 3: Normalize menu items so id, available, stock and category are always set.
+  // Without this: duplicate empty keys in AnimatePresence, POS shows blank grid,
+  // and addToCart is silently blocked by undefined available/stock checks.
   useEffect(() => {
     menuAPI.getAll().then(res => {
-      setMenu(res.data.map(normalizeMenuItem));
+      setMenu((res.data || []).map(item => ({
+        ...item,
+        id: item._id || item.id,
+        available: item.is_available ?? item.available ?? true,
+        stock: item.stock ?? 99,
+        category: item.category
+          ? item.category.charAt(0).toUpperCase() + item.category.slice(1)
+          : 'Biryani',
+      })));
     }).catch(console.error);
   }, []);
 
@@ -34,12 +44,12 @@ export const OrderProvider = ({ children }) => {
     }).catch(console.error);
   }, []);
 
- useEffect(() => {
-  loadOrders();
-  // Poll every 10 seconds so all dashboards stay in sync when customer places order
-  const interval = setInterval(loadOrders, 10000);
-  return () => clearInterval(interval);
-}, [loadOrders]);
+  useEffect(() => {
+    loadOrders();
+    // Poll every 10 seconds so all dashboards stay in sync when customer places order
+    const interval = setInterval(loadOrders, 10000);
+    return () => clearInterval(interval);
+  }, [loadOrders]);
 
   // Coupon system (kept local — no backend coupon table)
   const [coupons, setCoupons] = useState(() => {
@@ -154,12 +164,12 @@ export const OrderProvider = ({ children }) => {
 
   const getFinancialMetrics = async () => {
     try {
-      const res = await dashboardAPI.financials();
+      const res = await ordersAPI.financials();
       return {
         revenue: res.data.revenue,
-        costOfGoods: res.data.cost_of_goods,
-        profit: res.data.gross_profit,
-        profitMargin: res.data.profit_margin,
+        costOfGoods:  res.data.costOfGoods,
+        profit:       res.data.profit,
+        profitMargin: res.data.profitMargin,
       };
     } catch {
       const revenue = orders.filter(o => o.status === 'paid').reduce((s, o) => s + o.total, 0);

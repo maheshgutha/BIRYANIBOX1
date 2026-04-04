@@ -1,16 +1,26 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const LoyaltyTransaction = require('../models/LoyaltyTransaction');
 const { protect, authorize } = require('../middleware/auth');
 
+// Helper: check if requester can manage target role
+const canManage = (requesterRole, targetRole) => {
+  if (requesterRole === 'owner') return ['manager', 'captain', 'chef', 'delivery', 'customer'].includes(targetRole);
+  if (requesterRole === 'manager') return ['captain', 'chef'].includes(targetRole);
+  return false;
+};
+
 // GET /api/users
-router.get('/', protect, authorize('owner','manager'), async (req, res, next) => {
+router.get('/', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
     const { role } = req.query;
     const filter = {};
     if (role) filter.role = role;
+    // Manager can only see captain and chef
+    if (req.user.role === 'manager') {
+      filter.role = { $in: role ? [role].filter(r => ['captain', 'chef'].includes(r)) : ['captain', 'chef'] };
+    }
     const users = await User.find(filter).select('-password_hash -reset_token -reset_expire');
     res.json({ success: true, count: users.length, data: users });
   } catch (err) { next(err); }
@@ -25,46 +35,73 @@ router.get('/:id', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// POST /api/users — owner can create any role; manager can only create captains
+// POST /api/users — create staff with full details
 router.post('/', protect, async (req, res, next) => {
   try {
     const { role, password, password_hash, ...rest } = req.body;
+    if (!role) return res.status(400).json({ success: false, message: 'Role is required' });
+
     // Authorization check
-    if (req.user.role === 'manager') {
-      if (role !== 'captain') {
-        return res.status(403).json({ success: false, message: 'Managers can only create captains' });
-      }
-    } else if (req.user.role !== 'owner') {
-      return res.status(403).json({ success: false, message: 'Not authorized to create users' });
+    if (!canManage(req.user.role, role)) {
+      return res.status(403).json({
+        success: false,
+        message: `Your role '${req.user.role}' cannot create users with role '${role}'`
+      });
     }
+
     const rawPassword = password || password_hash || 'BiryaniBox@123';
     const user = await User.create({ ...rest, role, password_hash: rawPassword });
-    res.status(201).json({ success: true, data: { ...user.toObject(), password_hash: undefined } });
+    const { password_hash: _, ...safeUser } = user.toObject();
+    res.status(201).json({ success: true, data: safeUser });
   } catch (err) { next(err); }
 });
 
-// PUT /api/users/:id — owner can update anyone; manager can update captains only
+// PUT /api/users/:id — update staff, including role change
 router.put('/:id', protect, async (req, res, next) => {
   try {
     const target = await User.findById(req.params.id);
     if (!target) return res.status(404).json({ success: false, message: 'User not found' });
-    if (req.user.role === 'manager' && target.role !== 'captain') {
-      return res.status(403).json({ success: false, message: 'Managers can only update captains' });
+
+    const { password_hash, password, role: newRole, ...updateData } = req.body;
+
+    // Check current role management permission
+    if (!canManage(req.user.role, target.role)) {
+      return res.status(403).json({ success: false, message: `Not authorized to update ${target.role}` });
     }
-    if (!['owner','manager'].includes(req.user.role)) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+
+    // If role is being changed, check permission for new role too
+    if (newRole && newRole !== target.role) {
+      if (!canManage(req.user.role, newRole)) {
+        return res.status(403).json({ success: false, message: `Not authorized to assign role '${newRole}'` });
+      }
+      updateData.role = newRole;
     }
-    const { password_hash, password, ...updateData } = req.body;
-    const updated = await User.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true }).select('-password_hash');
+
+    const updated = await User.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true })
+      .select('-password_hash -reset_token -reset_expire');
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }
 });
 
-// PATCH /api/users/:id/status
-router.patch('/:id/status', protect, authorize('owner','manager'), async (req, res, next) => {
+// PATCH /api/users/:id/status — temporarily enable/disable staff
+router.patch('/:id/status', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
-    const user = await User.findByIdAndUpdate(req.params.id, { is_active: req.body.is_active }, { new: true }).select('-password_hash');
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (!canManage(req.user.role, target.role)) {
+      return res.status(403).json({ success: false, message: `Not authorized to manage ${target.role}` });
+    }
+
+    const { is_active, disabled_reason } = req.body;
+    const updateData = {
+      is_active,
+      disabled_reason: is_active ? '' : (disabled_reason || 'Temporarily disabled'),
+      disabled_at: is_active ? null : new Date(),
+    };
+
+    const user = await User.findByIdAndUpdate(req.params.id, updateData, { new: true })
+      .select('-password_hash');
     res.json({ success: true, data: user });
   } catch (err) { next(err); }
 });
@@ -85,7 +122,7 @@ router.patch('/:id/password', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// DELETE /api/users/:id — owner only; cannot delete customers via manager
+// DELETE /api/users/:id
 router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
   try {
     const target = await User.findById(req.params.id);
@@ -107,7 +144,7 @@ router.get('/:id/loyalty', protect, async (req, res, next) => {
 });
 
 // PATCH /api/users/:id/loyalty
-router.patch('/:id/loyalty', protect, authorize('owner','manager'), async (req, res, next) => {
+router.patch('/:id/loyalty', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
     const { points, description } = req.body;
     const user = await User.findByIdAndUpdate(req.params.id, { $inc: { loyalty_points: points } }, { new: true }).select('loyalty_points');

@@ -27,10 +27,13 @@ import {
   Download,
   UtensilsCrossed,
   Check,
+  MessageSquare,
+  ThumbsUp,
+  Send,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useOrders } from '../context/useContextHooks';
-import { contactAPI } from '../services/api';
+import { feedbackAPI } from '../services/api';
 import { useCart } from '../context/useContextHooks';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -42,13 +45,13 @@ import chickenTikka from '../assets/chicken-tikka.png';
 import rasmalai from '../assets/rasmalai.png';
 import backgroundInterior from '../assets/background.png';
 
-const Hero = () => {
+const Hero = ({ navigate }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const slides = [
     {
       title: 'Dahi Puri',
       subtitle: 'Street Flavor Redefined',
-      desc: 'Crispy artisan shells filled with spiced potatoes, tangy yogurt, and mother’s secret chutneys.',
+      desc: "Crispy artisan shells filled with spiced potatoes, tangy yogurt, and mother's secret chutneys.",
       image: backgroundInterior,
       tag: 'Limited Offer',
     },
@@ -282,10 +285,8 @@ const MenuCategories = () => {
   });
 
   const getMenuItemImage = (item) => {
-    // image_url is now always a full Unsplash URL from normalizeMenuItem
     if (item.image_url && item.image_url.startsWith('http')) return item.image_url;
     if (item.image && item.image.startsWith('http')) return item.image;
-    // local asset fallback
     const imageMap = { heroBiryani, muttonBiryani, chickenTikka, rasmalai };
     if (item.image && imageMap[item.image]) return imageMap[item.image];
     if (item.category === 'Biryani')    return heroBiryani;
@@ -336,7 +337,7 @@ const MenuCategories = () => {
                 ))}
               </div>
             </div>
-            
+
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex bg-white/5 p-1 rounded-full border border-white/10 shrink-0">
                 <span className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white/30 self-center">Spice:</span>
@@ -363,8 +364,6 @@ const MenuCategories = () => {
         {/* ── Table Selection ── */}
         <div className="mb-10 p-6 rounded-[28px] bg-white/[0.03] border border-white/[0.08]">
           <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-
-            {/* Manual input */}
             <div className="flex items-center gap-4 shrink-0">
               <div className="w-11 h-11 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center">
                 <UtensilsCrossed size={18} className="text-primary" />
@@ -403,14 +402,12 @@ const MenuCategories = () => {
               </div>
             </div>
 
-            {/* Dividers */}
             <div className="hidden lg:block w-px h-10 bg-white/[0.08] shrink-0" />
             <span className="hidden lg:block text-[10px] font-black text-white/20 uppercase tracking-widest shrink-0">
               or pick
             </span>
             <div className="hidden lg:block w-px h-10 bg-white/[0.08] shrink-0" />
 
-            {/* Quick-select buttons */}
             <div className="flex flex-wrap gap-2">
               {QUICK_TABLES.map((n) => (
                 <button
@@ -430,7 +427,6 @@ const MenuCategories = () => {
             </div>
           </div>
 
-          {/* Confirmation banner */}
           <AnimatePresence>
             {tableConfirmed && (
               <MotionDiv
@@ -567,7 +563,7 @@ const MenuCategories = () => {
   );
 };
 
-const PromoGrid = () => (
+const PromoGrid = ({ navigate }) => (
   <section className="py-32 bg-bg-offset">
     <div className="container grid md:grid-cols-2 gap-10">
       <MotionDiv
@@ -634,7 +630,7 @@ const Testimonials = () => (
               {
                 name: 'Anita S.',
                 role: 'Scranton Foodie',
-                text: 'The Chicken Tikka Masala is legendary. It’s like Bittoo’s but with a modern artisan twist.',
+                text: "The Chicken Tikka Masala is legendary. It's like Bittoo's but with a modern artisan twist.",
               },
               {
                 name: 'Rahul V.',
@@ -705,14 +701,180 @@ const Testimonials = () => (
   </section>
 );
 
+// ─── CUSTOMER FEEDBACK ───────────────────────────────────────────────────────
+const CustomerFeedback = () => {
+  const [rating, setRating] = useState(0);
+  const [hovered, setHovered] = useState(0);
+  const [form, setForm] = useState({ name: '', email: '', message: '', category: 'general' });
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
+
+  const categories = [
+    { value: 'general',  label: '💬 General' },
+    { value: 'food',     label: '🍛 Food Quality' },
+    { value: 'service',  label: '⭐ Service' },
+    { value: 'ambiance', label: '✨ Ambiance' },
+    { value: 'delivery', label: '🚚 Delivery' },
+  ];
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!rating) return;
+    setLoading(true);
+    try {
+      await feedbackAPI.create({
+        name: form.name,
+        email: form.email,
+        message: form.message,
+        rating,
+        category: form.category,
+        source: 'customer_page',
+      });
+      setSubmitted(true);
+    } catch (_) {
+      setSubmitted(true); // show success even on API fail for good UX
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section id="feedback" className="section-padding bg-bg-main">
+      <div className="container max-w-3xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="text-center mb-16"
+        >
+          <span className="text-primary font-black uppercase tracking-[0.4em] text-[10px] mb-6 block">
+            Your Voice Matters
+          </span>
+          <h2 className="text-5xl md:text-6xl font-black font-heading mb-6">
+            Share Your <span className="text-primary">Experience.</span>
+          </h2>
+          <p className="text-text-muted text-lg max-w-xl mx-auto">
+            Your feedback goes directly to our management team and helps us serve you better.
+          </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="bg-secondary/40 rounded-[40px] border border-white/5 p-10 md:p-16 shadow-3xl"
+        >
+          {submitted ? (
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-12">
+              <div className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <ThumbsUp size={40} className="text-primary" />
+              </div>
+              <h4 className="text-3xl font-black mb-4 uppercase tracking-widest text-white">Thank You!</h4>
+              <p className="text-text-muted font-medium mb-3">Your feedback has been sent to our team.</p>
+              <p className="text-text-muted text-sm mb-10">We read every message and use it to improve your experience.</p>
+              <button
+                onClick={() => { setSubmitted(false); setRating(0); setForm({ name: '', email: '', message: '', category: 'general' }); }}
+                className="text-primary font-black text-xs uppercase tracking-[0.4em] hover:underline"
+              >
+                Leave Another Feedback
+              </button>
+            </motion.div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-8">
+              {/* Star Rating */}
+              <div className="text-center">
+                <p className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-5">How would you rate us? *</p>
+                <div className="flex justify-center gap-3">
+                  {[1, 2, 3, 4, 5].map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setRating(s)}
+                      onMouseEnter={() => setHovered(s)}
+                      onMouseLeave={() => setHovered(0)}
+                      className="transition-transform hover:scale-110"
+                    >
+                      <Star
+                        size={40}
+                        className={`transition-colors ${s <= (hovered || rating) ? 'fill-primary text-primary' : 'text-white/20'}`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                {rating > 0 && (
+                  <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="text-sm text-primary font-bold mt-3">
+                    {['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent!'][rating]}
+                  </motion.p>
+                )}
+              </div>
+
+              {/* Category */}
+              <div>
+                <p className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-4">Feedback Category</p>
+                <div className="flex flex-wrap gap-2">
+                  {categories.map(c => (
+                    <button key={c.value} type="button" onClick={() => setForm(p => ({ ...p, category: c.value }))}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-black border transition-all ${form.category === c.value ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-text-muted hover:text-white hover:border-white/20'}`}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Name & Email */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">Your Name</label>
+                  <input type="text" required placeholder="e.g. Rahul Sharma" value={form.name} onChange={sf('name')}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 focus:border-primary outline-none text-white text-sm placeholder:text-white/30" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">Email (optional)</label>
+                  <input type="email" placeholder="for follow-up" value={form.email} onChange={sf('email')}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 focus:border-primary outline-none text-white text-sm placeholder:text-white/30" />
+                </div>
+              </div>
+
+              {/* Message */}
+              <div>
+                <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">Your Message *</label>
+                <textarea required rows={4} placeholder="Tell us what you loved or how we can improve..."
+                  value={form.message} onChange={sf('message')}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 focus:border-primary outline-none text-white text-sm placeholder:text-white/30 leading-relaxed" />
+              </div>
+
+              <button type="submit" disabled={loading || !rating}
+                className="w-full py-5 bg-primary text-white font-black uppercase tracking-[0.3em] text-xs rounded-2xl hover:bg-primary-hover transition-all shadow-2xl shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3">
+                {loading ? (
+                  <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
+                ) : (
+                  <Send size={16} />
+                )}
+                {loading ? 'Sending...' : 'Send Feedback'}
+              </button>
+
+              {!rating && (
+                <p className="text-center text-[10px] text-red-400 font-bold -mt-4">Please select a star rating to continue</p>
+              )}
+            </form>
+          )}
+        </motion.div>
+      </div>
+    </section>
+  );
+};
+
 const Contact = () => {
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', date_requested: '', guest_count: '', message: '' });
   const sf = (f) => (e) => setFormData(prev => ({ ...prev, [f]: e.target.value }));
+
   const handleContactSubmit = async (e) => {
     e.preventDefault();
     try {
-      await contactAPI.send({
+      await feedbackAPI.create({
         name: formData.name,
         email: formData.email,
         date_requested: formData.date_requested ? new Date(formData.date_requested) : null,
@@ -724,6 +886,7 @@ const Contact = () => {
       setFormSubmitted(true); // show success even if API fails (UX)
     }
   };
+
   return (
     <section id="contact" className="section-padding bg-bg-offset">
       <div className="container grid lg:grid-cols-2 gap-24 items-start">
@@ -820,10 +983,7 @@ const Contact = () => {
               </button>
             </motion.div>
           ) : (
-            <form
-              className="space-y-6"
-              onSubmit={handleContactSubmit}
-            >
+            <form className="space-y-6" onSubmit={handleContactSubmit}>
               <div className="grid grid-cols-2 gap-4">
                 <input required type="text" placeholder="IDENTITY" value={formData.name} onChange={sf('name')} className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 focus:border-primary outline-none text-white text-[10px] font-black uppercase tracking-widest" />
                 <input required type="email" placeholder="SECURE EMAIL" value={formData.email} onChange={sf('email')} className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 focus:border-primary outline-none text-white text-[10px] font-black uppercase tracking-widest" />
@@ -832,8 +992,7 @@ const Contact = () => {
                 <input type="date" placeholder="DATE" value={formData.date_requested} onChange={sf('date_requested')} className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 focus:border-primary outline-none text-white text-[10px] font-black uppercase tracking-widest" />
                 <input type="number" placeholder="GUEST DENSITY" min="1" value={formData.guest_count} onChange={sf('guest_count')} className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 focus:border-primary outline-none text-white text-[10px] font-black uppercase tracking-widest" />
               </div>
-              <textarea placeholder="ADDITIONAL DEPLOYMENT INSTRUCTIONS..." rows="4" value={formData.message} onChange={sf('message')} className="w-full bg-white/5 border border-white/10 rounded-2xl p-6 focus:border-primary outline-none text-white text-[10px] font-black uppercase tracking-widest leading-loose"
-              ></textarea>
+              <textarea placeholder="ADDITIONAL DEPLOYMENT INSTRUCTIONS..." rows="4" value={formData.message} onChange={sf('message')} className="w-full bg-white/5 border border-white/10 rounded-2xl p-6 focus:border-primary outline-none text-white text-[10px] font-black uppercase tracking-widest leading-loose"></textarea>
               <button className="w-full py-6 bg-primary text-white font-black uppercase tracking-[0.4em] text-xs rounded-2xl hover:bg-primary-hover transition-all shadow-2xl shadow-primary/20">
                 Deliver Request
               </button>
@@ -852,11 +1011,12 @@ const Home = () => {
   return (
     <div className="bg-bg-main">
       <Navbar />
-      <Hero />
+      <Hero navigate={navigate} />
       <MenuCategories />
       <WelcomeBlurb />
-      <PromoGrid />
+      <PromoGrid navigate={navigate} />
       <Testimonials />
+      <CustomerFeedback />
       <Contact />
       <Footer />
 

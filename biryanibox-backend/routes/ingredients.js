@@ -8,25 +8,24 @@ const { protect, authorize } = require('../middleware/auth');
 
 const upload = multer({ dest: 'uploads/' });
 
-// GET /api/ingredients/reorder-forecast  (must be before /:id)
-router.get('/reorder-forecast', protect, authorize('owner','manager'), async (req, res, next) => {
+// GET /api/ingredients/reorder-forecast
+router.get('/reorder-forecast', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
     const ingredients = await Ingredient.find();
     const forecast = ingredients.map(ing => ({
       ...ing.toObject(),
       needsReorder: ing.stock < ing.min_stock,
-      daysRemaining: ing.stock > 0 ? (ing.stock / 5).toFixed(1) : 0
     }));
     res.json({ success: true, data: forecast });
   } catch (err) { next(err); }
 });
 
 // GET /api/ingredients/export
-router.get('/export', protect, authorize('owner','manager'), async (req, res, next) => {
+router.get('/export', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
     const ingredients = await Ingredient.find();
-    const header = 'id,name,unit,stock,min_stock,reorder_lead_days,unit_cost\n';
-    const rows = ingredients.map(i => `${i._id},${i.name},${i.unit},${i.stock},${i.min_stock},${i.reorder_lead_days},${i.unit_cost}`).join('\n');
+    const header = 'id,name,unit,stock,min_stock,unit_cost\n';
+    const rows = ingredients.map(i => `${i._id},${i.name},${i.unit},${i.stock},${i.min_stock},${i.unit_cost}`).join('\n');
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=ingredients.csv');
     res.send(header + rows);
@@ -51,7 +50,7 @@ router.get('/:id', protect, async (req, res, next) => {
 });
 
 // POST /api/ingredients
-router.post('/', protect, authorize('owner','manager'), async (req, res, next) => {
+router.post('/', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
     const ing = await Ingredient.create(req.body);
     res.status(201).json({ success: true, data: ing });
@@ -59,16 +58,18 @@ router.post('/', protect, authorize('owner','manager'), async (req, res, next) =
 });
 
 // PUT /api/ingredients/:id
-router.put('/:id', protect, authorize('owner','manager'), async (req, res, next) => {
+router.put('/:id', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
-    const ing = await Ingredient.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    // Remove reorder_lead_days if present in body (deprecated)
+    const { reorder_lead_days, ...updateData } = req.body;
+    const ing = await Ingredient.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
     if (!ing) return res.status(404).json({ success: false, message: 'Ingredient not found' });
     res.json({ success: true, data: ing });
   } catch (err) { next(err); }
 });
 
 // PATCH /api/ingredients/:id/stock
-router.patch('/:id/stock', protect, authorize('owner','manager'), async (req, res, next) => {
+router.patch('/:id/stock', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
     const ing = await Ingredient.findByIdAndUpdate(req.params.id, { stock: req.body.stock }, { new: true });
     if (!ing) return res.status(404).json({ success: false, message: 'Ingredient not found' });
@@ -86,7 +87,7 @@ router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
 });
 
 // POST /api/ingredients/import
-router.post('/import', protect, authorize('owner','manager'), upload.single('file'), async (req, res, next) => {
+router.post('/import', protect, authorize('owner', 'manager'), upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No CSV file uploaded' });
     const results = [];
@@ -99,7 +100,7 @@ router.post('/import', protect, authorize('owner','manager'), upload.single('fil
         for (const row of results) {
           await Ingredient.findOneAndUpdate(
             { name: row.name },
-            { name: row.name, unit: row.unit || 'kg', stock: Number(row.stock) || 0, min_stock: Number(row.min_stock) || 0, reorder_lead_days: Number(row.reorder_lead_days) || 3, unit_cost: Number(row.unit_cost) || 0 },
+            { name: row.name, unit: row.unit || 'kg', stock: Number(row.stock) || 0, min_stock: Number(row.min_stock) || 0, unit_cost: Number(row.unit_cost) || 0 },
             { upsert: true, new: true }
           );
           imported++;

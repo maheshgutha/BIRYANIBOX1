@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import { reservationsAPI } from '../services/api';
 
 import {
@@ -28,7 +29,11 @@ const Reservations = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const res = await addReservation({ ...formData, guests: Number(formData.guests) });
+    const res = await addReservation({
+      ...formData,
+      guests: Number(formData.guests),
+      date: formData.date ? new Date(formData.date).toISOString() : undefined,
+    });
     if (res.success) {
       setFormSuccess(true);
       setFormData({ customer_name: '', email: '', date: '', time: '', guests: 1, phone: '', notes: '' });

@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart, useAuth } from '../context/useContextHooks';
 import { ordersAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import {
   ShoppingBag, Plus, Minus, ArrowRight, ChevronLeft,
-  Tag, CheckCircle, XCircle, Gift, Copy, User, TrendingUp, Loader, Package,
+  Tag, CheckCircle, XCircle, Gift, Copy, TrendingUp, Loader, Package,
+  MapPin, RefreshCw, Clock, ChefHat, Star, Utensils, CheckSquare, CreditCard,
 } from 'lucide-react';
 
 import heroBiryani   from '../assets/hero-biryani.png';
@@ -37,7 +38,7 @@ const genCode = (userId, cycle) => {
 };
 
 const KEY_HISTORY = (uid) => `bb_history_${uid}`;
-
+const KEY_ACTIVE_ORDER = 'bb_active_order'; // persists last placed order for live tracking
 const getHistory = (uid) => {
   try {
     const d = localStorage.getItem(KEY_HISTORY(uid));
@@ -46,32 +47,249 @@ const getHistory = (uid) => {
     return { runningTotal: 0, nextMilestone: 1000, entries: [], coupons: [] };
   }
 };
-
 const saveHistory = (uid, data) => localStorage.setItem(KEY_HISTORY(uid), JSON.stringify(data));
 
-const SERVICE_FEE = 2;
-const REWARD_MILESTONE = 1000;
-const REWARD_AMOUNT = 200;
+const saveActiveOrder = (data) => localStorage.setItem(KEY_ACTIVE_ORDER, JSON.stringify(data));
+const loadActiveOrder = () => { try { const d = localStorage.getItem(KEY_ACTIVE_ORDER); return d ? JSON.parse(d) : null; } catch { return null; } };
+const clearActiveOrder = () => localStorage.removeItem(KEY_ACTIVE_ORDER);
 
-// ─────────────────────────────────────────────────────────────────────────────
+const SERVICE_FEE     = 2;
+const REWARD_MILESTONE = 1000;
+const REWARD_AMOUNT    = 200;
+
+// ─── ORDER STATUS CONFIG ─────────────────────────────────────────────────────
+const ORDER_STEPS = [
+  { key: 'pending',            label: 'Placed',     icon: Package },
+  { key: 'start_cooking',      label: 'Confirmed',  icon: CheckSquare },
+  { key: 'start_cooking',      label: 'Preparing',  icon: ChefHat },
+  { key: 'completed_cooking',  label: 'Ready',      icon: Utensils },
+  { key: 'served',             label: 'Served',     icon: Star },
+  { key: 'paid',               label: 'Done',       icon: CreditCard },
+];
+
+// Map actual status to step index
+const STATUS_TO_STEP = {
+  pending:           0,
+  start_cooking:     2,
+  completed_cooking: 3,
+  served:            4,
+  paid:              5,
+};
+
+// ─── LIVE ORDER TRACKER ───────────────────────────────────────────────────────
+const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCoupon, onNewOrder }) => {
+  const navigate = useNavigate();
+  const [order, setOrder] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+
+  const currentStep = order ? (STATUS_TO_STEP[order.status] ?? 0) : 0;
+  const isDone = order?.status === 'paid' || order?.status === 'served';
+
+  const fetchOrder = useCallback(async (manual = false) => {
+    if (manual) setRefreshing(true);
+    try {
+      const res = await ordersAPI.getOne(orderId);
+      if (res?.data) setOrder(res.data);
+      setLastRefresh(new Date());
+    } catch (e) {
+      console.error('Tracking fetch error:', e);
+    } finally {
+      if (manual) setRefreshing(false);
+    }
+  }, [orderId]);
+
+  // Poll every 12 seconds; clear persisted order when done
+  useEffect(() => {
+    fetchOrder();
+    const interval = setInterval(() => {
+      if (!isDone) fetchOrder();
+    }, 12000);
+    return () => clearInterval(interval);
+  }, [fetchOrder, isDone]);
+
+  // When order completes, clear it from localStorage automatically
+  useEffect(() => {
+    if (isDone) clearActiveOrder();
+  }, [isDone]);
+
+  // Items to display — prefer live data, fall back to placed items snapshot
+  const displayItems = (order?.items?.length ? order.items : placedItems) || [];
+  const displayTotal = order?.total ?? grandTotal;
+  const displayOrderNum = order?.order_number || orderNumber;
+
+  return (
+    <div className="min-h-screen bg-bg-main text-white p-6 md:p-12">
+      <div className="max-w-2xl mx-auto space-y-8">
+
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <MapPin size={18} className="text-primary" />
+            <span className="text-xs font-black uppercase tracking-widest text-white">Order Tracking</span>
+          </div>
+          <button
+            onClick={() => fetchOrder(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 text-primary text-xs font-black uppercase tracking-widest hover:opacity-80 transition-opacity"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
+
+        {/* Progress Stepper */}
+        <div className="bg-secondary/40 border border-white/5 rounded-3xl p-6">
+          <div className="flex items-center justify-between relative">
+            {/* Track line */}
+            <div className="absolute top-5 left-0 right-0 h-0.5 bg-white/10 z-0" />
+            <motion.div
+              className="absolute top-5 left-0 h-0.5 bg-primary z-0"
+              initial={{ width: '0%' }}
+              animate={{ width: `${(currentStep / (ORDER_STEPS.length - 1)) * 100}%` }}
+              transition={{ duration: 0.8, ease: 'easeOut' }}
+            />
+
+            {ORDER_STEPS.map((step, idx) => {
+              const Icon = step.icon;
+              const done    = idx < currentStep;
+              const active  = idx === currentStep;
+              const pending = idx > currentStep;
+
+              return (
+                <div key={idx} className="flex flex-col items-center gap-2 z-10">
+                  <motion.div
+                    animate={active ? { scale: [1, 1.15, 1] } : {}}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all
+                      ${done    ? 'bg-primary border-primary'           : ''}
+                      ${active  ? 'bg-primary border-primary shadow-lg shadow-primary/40' : ''}
+                      ${pending ? 'bg-secondary border-white/20'        : ''}`}
+                  >
+                    <Icon size={16} className={done || active ? 'text-white' : 'text-text-muted'} />
+                  </motion.div>
+                  <span className={`text-[9px] font-black uppercase tracking-widest
+                    ${active  ? 'text-primary' : ''}
+                    ${done    ? 'text-white/60' : ''}
+                    ${pending ? 'text-text-muted' : ''}`}>
+                    {step.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Order Card */}
+        <div className="bg-secondary/40 border border-white/10 rounded-3xl p-6 space-y-4">
+          {/* Order ID + time */}
+          <div className="flex items-start justify-between">
+            <p className="text-primary font-black text-sm tracking-widest">
+              {displayOrderNum ? `ORD_${displayOrderNum}` : 'Processing...'}
+            </p>
+            <div className="flex items-center gap-1.5 text-text-muted text-xs">
+              <Clock size={12} />
+              <span>{lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+          </div>
+
+          {/* Items */}
+          <div className="space-y-2">
+            {displayItems.map((item, i) => {
+              const name = item.name || item.menu_item_id?.name || 'Item';
+              const qty  = item.quantity || 1;
+              return (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span className="text-white/80">{name}</span>
+                  <span className="text-text-muted font-bold">×{qty}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-white/10 pt-4 flex items-center justify-between">
+            <span className="text-white/60 font-bold text-sm">Total</span>
+            <span className="text-primary font-black text-lg">
+              ${typeof displayTotal === 'number' ? displayTotal.toFixed(2) : '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* New reward coupon unlocked */}
+        <AnimatePresence>
+          {newCoupon && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="bg-gradient-to-br from-primary/20 to-yellow-500/10 border border-primary/40 rounded-3xl p-6 space-y-4"
+            >
+              <div className="text-3xl text-center">🎉</div>
+              <h3 className="text-xl font-black text-white text-center">$200 Reward Unlocked!</h3>
+              <p className="text-text-muted text-sm text-center">
+                You crossed <span className="text-primary font-bold">${REWARD_MILESTONE}</span> in orders. Use this on your next order:
+              </p>
+              <div className="bg-bg-main/70 border border-primary/30 rounded-2xl p-4 text-center">
+                <p className="text-primary font-black text-lg tracking-widest">{newCoupon.code}</p>
+                <p className="text-text-muted text-xs mt-1">Saves up to ${REWARD_AMOUNT} · One-time use</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Actions */}
+        <div className="flex gap-4">
+          <button
+            onClick={onNewOrder}
+            className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl text-white text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+          >
+            + New Order
+          </button>
+          <button
+            onClick={() => navigate('/')}
+            className="flex-1 py-4 btn-primary rounded-2xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2"
+          >
+            Back to Menu <ArrowRight size={14} />
+          </button>
+        </div>
+
+        {isDone && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="text-center py-6 space-y-2"
+          >
+            <CheckCircle size={40} className="mx-auto text-green-400" />
+            <p className="font-black text-white text-lg">Order Complete!</p>
+            <p className="text-text-muted text-sm">Thank you for dining with us 🙏</p>
+          </motion.div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── MAIN CART COMPONENT ──────────────────────────────────────────────────────
 const Cart = () => {
   const { cart, addToCart, removeFromCart, clearCart, total } = useCart();
   const { user }  = useAuth();
   const navigate  = useNavigate();
   const userId    = user?._id || user?.id || user?.email || null;
 
-  // ── ALL HOOKS MUST BE AT TOP — NO CONDITIONAL CALLS ──────────────────────
   const [history,       setHistory]       = useState(() => userId ? getHistory(userId) : { runningTotal: 0, nextMilestone: 1000, entries: [], coupons: [] });
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponInput,   setCouponInput]   = useState('');
   const [couponError,   setCouponError]   = useState('');
   const [copiedCode,    setCopiedCode]    = useState('');
   const [placing,       setPlacing]       = useState(false);
-  const [orderSuccess,  setOrderSuccess]  = useState(false);
-  const [orderNumber,   setOrderNumber]   = useState('');
-  const [newCoupon,     setNewCoupon]     = useState(null); // coupon unlocked on this order
+  const [newCoupon,     setNewCoupon]     = useState(null);
 
-  // Reload history when userId changes
+  // Tracking state — persisted to localStorage so user can return to tracker anytime
+  const [placedOrderId,    setPlacedOrderId]    = useState(() => { const s = loadActiveOrder(); return s?.orderId    || null; });
+  const [placedOrderNum,   setPlacedOrderNum]   = useState(() => { const s = loadActiveOrder(); return s?.orderNum   || ''; });
+  const [placedItemsSnap,  setPlacedItemsSnap]  = useState(() => { const s = loadActiveOrder(); return s?.items      || []; });
+  const [placedTotal,      setPlacedTotal]      = useState(() => { const s = loadActiveOrder(); return s?.total      || 0; });
+  // showTracker: auto-true when returning to cart with an active order
+  const [showTracker,      setShowTracker]      = useState(() => !!loadActiveOrder());
+
   useEffect(() => {
     if (userId) {
       setHistory(getHistory(userId));
@@ -83,7 +301,6 @@ const Cart = () => {
     setCouponError('');
   }, [userId]);
 
-  // ── Derived values (computed from state — safe after all hooks) ───────────
   const runningTotal    = parseFloat((history.runningTotal + total).toFixed(2));
   const nextMilestone   = history.nextMilestone || REWARD_MILESTONE;
   const remainingToNext = Math.max(nextMilestone - runningTotal, 0);
@@ -92,7 +309,6 @@ const Cart = () => {
   const discountAmt     = appliedCoupon ? Math.min(REWARD_AMOUNT, parseFloat(total.toFixed(2))) : 0;
   const grandTotal      = parseFloat((total + SERVICE_FEE - discountAmt).toFixed(2));
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleCopy = (code) => {
     navigator.clipboard.writeText(code).catch(() => {});
     setCouponInput(code);
@@ -158,6 +374,9 @@ const Cart = () => {
     if (cart.length === 0) return;
     setPlacing(true);
     try {
+      // Snapshot items before clearing cart
+      const snapshot = cart.map(i => ({ name: i.name, quantity: i.quantity, unit_price: i.price }));
+
       const payload = {
         items: cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
         order_type: 'dine-in',
@@ -165,12 +384,23 @@ const Cart = () => {
         total: grandTotal,
       };
       const res = await ordersAPI.create(payload);
-      const num = res.data?.order_number || res.data?.order?.order_number || ('BOX-' + Date.now().toString().slice(-5));
-      setOrderNumber(num);
+      const orderId  = res.data?._id || res.data?.order?._id;
+      const orderNum = res.data?.order_number || res.data?.order?.order_number || ('BOX-' + Date.now().toString().slice(-5));
+
       const unlocked = updateRewards(grandTotal);
       setNewCoupon(unlocked);
+
+      // Save snapshot for display while live order loads
+      setPlacedItemsSnap(snapshot);
+      setPlacedTotal(grandTotal);
+      setPlacedOrderNum(orderNum);
+      setPlacedOrderId(orderId);
+      setShowTracker(true);
+
+      // Persist so tracker is accessible after navigation/refresh
+      saveActiveOrder({ orderId, orderNum, items: snapshot, total: grandTotal, placedAt: Date.now() });
+
       clearCart();
-      setOrderSuccess(true);
     } catch (err) {
       alert('Failed to place order: ' + err.message);
     } finally {
@@ -178,49 +408,31 @@ const Cart = () => {
     }
   };
 
-  // ── ALL HOOKS DONE — safe to do conditional returns now ───────────────────
+  const handleNewOrder = () => {
+    clearActiveOrder(); // clear persisted order
+    setPlacedOrderId(null);
+    setPlacedOrderNum('');
+    setPlacedItemsSnap([]);
+    setPlacedTotal(0);
+    setNewCoupon(null);
+    setShowTracker(false);
+  };
 
-  if (orderSuccess) {
+  // ── Once order placed → show live tracker ────────────────────────────────
+  if (placedOrderId && showTracker) {
     return (
-      <div className="min-h-screen bg-bg-main text-white flex items-center justify-center p-6">
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-          className="text-center space-y-8 max-w-md w-full">
-          <div className="relative inline-block">
-            <CheckCircle size={96} className="text-primary mx-auto relative z-10" />
-            <div className="absolute inset-0 bg-primary/20 blur-[80px] rounded-full animate-pulse" />
-          </div>
-          <div>
-            <h2 className="text-4xl font-bold font-heading mb-3">Order Placed!</h2>
-            <p className="text-text-muted">Order <span className="text-primary font-black">#{orderNumber}</span> sent to kitchen.</p>
-          </div>
-
-          {/* New reward coupon unlocked */}
-          {newCoupon && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
-              className="bg-gradient-to-br from-primary/20 to-yellow-500/10 border border-primary/40 rounded-3xl p-8 space-y-4">
-              <div className="text-4xl">🎉</div>
-              <h3 className="text-2xl font-black text-white">$200 Reward Unlocked!</h3>
-              <p className="text-text-muted text-sm">You crossed <span className="text-primary font-bold">${REWARD_MILESTONE}</span> in total orders. Use this code on your next order:</p>
-              <div className="bg-bg-main/70 border border-primary/30 rounded-2xl p-4">
-                <p className="text-primary font-black text-xl tracking-widest">{newCoupon.code}</p>
-                <p className="text-text-muted text-xs mt-1">Saves up to ${REWARD_AMOUNT} · One-time use</p>
-              </div>
-              <button onClick={() => handleCopy(newCoupon.code)}
-                className="w-full py-3 bg-primary/20 border border-primary/30 rounded-xl text-primary text-xs font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all flex items-center justify-center gap-2">
-                <Copy size={14} />{copiedCode === newCoupon.code ? 'Copied!' : 'Copy Code'}
-              </button>
-            </motion.div>
-          )}
-
-          <div className="flex gap-4 justify-center">
-            <button onClick={() => navigate('/')} className="btn-primary px-8 py-4">Back to Menu</button>
-            <button onClick={() => navigate('/history')} className="px-8 py-4 border border-white/20 rounded-xl hover:bg-white/5 transition-all text-sm font-bold">Track Order</button>
-          </div>
-        </motion.div>
-      </div>
+      <LiveOrderTracker
+        orderId={placedOrderId}
+        orderNumber={placedOrderNum}
+        placedItems={placedItemsSnap}
+        grandTotal={placedTotal}
+        newCoupon={newCoupon}
+        onNewOrder={handleNewOrder}
+      />
     );
   }
 
+  // ── Cart view ─────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-bg-main text-white p-6 md:p-12">
       <div className="container max-w-4xl mx-auto">
@@ -351,11 +563,44 @@ const Cart = () => {
             <div className="space-y-4">
               <AnimatePresence mode="popLayout">
                 {cart.length === 0 ? (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="py-20 text-center bg-secondary/30 rounded-3xl border-2 border-dashed border-white/5">
-                    <ShoppingBag size={48} className="mx-auto mb-4 text-text-muted opacity-20" />
-                    <p className="text-text-muted font-bold uppercase tracking-widest text-xs">The box is empty</p>
-                    <button onClick={() => navigate('/')} className="mt-6 text-primary font-bold hover:underline">Start adding masterpieces</button>
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                    {/* Active order banner — show if there's a persisted order to track */}
+                    {placedOrderId && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+                        className="bg-primary/10 border border-primary/30 rounded-2xl p-5 flex items-center justify-between gap-4"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-2.5 h-2.5 bg-primary rounded-full animate-pulse shrink-0" />
+                          <div>
+                            <p className="font-black text-white text-sm">Order in progress</p>
+                            <p className="text-text-muted text-xs mt-0.5">
+                              {placedOrderNum ? `ORD_${placedOrderNum}` : 'Tracking your order...'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setShowTracker(true)}
+                            className="px-4 py-2 bg-primary text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-primary/80 transition-all"
+                          >
+                            Track Live
+                          </button>
+                          <button
+                            onClick={() => { clearActiveOrder(); setPlacedOrderId(null); setPlacedOrderNum(""); setPlacedItemsSnap([]); setPlacedTotal(0); setShowTracker(false); }}
+                            className="px-3 py-2 bg-white/5 border border-white/10 text-text-muted text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-white/10 transition-all"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                    <div className="py-20 text-center bg-secondary/30 rounded-3xl border-2 border-dashed border-white/5">
+                      <ShoppingBag size={48} className="mx-auto mb-4 text-text-muted opacity-20" />
+                      <p className="text-text-muted font-bold uppercase tracking-widest text-xs">The box is empty</p>
+                      <button onClick={() => navigate('/')} className="mt-6 text-primary font-bold hover:underline">Start adding masterpieces</button>
+                    </div>
                   </motion.div>
                 ) : cart.map((item) => {
                   const itemId = item._id || item.id;
@@ -469,6 +714,15 @@ const Cart = () => {
                 )}
               </div>
 
+              {/* Active order quick-access when cart also has items */}
+              {placedOrderId && (
+                <button
+                  onClick={() => setShowTracker(true)}
+                  className="w-full py-3 bg-white/5 border border-primary/30 text-primary text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-primary/10 transition-all flex items-center justify-center gap-2"
+                >
+                  <MapPin size={14} /> Track Active Order
+                </button>
+              )}
               {/* Place Order button */}
               <button onClick={handlePlaceOrder} disabled={placing || cart.length === 0}
                 className="btn-primary w-full py-5 flex items-center justify-center gap-3 group disabled:opacity-60">

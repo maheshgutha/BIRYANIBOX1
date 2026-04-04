@@ -8,14 +8,25 @@ const OrderSchema = new mongoose.Schema({
   station_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'KitchenStation' },
   table_number:   { type: String, maxlength: 10 },
   total:          { type: Number, required: true, min: 0 },
-  status:         { type: String, enum: ['pending','preparing','served','paid','cancelled'], default: 'pending' },
-  order_type:     { type: String, enum: ['dine-in','delivery','takeaway'], default: 'dine-in' },
-  payment_method: { type: String, enum: ['upi','card','cash','gift_card'] },
+  // 4-phase order lifecycle:
+  // pending → start_cooking (chef only) → completed_cooking (chef only) → served (captain/manager/owner) → paid (captain/manager/owner)
+  status: {
+    type: String,
+    enum: ['pending', 'start_cooking', 'completed_cooking', 'served', 'paid', 'cancelled'],
+    default: 'pending'
+  },
+  order_type:     { type: String, enum: ['dine-in', 'delivery', 'takeaway'], default: 'dine-in' },
+  payment_method: { type: String, enum: ['upi', 'card', 'cash', 'gift_card'] },
+  spiceness:      { type: String, enum: ['mild', 'medium', 'hot', 'extra_hot'], default: 'medium' },
   rating:         { type: Number, min: 1, max: 5 },
-  feedback:       { type: String }
+  feedback:       { type: String },
+  cooking_started_at:   { type: Date },
+  cooking_completed_at: { type: Date },
+  served_at:            { type: Date },
+  paid_at:              { type: Date },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
-OrderSchema.pre('save', function(next) {
+OrderSchema.pre('save', function (next) {
   if (!this.order_number) {
     this.order_number = 'BOX-' + Date.now();
   }

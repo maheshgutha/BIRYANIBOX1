@@ -61,4 +61,20 @@ router.delete('/:id', protect, authorize('owner','manager'), async (req, res, ne
   } catch (err) { next(err); }
 });
 
+
+// FIX 8: plain PATCH /:id for partial updates (e.g. status change from dashboard)
+// The frontend calls reservationsAPI.patch(id, body) which hits PATCH /:id
+// but only PATCH /:id/status existed before, so confirm/cancel silently failed.
+router.patch('/:id', protect, async (req, res, next) => {
+  try {
+    const item = await Reservation.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: false }
+    );
+    if (!item) return res.status(404).json({ success: false, message: 'Reservation not found' });
+    res.json({ success: true, data: item });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

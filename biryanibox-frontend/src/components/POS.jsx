@@ -142,7 +142,9 @@ const POS = ({ user }) => {
     return heroBiryani;
   };
 
-  const filteredMenu = menu.filter((item) => item.category === activeTab);
+  const filteredMenu = menu.filter(
+    (item) => (item.category || '').toLowerCase() === activeTab.toLowerCase()
+  );
 
   const addToCart = (item) => {
     if (!item.available || item.stock <= 0) return;
@@ -175,9 +177,9 @@ const POS = ({ user }) => {
   };
 
   // After confirmation, calls createOrder which fires the notification
-  const confirmPlaceOrder = () => {
+  const confirmPlaceOrder = async () => {
     setShowPlaceOrderConfirm(false);
-    const result = createOrder(cart, selectedTable, user.name);
+    const result = await createOrder(cart, selectedTable, user.name);
     if (result && result.error) {
       alert(result.error);
       return;

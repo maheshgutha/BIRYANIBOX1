@@ -395,7 +395,7 @@ export const MOCK_ORDERS = [
     total: 22.99,
     table: 'T2',
     captain: 'Arjun Singh',
-    status: 'preparing',
+    status: 'start_cooking', 
     timestamp: new Date(Date.now() - 10 * 60000).toISOString(),
     rating: 0,
   },

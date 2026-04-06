@@ -69,7 +69,7 @@ router.put('/:id', protect, authorize('owner', 'manager'), async (req, res, next
 });
 
 // PATCH /api/ingredients/:id/stock
-router.patch('/:id/stock', protect, authorize('owner', 'manager'), async (req, res, next) => {
+router.patch('/:id/stock', protect, authorize('owner', 'manager', 'chef'), async (req, res, next) => {
   try {
     const ing = await Ingredient.findByIdAndUpdate(req.params.id, { stock: req.body.stock }, { new: true });
     if (!ing) return res.status(404).json({ success: false, message: 'Ingredient not found' });

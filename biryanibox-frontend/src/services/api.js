@@ -174,6 +174,7 @@ export const addressesAPI = {
   getAll:     ()     => request('/addresses'),
   create:     (body) => request('/addresses',     { method: 'POST',  body: JSON.stringify(body) }),
   setDefault: (id)   => request(`/addresses/${id}/default`, { method: 'PATCH' }),
+  update:     (id, body) => request(`/addresses/${id}`, { method: 'PUT',   body: JSON.stringify(body) }),
   delete:     (id)   => request(`/addresses/${id}`, { method: 'DELETE' }),
 };
 

@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 const MotionDiv = motion.div;
-import { ordersAPI, addressesAPI, feedbackAPI, announcementsAPI } from '../services/api';
+import { ordersAPI, addressesAPI, feedbackAPI, announcementsAPI, loyaltyAPI } from '../services/api';
 import { useAuth } from '../context/useContextHooks';
+import { useLocation } from 'react-router-dom';
 import {
   Truck, MapPin, Package, Clock, CheckCircle,
   ChevronRight, Home, Building, Plus, Loader,
   Megaphone, Star, MessageSquare, Phone, Send, RefreshCw,
   ShoppingBag, ChefHat, Bell, Utensils, CreditCard, X,
-  AlertCircle, ChevronDown, CalendarDays,
+  AlertCircle, ChevronDown, CalendarDays, Edit2, Trash2,
+  Gift, Award, TrendingUp, Zap, Check,
 } from 'lucide-react';
 
 const ORDER_STEPS = [
@@ -47,6 +49,7 @@ const StarRating = ({ value, onChange }) => (
   </div>
 );
 
+/* ─── Live Order Card ──────────────────────────────────────────── */
 const LiveOrderCard = ({ order, onRefresh }) => {
   const stepIdx = STATUS_TO_STEP[order.status] ?? 0;
   const isCancelled = order.status === 'cancelled';
@@ -123,6 +126,7 @@ const LiveOrderCard = ({ order, onRefresh }) => {
   );
 };
 
+/* ─── Announcements ─────────────────────────────────────────────── */
 const AnnouncementsSection = () => {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -160,6 +164,11 @@ const AnnouncementsSection = () => {
                     🎉 {a.festival_name || 'Festival Offer'}
                   </span>
                 )}
+                {a.has_offer && a.offer_discount > 0 && (
+                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
+                    🏷 {a.offer_discount}% OFF
+                  </span>
+                )}
               </div>
               <p className="text-[10px] text-text-muted mt-0.5">By {a.created_by?.name || 'Team'} · {new Date(a.created_at).toLocaleDateString()}</p>
             </div>
@@ -178,6 +187,7 @@ const AnnouncementsSection = () => {
   );
 };
 
+/* ─── Feedback Form ─────────────────────────────────────────────── */
 const InlineFeedbackForm = ({ user, onSuccess }) => {
   const [form, setForm] = useState({
     customer_name: user?.name || '',
@@ -221,7 +231,6 @@ const InlineFeedbackForm = ({ user, onSuccess }) => {
         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-3 block">Your Rating *</label>
         <StarRating value={form.rating} onChange={v => setForm(p => ({ ...p, rating: v }))} />
       </div>
-
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Your Name</label>
@@ -234,7 +243,6 @@ const InlineFeedbackForm = ({ user, onSuccess }) => {
             className="w-full bg-black/40 border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/30" />
         </div>
       </div>
-
       <div>
         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Category</label>
         <div className="flex gap-2 flex-wrap">
@@ -247,21 +255,17 @@ const InlineFeedbackForm = ({ user, onSuccess }) => {
           ))}
         </div>
       </div>
-
       <div>
         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Your Review</label>
         <textarea value={form.message} onChange={sf('message')} rows={3} placeholder="Tell us about your experience..."
           className="w-full bg-black/40 border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm resize-none placeholder:text-white/30" />
       </div>
-
       <div>
         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Suggestions (optional)</label>
         <textarea value={form.suggestion} onChange={sf('suggestion')} rows={2} placeholder="Any suggestions to improve our service?"
           className="w-full bg-black/40 border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm resize-none placeholder:text-white/30" />
       </div>
-
       {error && <p className="text-red-400 text-sm font-bold bg-red-500/10 border border-red-500/20 rounded-xl p-3">{error}</p>}
-
       <button type="submit" disabled={submitting}
         className="w-full py-4 bg-primary hover:bg-yellow-500 text-white rounded-2xl text-sm font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 disabled:opacity-60 shadow-lg shadow-primary/20">
         {submitting ? <Loader size={16} className="animate-spin" /> : <Send size={16} />}
@@ -271,14 +275,356 @@ const InlineFeedbackForm = ({ user, onSuccess }) => {
   );
 };
 
+/* ─── Addresses Tab ─────────────────────────────────────────────── */
+const AddressesTab = () => {
+  const [addresses, setAddresses]     = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [showForm, setShowForm]       = useState(false);
+  const [editTarget, setEditTarget]   = useState(null);
+  const [saving, setSaving]           = useState(false);
+  const [deletingId, setDeletingId]   = useState(null);
+  const [msg, setMsg]                 = useState({ text: '', type: '' });
+  const [form, setForm]               = useState({ label: '', address_line: '', type: 'home', is_default: false });
+
+  const flash = (text, type = 'success') => {
+    setMsg({ text, type });
+    setTimeout(() => setMsg({ text: '', type: '' }), 3000);
+  };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await addressesAPI.getAll();
+      setAddresses(res.data || []);
+    } catch { setAddresses([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openAdd = () => {
+    setEditTarget(null);
+    setForm({ label: '', address_line: '', type: 'home', is_default: false });
+    setShowForm(true);
+  };
+
+  const openEdit = (addr) => {
+    setEditTarget(addr);
+    setForm({ label: addr.label || '', address_line: addr.address_line || '', type: addr.type || 'home', is_default: addr.is_default || false });
+    setShowForm(true);
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!form.address_line.trim()) return;
+    setSaving(true);
+    try {
+      if (editTarget) {
+        await addressesAPI.update(editTarget._id, form);
+        flash('Address updated!');
+      } else {
+        await addressesAPI.create(form);
+        flash('Address added!');
+      }
+      setShowForm(false);
+      setEditTarget(null);
+      load();
+    } catch (err) { flash(err.message || 'Failed to save', 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Remove this address?')) return;
+    setDeletingId(id);
+    try {
+      await addressesAPI.delete(id);
+      setAddresses(a => a.filter(x => x._id !== id));
+      flash('Address removed');
+    } catch (err) { flash(err.message || 'Failed to delete', 'error'); }
+    finally { setDeletingId(null); }
+  };
+
+  const handleSetDefault = async (id) => {
+    try {
+      await addressesAPI.setDefault(id);
+      load();
+      flash('Default address updated');
+    } catch (err) { flash(err.message || 'Failed', 'error'); }
+  };
+
+  const TYPE_ICON = { home: Home, office: Building, other: MapPin };
+  const TYPE_COLOR = { home: 'text-blue-400 bg-blue-500/10', office: 'text-purple-400 bg-purple-500/10', other: 'text-teal-400 bg-teal-500/10' };
+
+  return (
+    <div className="space-y-5">
+      {/* Flash */}
+      <AnimatePresence>
+        {msg.text && (
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className={`px-5 py-3 rounded-xl text-sm font-bold border ${msg.type === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-green-500/10 border-green-500/30 text-green-400'}`}>
+            {msg.text}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Address Form */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+            className="bg-secondary/40 rounded-3xl border border-primary/30 p-7">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-white">{editTarget ? 'Edit Address' : 'Add New Address'}</h3>
+              <button onClick={() => { setShowForm(false); setEditTarget(null); }}
+                className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-text-muted hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+            <form onSubmit={handleSave} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Label</label>
+                  <input type="text" value={form.label} onChange={e => setForm(p => ({ ...p, label: e.target.value }))}
+                    placeholder="e.g. Home, Work, Dad's place"
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Type</label>
+                  <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm">
+                    <option value="home">🏠 Home</option>
+                    <option value="office">🏢 Office</option>
+                    <option value="other">📍 Other</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Full Address *</label>
+                <textarea required value={form.address_line} onChange={e => setForm(p => ({ ...p, address_line: e.target.value }))}
+                  rows={2} placeholder="Street, Area, City, Pincode"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={form.is_default} onChange={e => setForm(p => ({ ...p, is_default: e.target.checked }))}
+                  className="w-4 h-4 accent-primary rounded" />
+                <span className="text-sm text-white font-bold">Set as default address</span>
+              </label>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => { setShowForm(false); setEditTarget(null); }}
+                  className="flex-1 py-3 border border-white/20 rounded-2xl text-sm font-bold text-white/60 hover:bg-white/5 transition-all">
+                  Cancel
+                </button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 py-3 bg-primary hover:bg-yellow-500 text-white rounded-2xl text-sm font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 disabled:opacity-60">
+                  {saving ? <Loader size={15} className="animate-spin" /> : <Check size={15} />}
+                  {editTarget ? 'Update' : 'Save Address'}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader size={24} className="animate-spin text-primary" /></div>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-5">
+          {addresses.map(addr => {
+            const Icon = TYPE_ICON[addr.type] || MapPin;
+            const colorClass = TYPE_COLOR[addr.type] || 'text-teal-400 bg-teal-500/10';
+            return (
+              <div key={addr._id}
+                className={`relative bg-secondary/40 p-7 rounded-3xl border group transition-all ${addr.is_default ? 'border-primary/40' : 'border-white/5 hover:border-white/15'}`}>
+                {addr.is_default && (
+                  <span className="absolute top-4 right-4 text-[9px] font-black px-2 py-1 rounded-full bg-primary/20 text-primary uppercase">Default</span>
+                )}
+                <div className="flex items-start gap-4 mb-4">
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${colorClass} shrink-0`}>
+                    <Icon size={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-bold text-white">{addr.label || addr.type}</h3>
+                    <p className="text-sm text-text-muted mt-1 leading-relaxed">{addr.address_line}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                  {!addr.is_default && (
+                    <button onClick={() => handleSetDefault(addr._id)}
+                      className="flex-1 py-2 text-[10px] font-black uppercase border border-white/10 rounded-xl text-text-muted hover:text-primary hover:border-primary/30 transition-all">
+                      Set Default
+                    </button>
+                  )}
+                  <button onClick={() => openEdit(addr)}
+                    className="py-2 px-4 text-[10px] font-black uppercase bg-primary/10 border border-primary/20 text-primary rounded-xl hover:bg-primary hover:text-white transition-all flex items-center gap-1">
+                    <Edit2 size={11} /> Edit
+                  </button>
+                  <button onClick={() => handleDelete(addr._id)} disabled={deletingId === addr._id}
+                    className="py-2 px-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all">
+                    {deletingId === addr._id ? <Loader size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Add New Card */}
+          <button onClick={openAdd}
+            className="min-h-[160px] border-2 border-dashed border-white/10 rounded-3xl flex flex-col items-center justify-center gap-4 text-text-muted hover:border-primary/50 hover:text-primary transition-all cursor-pointer group">
+            <div className="w-12 h-12 rounded-2xl bg-white/5 group-hover:bg-primary/10 flex items-center justify-center transition-all">
+              <Plus size={24} />
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-widest">Add New Address</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ─── Rewards Tab ───────────────────────────────────────────────── */
+const RewardsTab = ({ user }) => {
+  const [loyalty, setLoyalty] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    const uid = user._id || user.id;
+    if (!uid) { setLoading(false); return; }
+    loyaltyAPI.getTransactions(uid)
+      .then(res => setLoyalty(res.data || null))
+      .catch(() => setLoyalty(null))
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  const points = loyalty?.points ?? user?.loyalty_points ?? 0;
+
+  // Tier thresholds
+  const tiers = [
+    { name: 'Bronze',   min: 0,    max: 499,  color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/20', icon: '🥉' },
+    { name: 'Silver',   min: 500,  max: 1499, color: 'text-gray-300',    bg: 'bg-white/10 border-white/20',            icon: '🥈' },
+    { name: 'Gold',     min: 1500, max: 4999, color: 'text-yellow-400',  bg: 'bg-yellow-500/10 border-yellow-500/20',  icon: '🥇' },
+    { name: 'Platinum', min: 5000, max: Infinity, color: 'text-blue-300', bg: 'bg-blue-500/10 border-blue-500/20',     icon: '💎' },
+  ];
+  const currentTier = tiers.find(t => points >= t.min && points <= t.max) || tiers[0];
+  const nextTier = tiers[tiers.indexOf(currentTier) + 1];
+  const pctToNext = nextTier ? Math.min(100, ((points - currentTier.min) / (nextTier.min - currentTier.min)) * 100) : 100;
+
+  if (loading) return <div className="flex justify-center py-16"><Loader size={24} className="animate-spin text-primary" /></div>;
+
+  return (
+    <div className="space-y-6 max-w-2xl mx-auto">
+      {/* Points card */}
+      <div className="relative bg-gradient-to-br from-primary/20 via-primary/5 to-secondary/40 rounded-3xl border border-primary/30 p-8 overflow-hidden">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-primary/10 blur-3xl rounded-full" />
+        <div className="relative z-10">
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Total Loyalty Points</p>
+              <p className="text-6xl font-black text-white">{points.toLocaleString()}</p>
+              <p className="text-text-muted text-sm mt-1">≈ ₹{(points * 0.1).toFixed(0)} redeemable value</p>
+            </div>
+            <div className={`px-4 py-2 rounded-2xl border text-sm font-black flex items-center gap-2 ${currentTier.bg} ${currentTier.color}`}>
+              <span>{currentTier.icon}</span> {currentTier.name}
+            </div>
+          </div>
+
+          {nextTier && (
+            <div>
+              <div className="flex justify-between text-xs mb-2">
+                <span className="text-text-muted font-bold">{points} pts</span>
+                <span className="text-text-muted font-bold">{nextTier.min} pts for {nextTier.name}</span>
+              </div>
+              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-primary rounded-full transition-all duration-700" style={{ width: `${pctToNext}%` }} />
+              </div>
+              <p className="text-[10px] text-text-muted mt-1.5 font-bold">
+                {nextTier.min - points} more points to reach {nextTier.icon} {nextTier.name}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* How to earn */}
+      <div className="bg-secondary/40 rounded-2xl border border-white/5 p-6">
+        <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2"><Zap size={16} className="text-primary" />How to Earn Points</h4>
+        <div className="space-y-3">
+          {[
+            { label: 'Every order placed',    pts: '+10 pts',  icon: ShoppingBag },
+            { label: 'Order above ₹500',      pts: '+25 pts',  icon: TrendingUp  },
+            { label: 'Submit feedback',        pts: '+5 pts',   icon: MessageSquare },
+            { label: 'Refer a friend',         pts: '+50 pts',  icon: Gift        },
+          ].map(({ label, pts, icon: Icon }) => (
+            <div key={label} className="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Icon size={14} className="text-primary" />
+                </div>
+                <span className="text-sm text-white/80 font-medium">{label}</span>
+              </div>
+              <span className="text-sm font-black text-primary">{pts}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Transaction history */}
+      {loyalty?.transactions?.length > 0 && (
+        <div className="bg-secondary/40 rounded-2xl border border-white/5 p-6">
+          <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2"><Award size={16} className="text-primary" />Points History</h4>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {loyalty.transactions.slice(0, 20).map(tx => (
+              <div key={tx._id} className="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0">
+                <div>
+                  <p className="text-sm text-white font-bold capitalize">{tx.type?.replace('_', ' ') || 'Points'}</p>
+                  <p className="text-[10px] text-text-muted">{tx.description || '—'} · {new Date(tx.created_at || tx.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                </div>
+                <span className={`text-sm font-black ${tx.points > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {tx.points > 0 ? '+' : ''}{tx.points}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!loyalty?.transactions?.length && (
+        <div className="text-center py-10 text-text-muted">
+          <Award size={36} className="mx-auto mb-3 opacity-20" />
+          <p className="text-sm font-bold uppercase tracking-widest">No transactions yet</p>
+          <p className="text-xs mt-1">Start ordering to earn points!</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ─── Main OrderHistory ─────────────────────────────────────────── */
 const OrderHistory = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('active');
+  const location = useLocation();
+
+  // Read ?tab= from URL query string so Navbar links work
+  const getInitialTab = () => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab && ['active','history','announcements','feedback','addresses','rewards'].includes(tab)) return tab;
+    return 'active';
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialTab);
   const [activeOrders, setActiveOrders] = useState([]);
   const [historyOrders, setHistoryOrders] = useState([]);
-  const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
+
+  // Update tab when URL changes (e.g. clicking Rewards link again)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab && ['active','history','announcements','feedback','addresses','rewards'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [location.search]);
 
   const fetchOrders = useCallback(async () => {
     if (!user) return;
@@ -294,20 +640,15 @@ const OrderHistory = () => {
     finally { setLoading(false); }
   }, [user]);
 
-  useEffect(() => {
-    fetchOrders();
-    if (user) {
-      addressesAPI.getAll().then(r => setAddresses(r.data || [])).catch(() => {});
-    }
-  }, [fetchOrders]);
-
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
   useAutoRefresh(fetchOrders, 15000);
 
   const tabs = [
     { id: 'active',        label: 'Active',      badge: activeOrders.length },
     { id: 'history',       label: 'History' },
-    { id: 'announcements', label: 'Updates',      icon: Megaphone },
-    { id: 'feedback',      label: 'Feedback',     icon: MessageSquare },
+    { id: 'announcements', label: 'Updates',     icon: Megaphone },
+    { id: 'feedback',      label: 'Feedback',    icon: MessageSquare },
+    { id: 'rewards',       label: 'Rewards',     icon: Gift },
     { id: 'addresses',     label: 'Addresses' },
   ];
 
@@ -344,6 +685,7 @@ const OrderHistory = () => {
 
         <AnimatePresence mode="wait">
 
+          {/* ACTIVE ORDERS */}
           {activeTab === 'active' && !loading && (
             <MotionDiv key="active" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
               {activeOrders.length === 0 ? (
@@ -358,6 +700,7 @@ const OrderHistory = () => {
             </MotionDiv>
           )}
 
+          {/* ORDER HISTORY */}
           {activeTab === 'history' && !loading && (
             <MotionDiv key="history" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-4">
               {historyOrders.length === 0 ? (
@@ -394,6 +737,7 @@ const OrderHistory = () => {
             </MotionDiv>
           )}
 
+          {/* ANNOUNCEMENTS / UPDATES */}
           {activeTab === 'announcements' && (
             <MotionDiv key="announcements" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
               <div className="mb-6">
@@ -406,6 +750,7 @@ const OrderHistory = () => {
             </MotionDiv>
           )}
 
+          {/* FEEDBACK */}
           {activeTab === 'feedback' && (
             <MotionDiv key="feedback" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
               <div className="max-w-lg mx-auto">
@@ -437,24 +782,29 @@ const OrderHistory = () => {
             </MotionDiv>
           )}
 
-          {activeTab === 'addresses' && (
-            <MotionDiv key="addresses" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="grid md:grid-cols-2 gap-6">
-              {addresses.map(addr => (
-                <div key={addr._id} className="bg-secondary/40 p-8 rounded-3xl border border-white/5 relative group">
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
-                      {addr.type === 'home' ? <Home size={22} /> : <Building size={22} />}
-                    </div>
-                    <h3 className="text-lg font-bold">{addr.label || addr.type}</h3>
-                  </div>
-                  <p className="text-sm text-text-muted">{addr.address_line || addr.street}</p>
-                </div>
-              ))}
-              <div className="min-h-[160px] border-2 border-dashed border-white/10 rounded-3xl flex flex-col items-center justify-center gap-4 text-text-muted hover:border-primary/50 hover:text-primary transition-all cursor-pointer">
-                <Plus size={32} />
-                <span className="text-[10px] font-bold uppercase tracking-widest">Add New Address</span>
+          {/* REWARDS */}
+          {activeTab === 'rewards' && (
+            <MotionDiv key="rewards" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <div className="mb-6">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3 mb-1">
+                  <Gift size={24} className="text-primary" /> My Rewards
+                </h2>
+                <p className="text-text-muted text-sm">Your loyalty points, tier status & transaction history</p>
               </div>
+              <RewardsTab user={user} />
+            </MotionDiv>
+          )}
+
+          {/* ADDRESSES */}
+          {activeTab === 'addresses' && (
+            <MotionDiv key="addresses" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <div className="mb-6">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3 mb-1">
+                  <MapPin size={24} className="text-primary" /> My Addresses
+                </h2>
+                <p className="text-text-muted text-sm">Manage your saved delivery addresses</p>
+              </div>
+              <AddressesTab />
             </MotionDiv>
           )}
 

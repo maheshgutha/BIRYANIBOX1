@@ -15,6 +15,7 @@ import {
   MapPin,
   Truck,
   User,
+  Star,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCart, useAuth } from '../context/useContextHooks';
@@ -37,7 +38,7 @@ const Navbar = () => {
   const navLinks = [
     { name: 'Home',       href: '/'           },
     { name: 'Menu',       href: '/#menu'      },
-    { name: 'Rewards',    href: '/cart'       }, // ✅ Fixed: was '/auth'
+    { name: 'Rewards',    href: '/history?tab=rewards' },
     { name: 'Gift Cards', href: '/gift-cards' },
     { name: 'Catering',   href: '/catering'   },
   ];
@@ -139,20 +140,19 @@ const Navbar = () => {
                         <ListOrdered size={16} className="text-primary" /> My Orders
                       </button>
 
-                      {/* ✅ Fixed: was navigate('/history') — now goes to /cart (rewards panel) */}
                       <button
                         onClick={() => {
-                          navigate('/cart');
+                          navigate('/history?tab=rewards');
                           setIsProfileOpen(false);
                         }}
                         className="w-full flex items-center gap-4 p-4 hover:bg-white/5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white mb-1"
                       >
-                        <Gift size={16} className="text-primary" /> My Rewards
+                        <Star size={16} className="text-primary" /> My Rewards
                       </button>
 
                       <button
                         onClick={() => {
-                          navigate('/history');
+                          navigate('/history?tab=addresses');
                           setIsProfileOpen(false);
                         }}
                         className="w-full flex items-center gap-4 p-4 hover:bg-white/5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white"

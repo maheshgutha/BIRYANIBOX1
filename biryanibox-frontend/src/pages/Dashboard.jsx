@@ -67,6 +67,7 @@ const Sidebar = ({ activeTab, setActiveTab, user, unreadAnnouncements }) => {
     { id: 'announcements', label: 'Announcements',  icon: Megaphone,       roles: ['owner', 'manager', 'chef', 'captain'] },
     { id: 'shifts',        label: 'Shift Logs',     icon: UserCheck,       roles: ['owner', 'manager', 'chef', 'captain'] },
     { id: 'staffmgmt',     label: 'Staff Mgmt',     icon: Users,           roles: ['owner', 'manager'] },
+    { id: 'finance',       label: 'Finance Center', icon: DollarSign,      roles: ['owner', 'manager'] },
     { id: 'my_orders',     label: 'My Orders',      icon: ClipboardList,   roles: ['captain'] },
     { id: 'chef_orders',   label: 'Order History',  icon: ClipboardList,   roles: ['chef'] },
     { id: 'staff',         label: 'My Profile',     icon: User,            roles: ['owner', 'manager', 'captain', 'chef'] },
@@ -348,13 +349,35 @@ const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors }) =>
 const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
   const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState('active');
+  const [localIngredients, setLocalIngredients] = useState(ingredients);
+  const [stockMsg, setStockMsg] = useState('');
+  const [reducingId, setReducingId] = useState(null);
+  const [reduceQty, setReduceQty] = useState('');
+
+  useEffect(() => { setLocalIngredients(ingredients); }, [ingredients]);
+
+  const flashStock = (t) => { setStockMsg(t); setTimeout(() => setStockMsg(''), 3000); };
+
+  const handleReduceStock = async (ing) => {
+    const qty = parseFloat(reduceQty);
+    if (!qty || qty <= 0) return flashStock('Enter a valid quantity');
+    if (qty > ing.stock) return flashStock('Cannot reduce more than current stock');
+    const newStock = +(ing.stock - qty).toFixed(3);
+    try {
+      await ingredientsAPI.updateStock(ing._id || ing.id, newStock);
+      setLocalIngredients(prev => prev.map(i => (i._id || i.id) === (ing._id || ing.id) ? { ...i, stock: newStock } : i));
+      flashStock(`✓ Reduced ${ing.name} by ${qty} ${ing.unit}`);
+    } catch { flashStock('Failed to update stock'); }
+    setReducingId(null);
+    setReduceQty('');
+  };
   const activeOrders = orders.filter(o => ['pending', 'start_cooking'].includes(o.status));
   const filtered = statusFilter === 'active' ? activeOrders
     : statusFilter === 'pending' ? orders.filter(o => o.status === 'pending')
     : statusFilter === 'cooking' ? orders.filter(o => o.status === 'start_cooking')
     : activeOrders;
 
-  const lowStockIngredients = ingredients.filter(i => i.stock < i.min_stock);
+  const lowStockIngredients = localIngredients.filter(i => i.stock < i.min_stock);
 
   return (
     <div className="space-y-8">
@@ -374,7 +397,7 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
         {[
           { label: 'Pending', value: orders.filter(o => o.status === 'pending').length, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
           { label: 'Cooking', value: orders.filter(o => o.status === 'start_cooking').length, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-          { label: 'Ready Today', value: orders.filter(o => o.status === 'completed_cooking' || o.status === 'served' || o.status === 'paid').length, color: 'text-green-400', bg: 'bg-green-500/10' },
+          { label: 'Completed Orders', value: orders.filter(o => o.status === 'completed_cooking' || o.status === 'served' || o.status === 'paid').length, color: 'text-green-400', bg: 'bg-green-500/10' },
         ].map((s, i) => (
           <div key={i} className={`${s.bg} rounded-2xl border border-white/5 p-5 text-center`}>
             <p className={`text-4xl font-black ${s.color}`}>{s.value}</p>
@@ -458,23 +481,48 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
       )}
 
       {/* Ingredients section in chef page */}
-      {ingredients.length > 0 && (
+      {localIngredients.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Package size={20} className="text-primary" />Ingredient Stock Overview</h3>
+          <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2"><Package size={20} className="text-primary" />Ingredient Stock</h3>
+          <p className="text-text-muted text-xs mb-4">Tap <span className="text-primary font-bold">Reduce</span> to deduct stock after use</p>
+          {stockMsg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl mb-3">{stockMsg}</p>}
           <div className="grid md:grid-cols-3 xl:grid-cols-4 gap-3">
-            {ingredients.slice(0, 16).map(ing => (
-              <div key={ing._id} className={`p-4 rounded-xl border ${ing.stock < ing.min_stock ? 'bg-red-500/5 border-red-500/30' : 'bg-white/3 border-white/10'}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-bold text-white truncate">{ing.name}</p>
-                  {ing.stock < ing.min_stock && <AlertTriangle size={12} className="text-red-400 shrink-0" />}
+            {localIngredients.slice(0, 20).map(ing => {
+              const id = ing._id || ing.id;
+              const isReducing = reducingId === id;
+              return (
+                <div key={id} className={`p-4 rounded-xl border ${ing.stock < ing.min_stock ? 'bg-red-500/5 border-red-500/30' : 'bg-white/3 border-white/10'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-bold text-white truncate">{ing.name}</p>
+                    {ing.stock < ing.min_stock && <AlertTriangle size={12} className="text-red-400 shrink-0" />}
+                  </div>
+                  <p className="text-xs text-text-muted mb-2">{ing.stock} {ing.unit} <span className="text-text-muted/60">/ min {ing.min_stock}</span></p>
+                  <div className="mb-3 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${ing.stock < ing.min_stock ? 'bg-red-500' : 'bg-green-500'}`}
+                      style={{ width: `${Math.min(100, (ing.stock / Math.max(ing.min_stock * 2, 1)) * 100)}%` }} />
+                  </div>
+                  {isReducing ? (
+                    <div className="flex gap-1">
+                      <input
+                        type="number" min="0.01" step="0.01" placeholder="Qty"
+                        value={reduceQty} onChange={e => setReduceQty(e.target.value)}
+                        className="flex-1 min-w-0 bg-bg-main border border-primary/40 p-1.5 rounded-lg text-white text-xs outline-none focus:border-primary"
+                        autoFocus
+                      />
+                      <button onClick={() => handleReduceStock(ing)}
+                        className="px-2 py-1 bg-primary text-white rounded-lg text-[10px] font-black">✓</button>
+                      <button onClick={() => { setReducingId(null); setReduceQty(''); }}
+                        className="px-2 py-1 bg-white/10 text-white rounded-lg text-[10px] font-black">✗</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setReducingId(id); setReduceQty(''); }}
+                      className="w-full py-1.5 bg-primary/10 border border-primary/20 text-primary rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all">
+                      − Reduce Stock
+                    </button>
+                  )}
                 </div>
-                <p className="text-xs text-text-muted">{ing.stock} {ing.unit} <span className="text-text-muted/60">/ min {ing.min_stock}</span></p>
-                <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${ing.stock < ing.min_stock ? 'bg-red-500' : 'bg-green-500'}`}
-                    style={{ width: `${Math.min(100, (ing.stock / Math.max(ing.min_stock * 2, 1)) * 100)}%` }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1989,9 +2037,15 @@ const WasteManagement = ({ ingredients }) => {
   const [entries, setEntries] = useState(() => {
     try { return JSON.parse(localStorage.getItem('bb_waste_log') || '[]'); } catch { return []; }
   });
+  const [wasteType, setWasteType] = useState('ingredients'); // 'ingredients' | 'items'
+  const [menuItems, setMenuItems] = useState([]);
   const [form, setForm] = useState({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
   const [showForm, setShowForm] = useState(false);
   const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    menuAPI.getAll().then(r => setMenuItems(r.data || [])).catch(() => {});
+  }, []);
 
   const REASONS = ['spoilage', 'overcooking', 'expiry', 'spillage', 'quality_reject', 'other'];
 
@@ -2004,23 +2058,25 @@ const WasteManagement = ({ ingredients }) => {
 
   const handleAdd = (e) => {
     e.preventDefault();
-    const ing = ingredients.find(i => (i._id || i.id) === form.ingredient_id);
-    if (!ing) return;
+    let name, unit, cost;
+    if (wasteType === 'ingredients') {
+      const ing = ingredients.find(i => (i._id || i.id) === form.ingredient_id);
+      if (!ing) return;
+      name = ing.name; unit = ing.unit; cost = (ing.unit_cost || ing.unitCost || 0) * Number(form.quantity);
+    } else {
+      const item = menuItems.find(i => (i._id || i.id) === form.ingredient_id);
+      if (!item) return;
+      name = item.name; unit = 'pcs'; cost = (item.price || 0) * Number(form.quantity);
+    }
     const entry = {
-      id: Date.now(),
-      ingredient_id: form.ingredient_id,
-      ingredient_name: ing.name,
-      unit: ing.unit,
-      quantity: Number(form.quantity),
-      reason: form.reason,
-      notes: form.notes,
-      cost: (ing.unit_cost || ing.unitCost || 0) * Number(form.quantity),
-      date: new Date().toISOString(),
+      id: Date.now(), ingredient_id: form.ingredient_id, ingredient_name: name,
+      unit, quantity: Number(form.quantity), reason: form.reason, notes: form.notes,
+      cost, type: wasteType, date: new Date().toISOString(),
     };
     save([entry, ...entries]);
     setForm({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
     setShowForm(false);
-    flash(`Waste logged: ${ing.name} — ${form.quantity} ${ing.unit}`);
+    flash(`Waste logged: ${name} — ${form.quantity} ${unit}`);
   };
 
   const handleDelete = (id) => save(entries.filter(e => e.id !== id));
@@ -2037,10 +2093,19 @@ const WasteManagement = ({ ingredients }) => {
           </h3>
           <p className="text-text-muted text-sm mt-0.5">Track ingredient waste & calculate losses</p>
         </div>
-        <button onClick={() => setShowForm(s => !s)}
-          className="flex items-center gap-2 px-5 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
-          <Plus size={13} /> Log Waste
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Type selector */}
+          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+            {[['ingredients', '🧂 Ingredients'], ['items', '🍽 Menu Items']].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => { setWasteType(val); setForm(p => ({ ...p, ingredient_id: '' })); }}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${wasteType === val ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{label}</button>
+            ))}
+          </div>
+          <button onClick={() => setShowForm(s => !s)}
+            className="flex items-center gap-2 px-5 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
+            <Plus size={13} /> Log Waste
+          </button>
+        </div>
       </div>
 
       {msg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{msg}</p>}
@@ -2073,11 +2138,14 @@ const WasteManagement = ({ ingredients }) => {
             <h4 className="text-base font-bold text-white mb-4">Log Waste Entry</h4>
             <form onSubmit={handleAdd} className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Ingredient *</label>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{wasteType === 'ingredients' ? 'Ingredient' : 'Menu Item'} *</label>
                 <select required value={form.ingredient_id} onChange={e => setForm(p => ({ ...p, ingredient_id: e.target.value }))}
                   className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-red-400">
-                  <option value="">Select ingredient...</option>
-                  {ingredients.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} ({i.unit})</option>)}
+                  <option value="">Select {wasteType === 'ingredients' ? 'ingredient' : 'item'}...</option>
+                  {wasteType === 'ingredients'
+                    ? ingredients.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} ({i.unit})</option>)
+                    : menuItems.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} (₹{i.price})</option>)
+                  }
                 </select>
               </div>
               <div>
@@ -2495,6 +2563,397 @@ const Overview = ({ orders, financial }) => {
   );
 };
 
+// ─── FINANCE CENTER ───────────────────────────────────────────────────────────
+const FinanceCenter = ({ orders }) => {
+  const [budgetEntries, setBudgetEntries] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bb_budget_entries') || '[]'); } catch { return []; }
+  });
+  const [wasteEntries, setWasteEntries] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bb_waste_log') || '[]'); } catch { return []; }
+  });
+  const [showBudgetForm, setShowBudgetForm] = useState(false);
+  const [budgetForm, setBudgetForm] = useState({ label: '', amount: '', type: 'expense', date: new Date().toISOString().slice(0, 10) });
+  const [msg, setMsg] = useState('');
+  const [importBills, setImportBills] = useState(false);
+  const [period, setPeriod] = useState('all');
+
+  // Re-read waste log whenever tab becomes active
+  useEffect(() => {
+    try { setWasteEntries(JSON.parse(localStorage.getItem('bb_waste_log') || '[]')); } catch {}
+  }, []);
+
+  const flash = (t) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
+
+  const now = new Date();
+
+  const filterByPeriod = (date) => {
+    const d = new Date(date);
+    if (period === 'today') { const t = new Date(now); t.setHours(0,0,0,0); return d >= t; }
+    if (period === 'week') return d >= new Date(now - 7*86400000);
+    if (period === 'month') { const m = new Date(now); m.setDate(1); m.setHours(0,0,0,0); return d >= m; }
+    return true;
+  };
+
+  // Revenue from paid orders
+  const paidOrders = orders.filter(o => o.status === 'paid' && filterByPeriod(o.created_at || o.timestamp));
+  const revenue = paidOrders.reduce((s, o) => s + (o.total || 0), 0);
+  const avgOrderValue = paidOrders.length > 0 ? revenue / paidOrders.length : 0;
+
+  // Budget entries
+  const filteredBudget = budgetEntries.filter(e => filterByPeriod(e.date));
+  const totalExpenses = filteredBudget.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0);
+  const otherIncome = filteredBudget.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0);
+
+  // Wastage losses — included in Finance page, deducted from profit
+  const filteredWaste = wasteEntries.filter(e => filterByPeriod(e.date));
+  const wasteLoss = filteredWaste.reduce((s, e) => s + (e.cost || 0), 0);
+
+  // Net Profit = Revenue + Other Income - Expenses - Wastage
+  const netProfit = revenue + otherIncome - totalExpenses - wasteLoss;
+  const totalIncome = revenue + otherIncome;
+  const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
+  const isProfit = netProfit >= 0;
+
+  const saveBudget = (list) => {
+    setBudgetEntries(list);
+    localStorage.setItem('bb_budget_entries', JSON.stringify(list));
+  };
+
+  const handleAddBudget = (e) => {
+    e.preventDefault();
+    const entry = { id: Date.now(), label: budgetForm.label, amount: Number(budgetForm.amount), type: budgetForm.type, date: budgetForm.date };
+    saveBudget([entry, ...budgetEntries]);
+    setBudgetForm({ label: '', amount: '', type: 'expense', date: new Date().toISOString().slice(0, 10) });
+    setShowBudgetForm(false);
+    flash(`${budgetForm.type === 'expense' ? 'Expense' : 'Income'} added: ₹${budgetForm.amount}`);
+  };
+
+  const deleteBudget = (id) => saveBudget(budgetEntries.filter(e => e.id !== id));
+
+  // Revenue last 7 days
+  const last7 = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (6 - i)); d.setHours(0, 0, 0, 0);
+    const next = new Date(d); next.setDate(next.getDate() + 1);
+    const rev = orders.filter(o => o.status === 'paid' && new Date(o.created_at || o.timestamp) >= d && new Date(o.created_at || o.timestamp) < next)
+      .reduce((s, o) => s + (o.total || 0), 0);
+    return { day: d.toLocaleDateString('en-IN', { weekday: 'short' }), rev };
+  });
+  const maxRev = Math.max(...last7.map(d => d.rev), 1);
+
+  return (
+    <div className="space-y-6">
+
+      {/* Header — matches screenshot */}
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-4xl font-black text-white flex items-center gap-3">
+            <DollarSign size={32} className="text-primary" />Finance Center
+          </h2>
+          <p className="text-text-muted mt-1 text-sm">Revenue auto-tracked from paid orders · Add budget manually or import from bills</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setImportBills(s => !s)}
+            className="flex items-center gap-2 px-5 py-3 bg-white/10 border border-white/20 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/20 transition-all">
+            <FileText size={14} /> Import Bills
+          </button>
+          <button onClick={() => setShowBudgetForm(s => !s)}
+            className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+            <Plus size={14} /> Add Budget Entry
+          </button>
+        </div>
+      </div>
+
+      {/* Import Bills Panel — slides in under header */}
+      <AnimatePresence>
+        {importBills && (
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+            className="bg-secondary/40 border border-white/20 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-base font-bold text-white flex items-center gap-2"><FileText size={16} className="text-primary" />Import Bills</h4>
+              <button onClick={() => setImportBills(false)} className="text-text-muted hover:text-white"><X size={16} /></button>
+            </div>
+            <p className="text-sm text-text-muted mb-4">Upload supplier or utility bills — each becomes a budget expense entry automatically.</p>
+            <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
+              <FileText size={32} className="mx-auto mb-3 text-text-muted opacity-40" />
+              <p className="text-sm text-text-muted font-bold">Drag & drop bills here or click to browse</p>
+              <p className="text-[10px] text-text-muted mt-1">PDF, JPG, PNG supported</p>
+              <button className="mt-4 px-5 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase hover:bg-primary-hover">Browse Files</button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Budget Entry Form — slides in under header */}
+      <AnimatePresence>
+        {showBudgetForm && (
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+            className="bg-secondary/40 border border-primary/30 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-base font-bold text-white">New Budget Entry</h4>
+              <button type="button" onClick={() => setShowBudgetForm(false)} className="text-text-muted hover:text-white"><X size={16} /></button>
+            </div>
+            <form onSubmit={handleAddBudget} className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Label *</label>
+                <input required value={budgetForm.label} onChange={e => setBudgetForm(p => ({ ...p, label: e.target.value }))} placeholder="e.g. Gas bill, Salary..."
+                  className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Amount (₹) *</label>
+                <input required type="number" min="0.01" step="0.01" value={budgetForm.amount} onChange={e => setBudgetForm(p => ({ ...p, amount: e.target.value }))}
+                  className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Type</label>
+                <div className="flex gap-2">
+                  {[['expense', '📤 Expense'], ['income', '📥 Income']].map(([val, label]) => (
+                    <button key={val} type="button" onClick={() => setBudgetForm(p => ({ ...p, type: val }))}
+                      className={`flex-1 py-2 rounded-xl text-xs font-black uppercase border transition-all ${budgetForm.type === val ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Date</label>
+                <input type="date" value={budgetForm.date} onChange={e => setBudgetForm(p => ({ ...p, date: e.target.value }))}
+                  className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary" />
+              </div>
+              <div className="md:col-span-2 flex gap-3">
+                <button type="submit" className="px-6 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase flex items-center gap-2"><Plus size={12} />Add Entry</button>
+                <button type="button" onClick={() => setShowBudgetForm(false)} className="px-6 py-2 border border-white/20 rounded-xl text-xs font-black uppercase hover:bg-white/5">Cancel</button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Period filter */}
+      <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5 w-fit">
+        {[['all', 'All Time'], ['today', 'Today'], ['week', 'This Week'], ['month', 'This Month']].map(([val, label]) => (
+          <button key={val} onClick={() => setPeriod(val)}
+            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${period === val ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{label}</button>
+        ))}
+      </div>
+
+      {msg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{msg}</p>}
+
+      {/* NET PROFIT / LOSS Banner — styled like screenshot */}
+      <div className={`rounded-3xl border p-8 relative overflow-hidden ${isProfit ? 'bg-green-900/40 border-green-700/40' : 'bg-red-900/40 border-red-700/40'}`}>
+        <div className="absolute inset-0 opacity-10"
+          style={{ background: isProfit ? 'radial-gradient(circle at 80% 50%, #22c55e, transparent 60%)'  : 'radial-gradient(circle at 80% 50%, #ef4444, transparent 60%)' }} />
+        <p className="text-[11px] text-text-muted font-black uppercase tracking-widest mb-3">
+          NET {isProfit ? 'PROFIT' : 'LOSS'} · {period === 'all' ? 'ALL TIME' : period === 'today' ? 'TODAY' : period === 'week' ? 'THIS WEEK' : 'THIS MONTH'}
+        </p>
+        <p className={`text-7xl font-black tracking-tight ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
+          {isProfit ? '+' : ''}₹{Math.abs(netProfit).toFixed(0)}
+        </p>
+        <div className="flex items-center gap-3 mt-3">
+          <p className={`text-sm font-bold ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
+            {profitMargin.toFixed(1)}% profit margin
+          </p>
+          <span className={`text-xs font-black px-3 py-1 rounded-full border ${isProfit ? 'bg-green-500/20 border-green-500/40 text-green-400' : 'bg-red-500/20 border-red-500/40 text-red-400'}`}>
+            {isProfit ? '📈 Healthy' : '📉 Loss'}
+          </span>
+        </div>
+        {/* Wastage deducted notice */}
+        {wasteLoss > 0 && (
+          <p className="text-[10px] text-text-muted mt-2 font-bold">
+            Includes ₹{wasteLoss.toFixed(0)} wastage deducted
+          </p>
+        )}
+        <div className={`absolute right-6 top-1/2 -translate-y-1/2 w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg ${isProfit ? 'bg-green-500' : 'bg-red-500'}`}>
+          {isProfit ? <TrendingUp size={28} className="text-white" /> : <TrendingDown size={28} className="text-white" />}
+        </div>
+      </div>
+
+      {/* KPI Cards — 4 cards matching screenshot colors */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Revenue (Orders) — green */}
+        <div className="bg-green-900/30 border border-green-700/30 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp size={13} className="text-green-400" />
+            <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">Revenue (Orders)</p>
+          </div>
+          <p className="text-3xl font-black text-green-400">₹{revenue.toFixed(0)}</p>
+          <p className="text-[10px] text-text-muted mt-1">{paidOrders.length} paid orders</p>
+        </div>
+        {/* Total Expenses — red */}
+        <div className="bg-red-900/30 border border-red-700/30 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingDown size={13} className="text-red-400" />
+            <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">Total Expenses</p>
+          </div>
+          <p className="text-3xl font-black text-red-400">₹{totalExpenses.toFixed(0)}</p>
+          <p className="text-[10px] text-text-muted mt-1">{filteredBudget.filter(e => e.type === 'expense').length} entries</p>
+        </div>
+        {/* Other Income — blue */}
+        <div className="bg-blue-900/30 border border-blue-700/30 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <DollarSign size={13} className="text-blue-400" />
+            <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">Other Income</p>
+          </div>
+          <p className="text-3xl font-black text-blue-400">₹{otherIncome.toFixed(0)}</p>
+          <p className="text-[10px] text-text-muted mt-1">{filteredBudget.filter(e => e.type === 'income').length} entries</p>
+        </div>
+        {/* Avg Order Value — amber */}
+        <div className="bg-amber-900/30 border border-amber-700/30 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <BarChart3 size={13} className="text-amber-400" />
+            <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">Avg Order Value</p>
+          </div>
+          <p className="text-3xl font-black text-amber-400">₹{avgOrderValue.toFixed(0)}</p>
+          <p className="text-[10px] text-text-muted mt-1">per paid order</p>
+        </div>
+      </div>
+
+      {/* Wastage Card — always visible, deducted from profit */}
+      <div className={`rounded-2xl border p-5 flex items-center justify-between gap-4 ${wasteLoss > 0 ? 'bg-orange-900/30 border-orange-700/30' : 'bg-white/5 border-white/10'}`}>
+        <div className="flex items-center gap-4">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${wasteLoss > 0 ? 'bg-orange-500/20' : 'bg-white/10'}`}>
+            <Trash2 size={18} className={wasteLoss > 0 ? 'text-orange-400' : 'text-text-muted'} />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white">Wastage Losses</p>
+            <p className="text-xs text-text-muted mt-0.5">
+              {filteredWaste.length} waste entries · Automatically deducted from net profit
+            </p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className={`text-2xl font-black ${wasteLoss > 0 ? 'text-orange-400' : 'text-text-muted'}`}>
+            {wasteLoss > 0 ? '-' : ''}₹{wasteLoss.toFixed(0)}
+          </p>
+          {wasteLoss === 0 && <p className="text-[10px] text-text-muted">No waste logged</p>}
+        </div>
+      </div>
+
+      {/* Revenue Last 7 Days Chart */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+        <h4 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
+          <BarChart3 size={18} className="text-primary" />Revenue — Last 7 Days
+        </h4>
+        <div className="flex items-end gap-2" style={{ height: '120px' }}>
+          {last7.map((d, i) => (
+            <div key={i} className="flex-1 flex flex-col items-center gap-1">
+              {d.rev > 0 && <p className="text-[9px] text-text-muted font-bold">₹{d.rev.toFixed(0)}</p>}
+              <div className="w-full bg-white/5 rounded-t-lg flex-1 relative overflow-hidden">
+                <div className="absolute bottom-0 left-0 right-0 bg-primary rounded-t-lg transition-all duration-700"
+                  style={{ height: `${(d.rev / maxRev) * 100}%` }} />
+              </div>
+              <p className="text-[9px] text-text-muted font-bold uppercase">{d.day}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Profit Breakdown Table */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
+        <div className="p-5 border-b border-white/10">
+          <h4 className="text-base font-bold text-white flex items-center gap-2"><DollarSign size={16} className="text-primary" />Profit & Loss Breakdown</h4>
+        </div>
+        <div className="p-5 space-y-3">
+          {[
+            { label: 'Revenue from Orders', value: revenue, positive: true },
+            { label: 'Other Income (Budget)', value: otherIncome, positive: true },
+            { label: 'Total Expenses (Budget)', value: -totalExpenses, positive: totalExpenses === 0 },
+            { label: 'Wastage Losses', value: -wasteLoss, positive: wasteLoss === 0 },
+          ].map(({ label, value, positive }) => (
+            <div key={label} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+              <p className="text-sm text-text-muted font-bold">{label}</p>
+              <p className={`font-black text-base ${positive ? 'text-green-400' : 'text-red-400'}`}>
+                {value >= 0 ? '+' : ''}₹{Math.abs(value).toFixed(0)}
+              </p>
+            </div>
+          ))}
+          <div className="flex items-center justify-between pt-3 border-t-2 border-white/20">
+            <p className="text-base font-black text-white">Net {isProfit ? 'Profit' : 'Loss'}</p>
+            <p className={`font-black text-xl ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
+              {isProfit ? '+' : ''}₹{Math.abs(netProfit).toFixed(0)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Budget Entries Table */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
+        <div className="p-5 border-b border-white/10 flex items-center justify-between">
+          <h4 className="text-base font-bold text-white flex items-center gap-2"><FileText size={16} className="text-primary" />Budget Entries</h4>
+          <span className="text-xs text-text-muted">{filteredBudget.length} entries</span>
+        </div>
+        {filteredBudget.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/5">
+                  {['Date', 'Label', 'Type', 'Amount'].map(h => (
+                    <th key={h} className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">{h}</th>
+                  ))}
+                  <th className="p-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredBudget.map(e => (
+                  <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
+                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                    <td className="p-3 text-white font-bold">{e.label}</td>
+                    <td className="p-3">
+                      <span className={`text-[10px] px-2 py-1 rounded-full font-black uppercase ${e.type === 'expense' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{e.type}</span>
+                    </td>
+                    <td className={`p-3 font-black ${e.type === 'expense' ? 'text-red-400' : 'text-green-400'}`}>{e.type === 'expense' ? '-' : '+'}₹{e.amount.toFixed(0)}</td>
+                    <td className="p-3">
+                      <button onClick={() => deleteBudget(e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="py-12 text-center text-text-muted">
+            <DollarSign size={32} className="mx-auto mb-3 opacity-20" />
+            <p className="font-bold text-sm uppercase tracking-widest">No budget entries yet</p>
+            <p className="text-xs mt-1">Add expenses or other income using the button above</p>
+          </div>
+        )}
+      </div>
+
+      {/* Revenue from Paid Orders */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
+        <div className="p-5 border-b border-white/10">
+          <h4 className="text-base font-bold text-white flex items-center gap-2"><TrendingUp size={16} className="text-green-400" />Revenue from Orders</h4>
+          <p className="text-xs text-text-muted mt-1">{paidOrders.length} paid orders · ₹{revenue.toFixed(0)} total</p>
+        </div>
+        {paidOrders.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/5">
+                  {['Order', 'Table', 'Items', 'Amount'].map(h => (
+                    <th key={h} className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {paidOrders.slice(0, 20).map(o => (
+                  <tr key={o._id || o.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
+                    <td className="p-3 text-white font-bold text-xs">{o.order_number || `#${(o._id || o.id)?.slice(-5).toUpperCase()}`}</td>
+                    <td className="p-3 text-text-muted text-xs">Table {o.table_number || 'Takeaway'}</td>
+                    <td className="p-3 text-text-muted text-xs">{(o.items || []).length} items</td>
+                    <td className="p-3 text-green-400 font-black">₹{(o.total || 0).toFixed(0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="py-8 text-center text-text-muted">
+            <p className="text-sm">No paid orders in this period</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ══════════════════════════════════════════════════════════════════════════════
 //  MAIN DASHBOARD
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2518,8 +2977,8 @@ const Dashboard = () => {
     kitchen: 'My Kitchen', menu: 'Menu Master', tables: 'Table Status',
     reservations: 'Reservations', feedback: 'Feedback Box',
     announcements: 'Announcements', shifts: 'Shift Logs',
-    staffmgmt: 'Staff Management', my_orders: 'My Orders',
-    chef_orders: 'Order History', staff: 'My Profile',
+    staffmgmt: 'Staff Management', finance: 'Finance Center',
+    my_orders: 'My Orders', chef_orders: 'Order History', staff: 'My Profile',
   };
 
   useEffect(() => {
@@ -2650,6 +3109,13 @@ const Dashboard = () => {
             {activeTab === 'staffmgmt' && isAdmin && (
               <MotionDiv key="staffmgmt" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <StaffManagement currentUserRole={user.role} />
+              </MotionDiv>
+            )}
+
+            {/* FINANCE CENTER */}
+            {activeTab === 'finance' && isAdmin && (
+              <MotionDiv key="finance" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <FinanceCenter orders={orders} />
               </MotionDiv>
             )}
 

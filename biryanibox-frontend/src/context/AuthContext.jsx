@@ -4,15 +4,18 @@ import { authAPI } from '../services/api';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('bb_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('bb_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('bb_token');
-    if (token && !user) {
+    if (token) {
+      // Always refresh from /me to get full _id and latest loyalty_points
       authAPI.me().then(res => {
         const u = normalizeUser(res.data);
         setUser(u);
@@ -20,27 +23,32 @@ export const AuthProvider = ({ children }) => {
       }).catch(() => {
         localStorage.removeItem('bb_token');
         localStorage.removeItem('bb_user');
+        setUser(null);
       });
     }
   }, []);
 
-  const normalizeUser = (data) => ({
-    id: data._id,
-    _id: data._id,
-    name: data.name,
-    role: data.role,
-    email: data.email,
-    phone: data.phone,
-    avatar: data.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
-    avatar_url: data.avatar_url,
-    loyaltyPoints: data.loyalty_points || 0,
-    loyalty_points: data.loyalty_points || 0,
-    orderCount: data.order_count || 0,
-    vehicleType: data.vehicle_type,
-    rating: data.driver_rating,
-    deliveries: data.delivery_count || 0,
-    is_active: data.is_active,
-  });
+  // Handles both login response shape (id) and /me response shape (_id)
+  const normalizeUser = (data) => {
+    const id = data._id || data.id;
+    return {
+      id,
+      _id: id,
+      name: data.name,
+      role: data.role,
+      email: data.email,
+      phone: data.phone,
+      avatar: data.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(data.name || 'user')}`,
+      avatar_url: data.avatar_url,
+      loyaltyPoints: data.loyalty_points || 0,
+      loyalty_points: data.loyalty_points || 0,
+      orderCount: data.order_count || 0,
+      vehicleType: data.vehicle_type,
+      rating: data.driver_rating,
+      deliveries: data.delivery_count || 0,
+      is_active: data.is_active,
+    };
+  };
 
   const login = async (emailOrRole, password) => {
     setLoading(true);
@@ -51,6 +59,14 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('bb_token', res.token);
       localStorage.setItem('bb_user', JSON.stringify(u));
       setUser(u);
+
+      // Fetch full profile in background to ensure _id is correct
+      authAPI.me().then(meRes => {
+        const fullUser = normalizeUser(meRes.data);
+        setUser(fullUser);
+        localStorage.setItem('bb_user', JSON.stringify(fullUser));
+      }).catch(() => {});
+
       return { success: true, user: u };
     } catch (err) {
       setError(err.message);
@@ -69,6 +85,13 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('bb_token', res.token);
       localStorage.setItem('bb_user', JSON.stringify(u));
       setUser(u);
+
+      authAPI.me().then(meRes => {
+        const fullUser = normalizeUser(meRes.data);
+        setUser(fullUser);
+        localStorage.setItem('bb_user', JSON.stringify(fullUser));
+      }).catch(() => {});
+
       return { success: true, user: u };
     } catch (err) {
       setError(err.message);

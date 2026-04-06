@@ -58,6 +58,7 @@ export const ordersAPI = {
   rate:              (id, body)    => request(`/orders/${id}/rating`, { method: 'PATCH', body: JSON.stringify(body) }),
   delete:            (id)          => request(`/orders/${id}`,        { method: 'DELETE' }),
   financials:        ()            => request('/orders/financials'),
+  // FIX: history now fetches by customerId — requires valid _id (not undefined)
   history:           (customerId)  => request(`/orders/history/${customerId}`),
   captainOrders:     (captainId, period) => request(`/orders/my-captain-orders/${captainId}?period=${period}`),
   chefOrders:        (chefId, period)    => request(`/orders/my-chef-orders/${chefId}?period=${period}`),
@@ -126,14 +127,12 @@ export const shiftsAPI = {
 
 // ── ANNOUNCEMENTS ─────────────────────────────────────────────────
 export const announcementsAPI = {
-  getAll:   ()          => request('/announcements'),
-  getPublic: ()         => fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000/api') + '/announcements', {
-    headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('bb_token') ? { 'Authorization': 'Bearer ' + localStorage.getItem('bb_token') } : {}) }
-  }).then(r => r.json()),
-  getAllAdmin: ()        => request('/announcements/all'),
-  create:   (body)      => request('/announcements',        { method: 'POST',  body: JSON.stringify(body) }),
-  update:   (id, body)  => request(`/announcements/${id}`,  { method: 'PUT',   body: JSON.stringify(body) }),
-  delete:   (id)        => request(`/announcements/${id}`,  { method: 'DELETE' }),
+  getAll:     ()          => request('/announcements'),
+  getPublic:  ()          => request('/announcements'),
+  getAllAdmin: ()          => request('/announcements/all'),
+  create:     (body)      => request('/announcements',        { method: 'POST',  body: JSON.stringify(body) }),
+  update:     (id, body)  => request(`/announcements/${id}`,  { method: 'PUT',   body: JSON.stringify(body) }),
+  delete:     (id)        => request(`/announcements/${id}`,  { method: 'DELETE' }),
 };
 
 // ── FEEDBACK ──────────────────────────────────────────────────────
@@ -171,17 +170,22 @@ export const giftCardsAPI = {
 
 // ── ADDRESSES ─────────────────────────────────────────────────────
 export const addressesAPI = {
-  getAll:     ()     => request('/addresses'),
-  create:     (body) => request('/addresses',     { method: 'POST',  body: JSON.stringify(body) }),
-  setDefault: (id)   => request(`/addresses/${id}/default`, { method: 'PATCH' }),
-  update:     (id, body) => request(`/addresses/${id}`, { method: 'PUT',   body: JSON.stringify(body) }),
-  delete:     (id)   => request(`/addresses/${id}`, { method: 'DELETE' }),
+  getAll:     ()         => request('/addresses'),
+  create:     (body)     => request('/addresses',              { method: 'POST',  body: JSON.stringify(body) }),
+  setDefault: (id)       => request(`/addresses/${id}/default`,{ method: 'PATCH' }),
+  update:     (id, body) => request(`/addresses/${id}`,        { method: 'PUT',   body: JSON.stringify(body) }),
+  delete:     (id)       => request(`/addresses/${id}`,        { method: 'DELETE' }),
 };
 
 // ── LOYALTY ───────────────────────────────────────────────────────
 export const loyaltyAPI = {
-  getTransactions: (userId) => request(`/loyalty/${userId}`),
-  redeem:          (body)   => request('/loyalty/redeem', { method: 'POST', body: JSON.stringify(body) }),
+  // GET /api/loyalty/:userId  → { success, data: { points, current_tier, next_tier } }
+  getTransactions:     (userId) => request(`/loyalty/${userId}`),
+  // GET /api/loyalty/:userId/transactions → { success, data: [...txns] }
+  // FIX: was previously a raw fetch() call inside OrderHistory — now properly uses request()
+  getUserTransactions: (userId) => request(`/loyalty/${userId}/transactions`),
+  redeem:              (body)   => request('/loyalty/redeem', { method: 'POST', body: JSON.stringify(body) }),
+  earn:                (body)   => request('/loyalty/earn',   { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // ── NORMALIZE HELPERS ─────────────────────────────────────────────

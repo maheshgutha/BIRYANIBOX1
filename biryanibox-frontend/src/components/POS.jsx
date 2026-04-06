@@ -155,8 +155,13 @@ const POS = ({ user }) => {
     ? menu.filter((item) => (item.category || '').toLowerCase() === activeTab.toLowerCase())
     : menu;
 
+  const isItemAvailable = (item) => {
+    const avail = item.is_available ?? item.available ?? true;
+    return avail && (item.stock == null || item.stock > 0);
+  };
+
   const addToCart = (item) => {
-    if (!item.available || item.stock <= 0) return;
+    if (!isItemAvailable(item)) return;
     const existing = cart.find((i) => i.id === item.id);
     if (existing) {
       setCart(cart.map((i) => (i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i)));
@@ -332,43 +337,64 @@ const POS = ({ user }) => {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             <AnimatePresence mode="wait">
-              {filteredMenu.map((item) => (
-                <MotionDiv
-                  key={item.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  whileHover={{ y: -8 }}
-                  onClick={() => addToCart(item)}
-                  className="bg-secondary/40 rounded-3xl border border-white/5 p-5 cursor-pointer group transition-all hover:border-primary/50 flex flex-col gap-4 relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-primary filter blur-3xl opacity-0 group-hover:opacity-10 transition-opacity" />
-                  <div className="flex-1">
-                    <div className="aspect-video bg-bg-main rounded-2xl mb-4 overflow-hidden relative border border-white/5">
-                      <img
-                        src={getCategoryImage(item)}
-                        alt={item.name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      />
-                      <div className="absolute bottom-2 right-2 bg-primary/20 backdrop-blur-md text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/20">
-                        {item.category}
+              {filteredMenu.map((item) => {
+                const available = isItemAvailable(item);
+                return (
+                  <MotionDiv
+                    key={item.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    whileHover={available ? { y: -8 } : {}}
+                    onClick={() => available && addToCart(item)}
+                    className={`rounded-3xl border p-5 flex flex-col gap-4 relative overflow-hidden transition-all
+                      ${available
+                        ? 'bg-secondary/40 border-white/5 cursor-pointer group hover:border-primary/50'
+                        : 'bg-white/3 border-white/5 cursor-not-allowed opacity-60'}`}
+                  >
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-primary filter blur-3xl opacity-0 group-hover:opacity-10 transition-opacity" />
+
+                    {/* UNAVAILABLE overlay badge */}
+                    {!available && (
+                      <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                        <span className="bg-red-600/90 text-white text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full border border-red-500/50 shadow-lg rotate-[-10deg]">
+                          Unavailable
+                        </span>
                       </div>
+                    )}
+
+                    <div className="flex-1">
+                      <div className="aspect-video bg-bg-main rounded-2xl mb-4 overflow-hidden relative border border-white/5">
+                        <img
+                          src={getCategoryImage(item)}
+                          alt={item.name}
+                          className={`w-full h-full object-cover transition-transform duration-500 ${available ? 'group-hover:scale-110' : 'grayscale'}`}
+                        />
+                        <div className="absolute bottom-2 right-2 bg-primary/20 backdrop-blur-md text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/20">
+                          {item.category}
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className={`text-lg font-bold leading-tight ${available ? 'text-white group-hover:text-primary transition-colors' : 'text-white/50'}`}>
+                          {item.name}
+                        </h3>
+                        <p className="text-lg font-bold text-white">${item.price}</p>
+                      </div>
+                      <p className="text-xs text-text-muted leading-relaxed line-clamp-2">
+                        Authentic recipe crafted with premium saffron and heritage spices.
+                      </p>
                     </div>
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="text-lg font-bold text-white group-hover:text-primary transition-colors leading-tight">
-                        {item.name}
-                      </h3>
-                      <p className="text-lg font-bold text-white">${item.price}</p>
-                    </div>
-                    <p className="text-xs text-text-muted leading-relaxed line-clamp-2">
-                      Authentic recipe crafted with premium saffron and heritage spices.
-                    </p>
-                  </div>
-                  <button className="w-full py-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center gap-2 group-hover:bg-primary group-hover:text-white group-hover:border-primary transition-all text-xs font-bold uppercase tracking-widest">
-                    <Plus size={16} /> Add to Box
-                  </button>
-                </MotionDiv>
-              ))}
+                    <button
+                      disabled={!available}
+                      className={`w-full py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-widest transition-all
+                        ${available
+                          ? 'bg-white/5 border border-white/10 group-hover:bg-primary group-hover:text-white group-hover:border-primary'
+                          : 'bg-red-500/10 border border-red-500/20 text-red-400 cursor-not-allowed'}`}>
+                      {available ? <><Plus size={16} /> Add to Box</> : 'Currently Unavailable'}
+                    </button>
+                  </MotionDiv>
+                );
+              })}
             </AnimatePresence>
           </div>
         </div>

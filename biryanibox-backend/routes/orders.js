@@ -12,13 +12,10 @@ const { protect, authorize } = require('../middleware/auth');
 
 // Role-based status transition rules
 const STATUS_PERMISSIONS = {
-  // Chef can only move: pending → start_cooking → completed_cooking
   start_cooking:     ['chef'],
   completed_cooking: ['chef'],
-  // Captain, manager, owner can move: completed_cooking → served → paid
   served:            ['captain', 'manager', 'owner'],
   paid:              ['captain', 'manager', 'owner'],
-  // Cancellation - manager & owner
   cancelled:         ['manager', 'owner'],
 };
 
@@ -52,24 +49,37 @@ router.get('/financials', protect, authorize('owner', 'manager'), async (req, re
   } catch (err) { next(err); }
 });
 
-// GET /api/orders/history/:customerId
+// GET /api/orders/history/:customerId  — FIXED: populates item names properly
 router.get('/history/:customerId', protect, async (req, res, next) => {
   try {
-    const orders = await Order.find({ customer_id: req.params.customerId }).sort({ created_at: -1 });
+    const orders = await Order.find({ customer_id: req.params.customerId })
+      .sort({ created_at: -1 });
     const result = [];
     for (const o of orders) {
-      const items = await OrderItem.find({ order_id: o._id });
-      result.push({ ...o.toObject(), items });
+      const items = await OrderItem.find({ order_id: o._id })
+        .populate('menu_item_id', 'name image_url category price');
+      result.push({
+        ...o.toObject(),
+        items: items.map(item => ({
+          _id: item._id,
+          menu_item_id: item.menu_item_id?._id || item.menu_item_id,
+          name: item.name || item.menu_item_id?.name || 'Item',
+          category: item.menu_item_id?.category || '',
+          image_url: item.menu_item_id?.image_url || '',
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          price: item.unit_price,
+        })),
+      });
     }
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
 
 // GET /api/orders/my-captain-orders/:captainId
-// Returns orders where this captain marked as served (captain_id is set on served action)
 router.get('/my-captain-orders/:captainId', protect, async (req, res, next) => {
   try {
-    const { period } = req.query; // today, weekly, monthly
+    const { period } = req.query;
     let dateFilter = {};
     const now = new Date();
     if (period === 'today') {
@@ -81,7 +91,6 @@ router.get('/my-captain-orders/:captainId', protect, async (req, res, next) => {
       const monthAgo = new Date(); monthAgo.setMonth(monthAgo.getMonth() - 1);
       dateFilter = { created_at: { $gte: monthAgo } };
     }
-    // FIX: Query by captain_id AND filter to served/paid status only (these are orders captain served)
     const orders = await Order.find({
       captain_id: req.params.captainId,
       status: { $in: ['served', 'paid'] },
@@ -107,7 +116,6 @@ router.get('/my-captain-orders/:captainId', protect, async (req, res, next) => {
 });
 
 // GET /api/orders/my-chef-orders/:chefId
-// Returns orders where this chef cooked (chef_id is set when chef starts/completes cooking)
 router.get('/my-chef-orders/:chefId', protect, async (req, res, next) => {
   try {
     const { period } = req.query;
@@ -122,8 +130,6 @@ router.get('/my-chef-orders/:chefId', protect, async (req, res, next) => {
       const monthAgo = new Date(); monthAgo.setMonth(monthAgo.getMonth() - 1);
       dateFilter = { created_at: { $gte: monthAgo } };
     }
-    // FIX: chef_id is now set on both start_cooking AND completed_cooking,
-    // so history will correctly show all orders this chef handled
     const orders = await Order.find({
       chef_id: req.params.chefId,
       status: { $in: ['completed_cooking', 'served', 'paid'] },
@@ -152,17 +158,16 @@ router.get('/my-chef-orders/:chefId', protect, async (req, res, next) => {
 // GET /api/orders
 router.get('/', protect, async (req, res, next) => {
   try {
-    const { status, table, captain_id, chef_id, order_type, period } = req.query;
+    const { status, table, captain_id, chef_id, order_type, period, customer_id } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (table) filter.table_number = table;
     if (captain_id) filter.captain_id = captain_id;
     if (chef_id) filter.chef_id = chef_id;
     if (order_type) filter.order_type = order_type;
+    if (customer_id) filter.customer_id = customer_id;
 
-    // Period filter
     if (period) {
-      const now = new Date();
       if (period === 'today') {
         filter.created_at = { $gte: new Date(new Date().setHours(0, 0, 0, 0)) };
       } else if (period === 'weekly') {
@@ -217,7 +222,8 @@ router.get('/:id', protect, async (req, res, next) => {
       .populate('captain_id', 'name')
       .populate('chef_id', 'name');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    const items = await OrderItem.find({ order_id: order._id }).populate('menu_item_id', 'name image_url');
+    const items = await OrderItem.find({ order_id: order._id })
+      .populate('menu_item_id', 'name image_url category');
     res.json({ success: true, data: { ...order.toObject(), items } });
   } catch (err) { next(err); }
 });
@@ -228,7 +234,6 @@ router.post('/', protect, async (req, res, next) => {
     const { items, table_number, captain_id, order_type, payment_method, customer_id, spiceness } = req.body;
     if (!items || !items.length) return res.status(400).json({ success: false, message: 'No items in order' });
 
-    // Stock check
     for (const item of items) {
       const menuItem = await MenuItem.findById(item.menu_item_id);
       if (!menuItem) return res.status(404).json({ success: false, message: `Menu item ${item.menu_item_id} not found` });
@@ -241,7 +246,6 @@ router.post('/', protect, async (req, res, next) => {
       }
     }
 
-    // Calculate total
     let total = 0;
     const orderItems = [];
     for (const item of items) {
@@ -259,7 +263,6 @@ router.post('/', protect, async (req, res, next) => {
 
     const createdItems = await OrderItem.insertMany(orderItems.map(i => ({ ...i, order_id: order._id })));
 
-    // Deduct ingredients
     for (const item of items) {
       const recipes = await MenuRecipe.find({ menu_item_id: item.menu_item_id });
       for (const r of recipes) {
@@ -269,7 +272,6 @@ router.post('/', protect, async (req, res, next) => {
 
     if (customer_id) await User.findByIdAndUpdate(customer_id, { $inc: { order_count: 1 } });
 
-    // Notify chefs & managers about new order
     const notifyRoles = ['owner', 'manager', 'chef'];
     const toNotify = await User.find({ role: { $in: notifyRoles }, is_active: true });
     for (const u of toNotify) {
@@ -283,13 +285,12 @@ router.post('/', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// PATCH /api/orders/:id/status — role-enforced
+// PATCH /api/orders/:id/status
 router.patch('/:id/status', protect, async (req, res, next) => {
   try {
     const { status } = req.body;
     const userRole = req.user.role;
 
-    // Check if this status is allowed for the role
     const allowedRoles = STATUS_PERMISSIONS[status];
     if (!allowedRoles) {
       return res.status(400).json({ success: false, message: `Invalid status: ${status}` });
@@ -304,7 +305,6 @@ router.patch('/:id/status', protect, async (req, res, next) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-    // Check valid transition
     const validNext = VALID_TRANSITIONS[order.status] || [];
     if (!validNext.includes(status)) {
       return res.status(400).json({
@@ -313,7 +313,6 @@ router.patch('/:id/status', protect, async (req, res, next) => {
       });
     }
 
-    // Timestamp tracking
     const timeUpdate = {};
     if (status === 'start_cooking')    timeUpdate.cooking_started_at   = new Date();
     if (status === 'completed_cooking') timeUpdate.cooking_completed_at = new Date();
@@ -322,21 +321,15 @@ router.patch('/:id/status', protect, async (req, res, next) => {
 
     const updateData = { status, ...timeUpdate };
 
-    // FIX 1: Assign chef_id on BOTH start_cooking AND completed_cooking
-    // This ensures chef history is populated even if chef_id was missed on start
     if ((status === 'start_cooking' || status === 'completed_cooking') && userRole === 'chef') {
       updateData.chef_id = req.user._id;
     }
-
-    // FIX 2: Assign captain_id when captain marks order as served
-    // This populates "My Orders" in captain's dashboard
     if (status === 'served' && (userRole === 'captain' || userRole === 'manager' || userRole === 'owner')) {
       updateData.captain_id = req.user._id;
     }
 
     const updated = await Order.findByIdAndUpdate(req.params.id, updateData, { new: true });
 
-    // Award loyalty points when paid
     if (status === 'paid' && updated.customer_id) {
       const points = Math.floor(updated.total);
       await User.findByIdAndUpdate(updated.customer_id, { $inc: { loyalty_points: points } });
@@ -346,7 +339,6 @@ router.patch('/:id/status', protect, async (req, res, next) => {
       });
     }
 
-    // Notify captain when cooking completed
     if (status === 'completed_cooking') {
       const captains = await User.find({ role: { $in: ['captain', 'manager', 'owner'] }, is_active: true });
       for (const c of captains) {

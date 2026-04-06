@@ -1,6 +1,3 @@
-// biryanibox-backend/models/Announcement.js
-// REPLACE ENTIRE FILE — the original contained route code instead of a schema
-
 const mongoose = require('mongoose');
 
 const AnnouncementSchema = new mongoose.Schema({
@@ -10,12 +7,17 @@ const AnnouncementSchema = new mongoose.Schema({
   target_roles:   [{ type: String, enum: ['owner', 'manager', 'captain', 'chef', 'customer'] }],
   is_active:      { type: Boolean, default: true },
   created_by:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  // Calendar / scheduling support
+  // Scheduling
   scheduled_date: { type: Date, default: null },
   is_scheduled:   { type: Boolean, default: false },
-  // Festival offer
+  // Festival
   is_festival:    { type: Boolean, default: false },
   festival_name:  { type: String, default: '' },
+  // Offer / discount
+  has_offer:      { type: Boolean, default: false },
+  offer_discount: { type: Number, default: 0 },      // percentage e.g. 20
+  offer_scope:    { type: String, enum: ['all', 'selected'], default: 'all' },
+  offer_items:    [{ type: String }],                // array of menu item _ids, or ['ALL']
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('Announcement', AnnouncementSchema);

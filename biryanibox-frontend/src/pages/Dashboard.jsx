@@ -303,7 +303,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors }) =>
                   ))}
                   {items.length > 2 && <p className="text-primary">+{items.length - 2} more</p>}
                 </td>
-                <td className="px-4 py-3 font-bold text-primary">₹{total.toFixed(0)}</td>
+                <td className="px-4 py-3 font-bold text-primary">${total.toFixed(0)}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-1 rounded-full uppercase border font-bold text-[9px] ${statusColors[ord.status] || ''}`}>
                     {STATUS_LABELS[ord.status] || ord.status}
@@ -610,7 +610,7 @@ const ChefOrderHistory = ({ user, allOrders }) => {
                     <span className="text-white/80">{item.name}</span>
                     <div className="flex items-center gap-3">
                       <span className="text-primary font-black">×{item.quantity}</span>
-                      <span className="text-text-muted text-[10px]">₹{((item.unit_price || item.price || 0) * item.quantity).toFixed(0)}</span>
+                      <span className="text-text-muted text-[10px]">${((item.unit_price || item.price || 0) * item.quantity).toFixed(0)}</span>
                     </div>
                   </div>
                 ))}
@@ -687,7 +687,7 @@ const CaptainMyOrders = ({ user, allOrders }) => {
           { label: 'Total Orders',  value: stats.total,                  color: 'text-white',      bg: 'bg-white/5' },
           { label: 'Served',        value: stats.served,                 color: 'text-blue-400',   bg: 'bg-blue-500/10' },
           { label: 'Items Served',  value: stats.items,                  color: 'text-orange-400', bg: 'bg-orange-500/10' },
-          { label: 'Revenue',       value: `₹${stats.revenue.toFixed(0)}`, color: 'text-primary', bg: 'bg-primary/10' },
+          { label: 'Revenue',       value: `$${stats.revenue.toFixed(0)}`, color: 'text-primary', bg: 'bg-primary/10' },
         ].map((s, i) => (
           <div key={i} className={`${s.bg} rounded-2xl border border-white/5 p-5 text-center`}>
             <p className={`text-3xl font-black ${s.color}`}>{s.value}</p>
@@ -720,7 +720,7 @@ const CaptainMyOrders = ({ user, allOrders }) => {
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-black text-primary">₹{(ord.total || 0).toFixed(0)}</p>
+                    <p className="text-sm font-black text-primary">${(ord.total || 0).toFixed(0)}</p>
                     <p className="text-[10px] text-text-muted">{new Date(ord.created_at || ord.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                   </div>
                   <ChevronDown size={16} className={`text-text-muted transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} />
@@ -738,13 +738,13 @@ const CaptainMyOrders = ({ user, allOrders }) => {
                             <span className="text-white/80">{item.name}</span>
                             <div className="flex items-center gap-4">
                               <span className="text-primary font-black">×{item.quantity}</span>
-                              <span className="text-text-muted text-xs">₹{((item.unit_price || item.price || 0) * item.quantity).toFixed(0)}</span>
+                              <span className="text-text-muted text-xs">${((item.unit_price || item.price || 0) * item.quantity).toFixed(0)}</span>
                             </div>
                           </div>
                         ))}
                         <div className="flex justify-between pt-2 font-black text-sm">
                           <span className="text-text-muted">Total</span>
-                          <span className="text-primary">₹{(ord.total || 0).toFixed(0)}</span>
+                          <span className="text-primary">${(ord.total || 0).toFixed(0)}</span>
                         </div>
                         {ord.spiceness && (
                           <p className="text-[10px] text-text-muted">Spice: {ord.spiceness}</p>
@@ -1654,7 +1654,7 @@ const StaffManagement = ({ currentUserRole }) => {
                         { label: 'Date of Birth', field: 'dob', type: 'date' },
                         { label: 'Joining Date', field: 'joining_date', type: 'date' },
                         { label: 'City', field: 'city', type: 'text' },
-                        { label: 'Salary (₹)', field: 'salary', type: 'number' },
+                        { label: 'Salary ($)', field: 'salary', type: 'number' },
                       ].map(({ label, field, type }) => (
                         <div key={field}>
                           <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{label}</label>
@@ -1919,14 +1919,17 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                 </div>
               </div>
               <div className="flex items-center gap-3 mb-3">
-                <p className="text-lg font-black text-primary">₹{(item.price || 0).toFixed(0)}</p>
+                <p className="text-lg font-black text-primary">${(item.price || 0).toFixed(0)}</p>
                 <span className="text-sm">{spiceLabel[item.spice_level] || '🌶'}</span>
                 {item.description && <p className="text-xs text-text-muted mb-3 line-clamp-2">{item.description}</p>}
               </div>
               {item.description && <p className="text-xs text-text-muted mb-3 line-clamp-2">{item.description}</p>}
-              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+              <div className="flex gap-2 mt-1">
                 <button onClick={() => toggleMenuAvailability(id)}
-                  className="flex-1 py-2 bg-white/10 border border-white/15 text-xs font-black uppercase rounded-lg hover:border-primary hover:text-primary transition-all">
+                  className={`flex-1 py-2 border text-xs font-black uppercase rounded-lg transition-all
+                    ${avail
+                      ? 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white'
+                      : 'bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white'}`}>
                   {avail ? 'Disable' : 'Enable'}
                 </button>
                 <button onClick={() => openEdit(item)}
@@ -1977,7 +1980,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                     </select>
                   </div>
                   <div>
-                    <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Price (₹) *</label>
+                    <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Price ($) *</label>
                     <input required type="number" min="0" step="0.5" value={form.price} onChange={sf('price')} placeholder="0.00"
                       className="w-full bg-[#252525] border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
                   </div>
@@ -2118,7 +2121,7 @@ const WasteManagement = ({ ingredients }) => {
         </div>
         <div className="bg-orange-500/10 border border-orange-500/20 rounded-2xl p-4 text-center">
           <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">Total Loss</p>
-          <p className="text-2xl font-black text-orange-400">₹{totalCost.toFixed(0)}</p>
+          <p className="text-2xl font-black text-orange-400">${totalCost.toFixed(0)}</p>
         </div>
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-4 text-center">
           <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">This Week</p>
@@ -2144,7 +2147,7 @@ const WasteManagement = ({ ingredients }) => {
                   <option value="">Select {wasteType === 'ingredients' ? 'ingredient' : 'item'}...</option>
                   {wasteType === 'ingredients'
                     ? ingredients.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} ({i.unit})</option>)
-                    : menuItems.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} (₹{i.price})</option>)
+                    : menuItems.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} (${i.price})</option>)
                   }
                 </select>
               </div>
@@ -2185,7 +2188,7 @@ const WasteManagement = ({ ingredients }) => {
                   <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Ingredient</th>
                   <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Qty</th>
                   <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Reason</th>
-                  <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Loss (₹)</th>
+                  <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Loss ($)</th>
                   <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Notes</th>
                   <th className="p-3"></th>
                 </tr>
@@ -2197,7 +2200,7 @@ const WasteManagement = ({ ingredients }) => {
                     <td className="p-3 text-white font-bold">{e.ingredient_name}</td>
                     <td className="p-3 text-white">{e.quantity} {e.unit}</td>
                     <td className="p-3"><span className="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-300 capitalize">{e.reason.replace('_',' ')}</span></td>
-                    <td className="p-3 text-orange-400 font-bold">₹{(e.cost||0).toFixed(2)}</td>
+                    <td className="p-3 text-orange-400 font-bold">${(e.cost||0).toFixed(2)}</td>
                     <td className="p-3 text-text-muted text-xs">{e.notes || '—'}</td>
                     <td className="p-3">
                       <button onClick={() => handleDelete(e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
@@ -2277,7 +2280,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
     { l: 'Name', f: 'name', t: 'text' },
     { l: 'Stock', f: 'stock', t: 'number' },
     { l: 'Min Stock (Reorder Level)', f: 'min_stock', t: 'number' },
-    { l: 'Unit Cost (₹)', f: 'unit_cost', t: 'number' },
+    { l: 'Unit Cost ($)', f: 'unit_cost', t: 'number' },
   ];
 
   return (
@@ -2404,7 +2407,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
                 </div>
                 <div className="bg-white/5 rounded-xl p-2 text-center">
                   <p className="text-[9px] text-text-muted uppercase tracking-widest mb-0.5">Cost</p>
-                  <p className="text-sm font-black text-primary">₹{cost}</p>
+                  <p className="text-sm font-black text-primary">${cost}</p>
                 </div>
               </div>
 
@@ -2487,9 +2490,9 @@ const Overview = ({ orders, financial }) => {
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         {[
-          { label: 'Total Revenue', value: `₹${analytics.totalRev.toFixed(0)}`, icon: DollarSign, color: 'text-green-400', bg: 'bg-green-500/10' },
+          { label: 'Total Revenue', value: `$${analytics.totalRev.toFixed(0)}`, icon: DollarSign, color: 'text-green-400', bg: 'bg-green-500/10' },
           { label: 'Active Orders', value: analytics.totalOrders, icon: Flame, color: 'text-primary', bg: 'bg-primary/10' },
-          { label: 'Avg Order Value', value: `₹${analytics.avgVal.toFixed(0)}`, icon: TrendingUp, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+          { label: 'Avg Order Value', value: `$${analytics.avgVal.toFixed(0)}`, icon: TrendingUp, color: 'text-blue-400', bg: 'bg-blue-500/10' },
           { label: 'Paid Orders', value: analytics.paidCount, icon: CheckCircle2, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
         ].map((stat, idx) => (
           <MotionDiv key={idx} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.08 }}
@@ -2544,9 +2547,9 @@ const Overview = ({ orders, financial }) => {
               <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><DollarSign size={18} className="text-primary" />Financial KPIs</h4>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Revenue', value: `₹${financial.revenue.toFixed(0)}`, color: 'text-green-400' },
-                  { label: 'COGS', value: `₹${financial.costOfGoods.toFixed(0)}`, color: 'text-red-400' },
-                  { label: 'Gross Profit', value: `₹${financial.profit.toFixed(0)}`, color: 'text-blue-400' },
+                  { label: 'Revenue', value: `$${financial.revenue.toFixed(0)}`, color: 'text-green-400' },
+                  { label: 'COGS', value: `$${financial.costOfGoods.toFixed(0)}`, color: 'text-red-400' },
+                  { label: 'Gross Profit', value: `$${financial.profit.toFixed(0)}`, color: 'text-blue-400' },
                   { label: 'Margin', value: `${financial.profitMargin.toFixed(1)}%`, color: 'text-primary' },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="bg-white/5 rounded-xl p-3">
@@ -2625,7 +2628,7 @@ const FinanceCenter = ({ orders }) => {
     saveBudget([entry, ...budgetEntries]);
     setBudgetForm({ label: '', amount: '', type: 'expense', date: new Date().toISOString().slice(0, 10) });
     setShowBudgetForm(false);
-    flash(`${budgetForm.type === 'expense' ? 'Expense' : 'Income'} added: ₹${budgetForm.amount}`);
+    flash(`${budgetForm.type === 'expense' ? 'Expense' : 'Income'} added: $${budgetForm.amount}`);
   };
 
   const deleteBudget = (id) => saveBudget(budgetEntries.filter(e => e.id !== id));
@@ -2699,7 +2702,7 @@ const FinanceCenter = ({ orders }) => {
                   className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary" />
               </div>
               <div>
-                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Amount (₹) *</label>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Amount ($) *</label>
                 <input required type="number" min="0.01" step="0.01" value={budgetForm.amount} onChange={e => setBudgetForm(p => ({ ...p, amount: e.target.value }))}
                   className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary" />
               </div>
@@ -2744,7 +2747,7 @@ const FinanceCenter = ({ orders }) => {
           NET {isProfit ? 'PROFIT' : 'LOSS'} · {period === 'all' ? 'ALL TIME' : period === 'today' ? 'TODAY' : period === 'week' ? 'THIS WEEK' : 'THIS MONTH'}
         </p>
         <p className={`text-7xl font-black tracking-tight ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
-          {isProfit ? '+' : ''}₹{Math.abs(netProfit).toFixed(0)}
+          {isProfit ? '+' : ''}${Math.abs(netProfit).toFixed(0)}
         </p>
         <div className="flex items-center gap-3 mt-3">
           <p className={`text-sm font-bold ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
@@ -2757,7 +2760,7 @@ const FinanceCenter = ({ orders }) => {
         {/* Wastage deducted notice */}
         {wasteLoss > 0 && (
           <p className="text-[10px] text-text-muted mt-2 font-bold">
-            Includes ₹{wasteLoss.toFixed(0)} wastage deducted
+            Includes ${wasteLoss.toFixed(0)} wastage deducted
           </p>
         )}
         <div className={`absolute right-6 top-1/2 -translate-y-1/2 w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg ${isProfit ? 'bg-green-500' : 'bg-red-500'}`}>
@@ -2773,7 +2776,7 @@ const FinanceCenter = ({ orders }) => {
             <TrendingUp size={13} className="text-green-400" />
             <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">Revenue (Orders)</p>
           </div>
-          <p className="text-3xl font-black text-green-400">₹{revenue.toFixed(0)}</p>
+          <p className="text-3xl font-black text-green-400">${revenue.toFixed(0)}</p>
           <p className="text-[10px] text-text-muted mt-1">{paidOrders.length} paid orders</p>
         </div>
         {/* Total Expenses — red */}
@@ -2782,7 +2785,7 @@ const FinanceCenter = ({ orders }) => {
             <TrendingDown size={13} className="text-red-400" />
             <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">Total Expenses</p>
           </div>
-          <p className="text-3xl font-black text-red-400">₹{totalExpenses.toFixed(0)}</p>
+          <p className="text-3xl font-black text-red-400">${totalExpenses.toFixed(0)}</p>
           <p className="text-[10px] text-text-muted mt-1">{filteredBudget.filter(e => e.type === 'expense').length} entries</p>
         </div>
         {/* Other Income — blue */}
@@ -2791,7 +2794,7 @@ const FinanceCenter = ({ orders }) => {
             <DollarSign size={13} className="text-blue-400" />
             <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">Other Income</p>
           </div>
-          <p className="text-3xl font-black text-blue-400">₹{otherIncome.toFixed(0)}</p>
+          <p className="text-3xl font-black text-blue-400">${otherIncome.toFixed(0)}</p>
           <p className="text-[10px] text-text-muted mt-1">{filteredBudget.filter(e => e.type === 'income').length} entries</p>
         </div>
         {/* Avg Order Value — amber */}
@@ -2800,7 +2803,7 @@ const FinanceCenter = ({ orders }) => {
             <BarChart3 size={13} className="text-amber-400" />
             <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">Avg Order Value</p>
           </div>
-          <p className="text-3xl font-black text-amber-400">₹{avgOrderValue.toFixed(0)}</p>
+          <p className="text-3xl font-black text-amber-400">${avgOrderValue.toFixed(0)}</p>
           <p className="text-[10px] text-text-muted mt-1">per paid order</p>
         </div>
       </div>
@@ -2820,7 +2823,7 @@ const FinanceCenter = ({ orders }) => {
         </div>
         <div className="text-right">
           <p className={`text-2xl font-black ${wasteLoss > 0 ? 'text-orange-400' : 'text-text-muted'}`}>
-            {wasteLoss > 0 ? '-' : ''}₹{wasteLoss.toFixed(0)}
+            {wasteLoss > 0 ? '-' : ''}${wasteLoss.toFixed(0)}
           </p>
           {wasteLoss === 0 && <p className="text-[10px] text-text-muted">No waste logged</p>}
         </div>
@@ -2834,7 +2837,7 @@ const FinanceCenter = ({ orders }) => {
         <div className="flex items-end gap-2" style={{ height: '120px' }}>
           {last7.map((d, i) => (
             <div key={i} className="flex-1 flex flex-col items-center gap-1">
-              {d.rev > 0 && <p className="text-[9px] text-text-muted font-bold">₹{d.rev.toFixed(0)}</p>}
+              {d.rev > 0 && <p className="text-[9px] text-text-muted font-bold">${d.rev.toFixed(0)}</p>}
               <div className="w-full bg-white/5 rounded-t-lg flex-1 relative overflow-hidden">
                 <div className="absolute bottom-0 left-0 right-0 bg-primary rounded-t-lg transition-all duration-700"
                   style={{ height: `${(d.rev / maxRev) * 100}%` }} />
@@ -2860,14 +2863,14 @@ const FinanceCenter = ({ orders }) => {
             <div key={label} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
               <p className="text-sm text-text-muted font-bold">{label}</p>
               <p className={`font-black text-base ${positive ? 'text-green-400' : 'text-red-400'}`}>
-                {value >= 0 ? '+' : ''}₹{Math.abs(value).toFixed(0)}
+                {value >= 0 ? '+' : ''}${Math.abs(value).toFixed(0)}
               </p>
             </div>
           ))}
           <div className="flex items-center justify-between pt-3 border-t-2 border-white/20">
             <p className="text-base font-black text-white">Net {isProfit ? 'Profit' : 'Loss'}</p>
             <p className={`font-black text-xl ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
-              {isProfit ? '+' : ''}₹{Math.abs(netProfit).toFixed(0)}
+              {isProfit ? '+' : ''}${Math.abs(netProfit).toFixed(0)}
             </p>
           </div>
         </div>
@@ -2898,7 +2901,7 @@ const FinanceCenter = ({ orders }) => {
                     <td className="p-3">
                       <span className={`text-[10px] px-2 py-1 rounded-full font-black uppercase ${e.type === 'expense' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{e.type}</span>
                     </td>
-                    <td className={`p-3 font-black ${e.type === 'expense' ? 'text-red-400' : 'text-green-400'}`}>{e.type === 'expense' ? '-' : '+'}₹{e.amount.toFixed(0)}</td>
+                    <td className={`p-3 font-black ${e.type === 'expense' ? 'text-red-400' : 'text-green-400'}`}>{e.type === 'expense' ? '-' : '+'}${e.amount.toFixed(0)}</td>
                     <td className="p-3">
                       <button onClick={() => deleteBudget(e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
                     </td>
@@ -2920,7 +2923,7 @@ const FinanceCenter = ({ orders }) => {
       <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
         <div className="p-5 border-b border-white/10">
           <h4 className="text-base font-bold text-white flex items-center gap-2"><TrendingUp size={16} className="text-green-400" />Revenue from Orders</h4>
-          <p className="text-xs text-text-muted mt-1">{paidOrders.length} paid orders · ₹{revenue.toFixed(0)} total</p>
+          <p className="text-xs text-text-muted mt-1">{paidOrders.length} paid orders · ${revenue.toFixed(0)} total</p>
         </div>
         {paidOrders.length > 0 ? (
           <div className="overflow-x-auto">
@@ -2938,7 +2941,7 @@ const FinanceCenter = ({ orders }) => {
                     <td className="p-3 text-white font-bold text-xs">{o.order_number || `#${(o._id || o.id)?.slice(-5).toUpperCase()}`}</td>
                     <td className="p-3 text-text-muted text-xs">Table {o.table_number || 'Takeaway'}</td>
                     <td className="p-3 text-text-muted text-xs">{(o.items || []).length} items</td>
-                    <td className="p-3 text-green-400 font-black">₹{(o.total || 0).toFixed(0)}</td>
+                    <td className="p-3 text-green-400 font-black">${(o.total || 0).toFixed(0)}</td>
                   </tr>
                 ))}
               </tbody>

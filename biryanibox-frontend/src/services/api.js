@@ -238,3 +238,10 @@ export const normalizeIngredient = (ing) => ({
   unit_cost: ing.unit_cost,
   needsReorder: ing.stock < ing.min_stock,
 });
+// ── LEAVES ────────────────────────────────────────────────────────
+export const leavesAPI = {
+  getAll:       (params = '') => request(`/leaves${params}`),
+  apply:        (body)        => request('/leaves',              { method: 'POST',  body: JSON.stringify(body) }),
+  updateStatus: (id, body)    => request(`/leaves/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) }),
+  delete:       (id)          => request(`/leaves/${id}`,        { method: 'DELETE' }),
+};

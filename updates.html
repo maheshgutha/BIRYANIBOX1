@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Biryani Box — Feature Roadmap & Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --primary: #e8890c;
+    --primary-dim: rgba(232,137,12,0.12);
+    --primary-glow: rgba(232,137,12,0.25);
+    --bg: #090909;
+    --bg2: #111111;
+    --bg3: #181818;
+    --bg4: #1f1f1f;
+    --border: rgba(255,255,255,0.07);
+    --border-hover: rgba(255,255,255,0.14);
+    --text: #f0f0f0;
+    --text2: #999;
+    --text3: #555;
+    --radius: 14px;
+    --radius-sm: 8px;
+    --cat-kitchen: #3b82f6;
+    --cat-customer: #10b981;
+    --cat-business: #a855f7;
+    --cat-staff: #f59e0b;
+    --cat-revenue: #ef4444;
+    --cat-new: #06b6d4;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* HEADER */
+  header {
+    position: relative;
+    padding: 80px 40px 60px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .header-glow {
+    position: absolute;
+    top: -100px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 400px;
+    background: radial-gradient(ellipse, rgba(232,137,12,0.15) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .logo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 16px 6px 10px;
+    background: var(--primary-dim);
+    border: 1px solid rgba(232,137,12,0.3);
+    border-radius: 30px;
+    margin-bottom: 28px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--primary);
+  }
+  .logo-badge span {
+    width: 22px; height: 22px;
+    background: var(--primary);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+  }
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(36px, 6vw, 72px);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.6) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  h1 em {
+    font-style: normal;
+    -webkit-text-fill-color: var(--primary);
+  }
+  .header-sub {
+    font-size: 16px;
+    color: var(--text2);
+    max-width: 580px;
+    margin: 0 auto 48px;
+    line-height: 1.7;
+  }
+
+  /* STATS ROW */
+  .stats-row {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 0;
+  }
+  .stat-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .stat-chip strong { color: var(--primary); font-family: 'DM Mono', monospace; font-size: 16px; }
+
+  /* MAIN CONTAINER */
+  .container {
+    max-width: 1300px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* DIVIDER */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 60px 0;
+  }
+
+  /* SECTION HEADINGS */
+  .section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .section-head h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .section-head p { font-size: 14px; color: var(--text2); margin-top: 4px; }
+
+  /* SEARCH + FILTERS */
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+    max-width: 320px;
+  }
+  .search-wrap svg {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text3);
+    pointer-events: none;
+  }
+  .search-input {
+    width: 100%;
+    padding: 10px 14px 10px 40px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 13px;
+    font-family: 'DM Sans', sans-serif;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .search-input:focus { border-color: rgba(232,137,12,0.5); }
+  .search-input::placeholder { color: var(--text3); }
+  .filter-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    padding: 8px 14px;
+    border-radius: 30px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text2);
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all .15s;
+    letter-spacing: .02em;
+    white-space: nowrap;
+  }
+  .filter-btn:hover { border-color: var(--border-hover); color: var(--text); }
+  .filter-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #000;
+    font-weight: 600;
+  }
+  .filter-btn.cat-kitchen.active  { background: var(--cat-kitchen); border-color: var(--cat-kitchen); }
+  .filter-btn.cat-customer.active { background: var(--cat-customer); border-color: var(--cat-customer); }
+  .filter-btn.cat-business.active { background: var(--cat-business); border-color: var(--cat-business); }
+  .filter-btn.cat-staff.active    { background: var(--cat-staff); border-color: var(--cat-staff); color: #000; }
+  .filter-btn.cat-revenue.active  { background: var(--cat-revenue); border-color: var(--cat-revenue); }
+  .filter-btn.cat-new.active      { background: var(--cat-new); border-color: var(--cat-new); color: #000; }
+
+  /* COUNT */
+  .result-count { font-size: 13px; color: var(--text3); margin-bottom: 18px; }
+  .result-count strong { color: var(--text2); }
+
+  /* FEATURE GRID */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(370px, 1fr));
+    gap: 14px;
+  }
+
+  /* FEATURE CARD */
+  .feature-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .2s, transform .15s;
+    position: relative;
+  }
+  .feature-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+  .feature-card.expanded { border-color: rgba(232,137,12,0.35); }
+  .feature-card.hidden { display: none; }
+
+  /* Card accent line */
+  .card-accent {
+    height: 3px;
+    width: 100%;
+  }
+
+  .card-body { padding: 20px 22px 18px; }
+  .card-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .card-meta { flex: 1; min-width: 0; }
+  .card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+  .card-subtitle {
+    font-size: 12.5px;
+    color: var(--text2);
+    line-height: 1.4;
+  }
+  .card-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .badge {
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .badge-cat {
+    background: rgba(255,255,255,0.06);
+    color: var(--text2);
+    border: 1px solid var(--border);
+  }
+  .badge-impact-high { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.2); }
+  .badge-impact-med  { background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.2); }
+  .badge-effort-easy { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.2); }
+  .badge-effort-med  { background: rgba(255,255,255,0.05); color: var(--text2); border: 1px solid var(--border); }
+  .badge-effort-hard { background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+  .badge-new { background: rgba(6,182,212,0.12); color: #22d3ee; border: 1px solid rgba(6,182,212,0.25); }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 12px;
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .toggle-hint { font-size: 11px; color: var(--text3); }
+  .toggle-arrow {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--bg4);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .2s, background .2s;
+    color: var(--text2);
+    font-size: 11px;
+  }
+  .feature-card.expanded .toggle-arrow {
+    transform: rotate(180deg);
+    background: var(--primary-dim);
+    border-color: rgba(232,137,12,0.3);
+    color: var(--primary);
+  }
+
+  /* Expanded detail panel */
+  .card-detail {
+    display: none;
+    padding: 0 22px 20px;
+    border-top: 1px solid var(--border);
+    background: rgba(0,0,0,0.25);
+  }
+  .feature-card.expanded .card-detail { display: block; }
+
+  .detail-section { padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .detail-section:last-child { border-bottom: none; padding-bottom: 0; }
+  .detail-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 6px;
+  }
+  .detail-text {
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.65;
+  }
+  .detail-text strong { color: var(--text); font-weight: 500; }
+  .code-tag {
+    display: inline-block;
+    background: var(--bg4);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--primary);
+    margin: 2px 2px;
+    white-space: nowrap;
+  }
+  .reuse-tags { margin-top: 6px; line-height: 2; }
+  .impl-list {
+    list-style: none;
+    margin-top: 6px;
+    space-y: 4px;
+  }
+  .impl-list li {
+    font-size: 12.5px;
+    color: var(--text2);
+    padding: 4px 0;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    line-height: 1.5;
+  }
+  .impl-list li::before {
+    content: '—';
+    color: var(--primary);
+    font-weight: 600;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .stack-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .stack-tag {
+    font-size: 11px;
+    padding: 3px 10px;
+    background: var(--bg4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text2);
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ROADMAP */
+  .roadmap { margin-top: 24px; }
+  .phase-row {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 0;
+    position: relative;
+  }
+  .phase-row + .phase-row { margin-top: 0; }
+  .phase-timeline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 8px;
+  }
+  .phase-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--primary);
+    background: var(--bg);
+    flex-shrink: 0;
+    z-index: 1;
+  }
+  .phase-line {
+    width: 2px;
+    flex: 1;
+    background: linear-gradient(to bottom, var(--border-hover), var(--border));
+    min-height: 40px;
+  }
+  .phase-label {
+    text-align: right;
+    padding-right: 24px;
+    padding-top: 4px;
+  }
+  .phase-label .phase-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+  .phase-label .phase-time {
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 3px;
+  }
+  .phase-content {
+    padding: 0 0 40px 24px;
+    border-left: 2px solid var(--border);
+    margin-left: -1px;
+  }
+  .phase-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    padding-top: 2px;
+  }
+  .phase-desc { font-size: 13px; color: var(--text2); line-height: 1.6; margin-bottom: 12px; }
+  .phase-features {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+  .phase-feat {
+    font-size: 11.5px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text2);
+  }
+
+  /* IMPACT MATRIX */
+  .matrix-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    position: relative;
+  }
+  .matrix-grid {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    grid-template-rows: 1fr 28px;
+    gap: 8px;
+    height: 420px;
+  }
+  .matrix-y-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text3);
+    text-align: center;
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .matrix-x-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text3);
+    text-align: center;
+    grid-row: 2;
+    grid-column: 2;
+  }
+  .matrix-inner {
+    position: relative;
+    grid-row: 1;
+    grid-column: 2;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .quadrant-label {
+    position: absolute;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .q-do    { top: 8px; right: 12px; color: #10b981; }
+  .q-plan  { bottom: 8px; right: 12px; color: #3b82f6; }
+  .q-fill  { top: 8px; left: 12px; color: #f59e0b; }
+  .q-skip  { bottom: 8px; left: 12px; color: var(--text3); }
+  .matrix-dividers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .matrix-dividers::before {
+    content: '';
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 1px;
+    background: var(--border);
+  }
+  .matrix-dividers::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 0; right: 0;
+    height: 1px;
+    background: var(--border);
+  }
+  .matrix-dot {
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    transition: transform .15s;
+  }
+  .matrix-dot:hover { transform: translate(-50%, -50%) scale(1.8); z-index: 5; }
+  .matrix-tooltip {
+    position: absolute;
+    background: var(--bg);
+    border: 1px solid var(--border-hover);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--text);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity .15s;
+    left: 50%; top: -36px;
+    transform: translateX(-50%);
+  }
+  .matrix-dot:hover .matrix-tooltip { opacity: 1; }
+
+  /* FOOTER */
+  footer {
+    margin-top: 80px;
+    padding: 40px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  .footer-logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 10px;
+  }
+  .footer-logo span { color: var(--primary); }
+  footer p { font-size: 13px; color: var(--text3); }
+
+  /* ANIMATE IN */
+  .feature-card {
+    opacity: 0;
+    transform: translateY(12px);
+    animation: fadeUp .4s ease forwards;
+  }
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* CAT COLORS */
+  .cat-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
+  }
+  .legend-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text2);
+  }
+
+  @media (max-width: 600px) {
+    header { padding: 50px 20px 40px; }
+    .container { padding: 0 16px; }
+    .features-grid { grid-template-columns: 1fr; }
+    .phase-row { grid-template-columns: 100px 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="header-glow"></div>
+  <div class="logo-badge">
+    <span>🍛</span>
+    Biryani Box · Feature Roadmap 2025
+  </div>
+  <h1>Build what <em>others don't.</em></h1>
+  <p class="header-sub">
+    A deep-analysis feature roadmap for the Biryani Box restaurant management system — 25 modules, each built on your existing codebase.
+  </p>
+  <div class="stats-row">
+    <div class="stat-chip"><strong>24</strong> features planned</div>
+    <div class="stat-chip"><strong>6</strong> categories</div>
+    <div class="stat-chip"><strong>10</strong> new additions</div>
+    <div class="stat-chip"><strong>4</strong> build phases</div>
+    <div class="stat-chip"><strong>23</strong> existing models to reuse</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- FEATURE GRID -->
+  <div class="divider"></div>
+  <div class="section-head">
+    <div>
+      <h2>All 24 Features</h2>
+      <p>Click any card to see what to build, why it matters, and exactly which existing code to reuse.</p>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend-row">
+    <div class="legend-item"><span class="cat-dot" style="background:var(--cat-kitchen)"></span>Kitchen ops</div>
+    <div class="legend-item"><span class="cat-dot" style="background:var(--cat-customer)"></span>Customer UX</div>
+    <div class="legend-item"><span class="cat-dot" style="background:var(--cat-business)"></span>Business intelligence</div>
+    <div class="legend-item"><span class="cat-dot" style="background:var(--cat-staff)"></span>Staff management</div>
+    <div class="legend-item"><span class="cat-dot" style="background:var(--cat-revenue)"></span>Revenue tools</div>
+    <div class="legend-item"><span class="cat-dot" style="background:var(--cat-new)"></span>New suggestions</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="search-wrap">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input class="search-input" id="searchInput" type="text" placeholder="Search features…" oninput="applyFilters()">
+    </div>
+    <div class="filter-tabs">
+      <button class="filter-btn active" data-cat="all" onclick="setFilter('all',this)">All 24</button>
+      <button class="filter-btn cat-kitchen" data-cat="kitchen" onclick="setFilter('kitchen',this)">Kitchen ops</button>
+      <button class="filter-btn cat-customer" data-cat="customer" onclick="setFilter('customer',this)">Customer UX</button>
+      <button class="filter-btn cat-business" data-cat="business" onclick="setFilter('business',this)">Business intel</button>
+      <button class="filter-btn cat-staff" data-cat="staff" onclick="setFilter('staff',this)">Staff mgmt</button>
+      <button class="filter-btn cat-revenue" data-cat="revenue" onclick="setFilter('revenue',this)">Revenue tools</button>
+      <button class="filter-btn cat-new" data-cat="new" onclick="setFilter('new',this)">New ideas</button>
+    </div>
+  </div>
+
+  <div class="result-count" id="resultCount"><strong>24</strong> features shown</div>
+  <div class="features-grid" id="featuresGrid"></div>
+
+  <!-- IMPACT MATRIX -->
+  <div class="divider"></div>
+  <div class="section-head">
+    <div>
+      <h2>Impact vs Effort Matrix</h2>
+      <p>Top-right quadrant = build first. Hover each dot for the feature name.</p>
+    </div>
+  </div>
+  <div class="matrix-wrap">
+    <div class="matrix-grid">
+      <div class="matrix-y-label">Impact ↑</div>
+      <div class="matrix-inner" id="matrixInner">
+        <div class="matrix-dividers"></div>
+        <span class="quadrant-label q-do">Do first</span>
+        <span class="quadrant-label q-plan">Plan carefully</span>
+        <span class="quadrant-label q-fill">Quick wins</span>
+        <span class="quadrant-label q-skip">Deprioritise</span>
+      </div>
+      <div></div>
+      <div class="matrix-x-label">Effort → (Easy to Hard)</div>
+    </div>
+  </div>
+
+  <!-- ROADMAP -->
+  <div class="divider"></div>
+  <div class="section-head">
+    <div>
+      <h2>Implementation Roadmap</h2>
+      <p>4 phases structured to deliver value at every stage, not just at the end.</p>
+    </div>
+  </div>
+  <div class="roadmap">
+    <div class="phase-row">
+      <div>
+        <div class="phase-label">
+          <div class="phase-num">Phase 1</div>
+          <div class="phase-time">Week 1–2</div>
+        </div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title" style="color:#10b981">Quick Wins — Immediate Value</div>
+        <p class="phase-desc">These features reuse 90%+ of existing code. Each can be built in 1–2 days. Deliver visible impact before touching any complex architecture.</p>
+        <div class="phase-features">
+          <span class="phase-feat" style="border-color:rgba(16,185,129,0.3);color:#34d399">Coupon / Promo Codes</span>
+          <span class="phase-feat" style="border-color:rgba(16,185,129,0.3);color:#34d399">Payroll Calculator</span>
+          <span class="phase-feat" style="border-color:rgba(16,185,129,0.3);color:#34d399">Staff Leaderboard</span>
+          <span class="phase-feat" style="border-color:rgba(16,185,129,0.3);color:#34d399">Daily Business Report</span>
+          <span class="phase-feat" style="border-color:rgba(16,185,129,0.3);color:#34d399">Birthday CRM</span>
+          <span class="phase-feat" style="border-color:rgba(16,185,129,0.3);color:#34d399">Predictive Stock Alerts</span>
+        </div>
+      </div>
+    </div>
+    <div class="phase-row">
+      <div>
+        <div class="phase-label">
+          <div class="phase-num">Phase 2</div>
+          <div class="phase-time">Week 3–5</div>
+        </div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title" style="color:#3b82f6">Operational Upgrades</div>
+        <p class="phase-desc">Medium-complexity features that transform daily operations. Build on the stable foundation from Phase 1.</p>
+        <div class="phase-features">
+          <span class="phase-feat" style="border-color:rgba(59,130,246,0.3);color:#60a5fa">Kitchen Display System</span>
+          <span class="phase-feat" style="border-color:rgba(59,130,246,0.3);color:#60a5fa">Menu Engineering Matrix</span>
+          <span class="phase-feat" style="border-color:rgba(59,130,246,0.3);color:#60a5fa">Visual Floor Map</span>
+          <span class="phase-feat" style="border-color:rgba(59,130,246,0.3);color:#60a5fa">Customer RFM Segments</span>
+          <span class="phase-feat" style="border-color:rgba(59,130,246,0.3);color:#60a5fa">Allergen & Nutrition</span>
+          <span class="phase-feat" style="border-color:rgba(59,130,246,0.3);color:#60a5fa">Table Waitlist</span>
+          <span class="phase-feat" style="border-color:rgba(59,130,246,0.3);color:#60a5fa">Customer Feedback QR</span>
+        </div>
+      </div>
+    </div>
+    <div class="phase-row">
+      <div>
+        <div class="phase-label">
+          <div class="phase-num">Phase 3</div>
+          <div class="phase-time">Week 6–9</div>
+        </div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title" style="color:#a855f7">Strategic Features</div>
+        <p class="phase-desc">Differentiating features that take the system from "management tool" to "competitive advantage." These require new models and routes.</p>
+        <div class="phase-features">
+          <span class="phase-feat" style="border-color:rgba(168,85,247,0.3);color:#c084fc">QR Code Table Ordering</span>
+          <span class="phase-feat" style="border-color:rgba(168,85,247,0.3);color:#c084fc">Supplier & Purchase Orders</span>
+          <span class="phase-feat" style="border-color:rgba(168,85,247,0.3);color:#c084fc">Menu Add-ons & Modifiers</span>
+          <span class="phase-feat" style="border-color:rgba(168,85,247,0.3);color:#c084fc">Digital Menu Board</span>
+          <span class="phase-feat" style="border-color:rgba(168,85,247,0.3);color:#c084fc">GST & Invoice Reports</span>
+          <span class="phase-feat" style="border-color:rgba(168,85,247,0.3);color:#c084fc">Smart Staff Scheduling</span>
+          <span class="phase-feat" style="border-color:rgba(168,85,247,0.3);color:#c084fc">Tip Distribution</span>
+        </div>
+      </div>
+    </div>
+    <div class="phase-row">
+      <div>
+        <div class="phase-label">
+          <div class="phase-num">Phase 4</div>
+          <div class="phase-time">Week 10–14</div>
+        </div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title" style="color:#e8890c">Crown Jewels</div>
+        <p class="phase-desc">Complex builds that fundamentally transform the product. Require integration with external services or deep architectural changes.</p>
+        <div class="phase-features">
+          <span class="phase-feat" style="border-color:rgba(232,137,12,0.3);color:#e8890c">WhatsApp Notifications</span>
+          <span class="phase-feat" style="border-color:rgba(232,137,12,0.3);color:#e8890c">Multi-language Menu</span>
+          <span class="phase-feat" style="border-color:rgba(232,137,12,0.3);color:#e8890c">Split Billing</span>
+          <span class="phase-feat" style="border-color:rgba(232,137,12,0.3);color:#e8890c">Recipe Version History</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<footer>
+  <div class="footer-logo"><span>BIRYANI</span> BOX</div>
+  <p>Feature Analysis · 24 modules · Built on your existing 23-model, 40-route backend · React + Vite + Express + MongoDB</p>
+  <p style="margin-top:8px">All features designed to reuse maximum existing code. Estimated total build: 10–14 weeks solo.</p>
+</footer>
+
+<script>
+const CAT_COLORS = {
+  kitchen:  '#3b82f6',
+  customer: '#10b981',
+  business: '#a855f7',
+  staff:    '#f59e0b',
+  revenue:  '#ef4444',
+  new:      '#06b6d4',
+};
+const CAT_LABELS = {
+  kitchen: 'Kitchen Ops', customer: 'Customer UX', business: 'Business Intel',
+  staff: 'Staff Mgmt', revenue: 'Revenue Tools', new: 'New Idea',
+};
+
+const features = [
+  // ── KITCHEN ──────────────────────────────────────────────────────────────
+  {
+    id: 1, cat: 'kitchen', icon: '🖥', title: 'Kitchen Display System (KDS)',
+    sub: 'TV-mode fullscreen order queue for the kitchen wall',
+    impact: 'high', effort: 'easy', phase: 1,
+    matrixX: 15, matrixY: 88,
+    what: 'A dedicated /kds route optimised for a wall-mounted TV screen. Shows all active orders as large cards with live countdown timers. Oldest orders pulse red. Auto-refreshes every 5 seconds using polling. No login needed — just open on a kitchen device. Sound alert (Web Audio API) when a new order arrives.',
+    why: 'Every modern restaurant has a KDS. Right now your chefs must look at the same dashboard as the manager. A dedicated screen eliminates errors and speeds up cook times. Enterprise-grade appearance at near-zero cost.',
+    reuse: ['GET /api/orders', 'OrderContext live data', 'Status color constants', 'order lifecycle VALID_TRANSITIONS'],
+    toAdd: ['New /kds public route', 'Auto-refresh hook (5s polling)', 'Countdown timer component', 'Web Audio API ping on new order', 'Fullscreen CSS layout'],
+    stack: ['React', 'CSS Grid', 'Web Audio API', 'Polling'],
+  },
+  {
+    id: 2, cat: 'kitchen', icon: '🗺', title: 'Visual Table Floor Map',
+    sub: 'Drag-and-position restaurant layout with live seat status',
+    impact: 'med', effort: 'med', phase: 2,
+    matrixX: 48, matrixY: 60,
+    what: 'A visual canvas showing the restaurant floor. Each table is a colour-coded block: green=available, red=occupied, yellow=reserved, grey=not available. Captains click to change status. Owner gets an edit mode to drag tables into position. Reservation names appear on reserved tables.',
+    why: 'Current table management is a plain list grid. A floor map gives captains spatial context — they know which tables are near the kitchen, which are window seats, which groups are together.',
+    reuse: ['RestaurantTable model', 'GET/PATCH /api/tables', 'Reservation model for overlay', 'TableStatus component logic'],
+    toAdd: ['SVG/canvas floor renderer', 'Drag-to-position editor (owner only)', 'Table click → status change', 'Reservation name overlay', 'Position coords on RestaurantTable model'],
+    stack: ['SVG', 'React DnD', 'MongoDB coords field'],
+  },
+  {
+    id: 3, cat: 'kitchen', icon: '📺', title: 'Digital Menu Board',
+    sub: 'Public TV display: live menu, specials, availability',
+    impact: 'med', effort: 'easy', phase: 3,
+    matrixX: 20, matrixY: 52,
+    what: 'A fullscreen public route /menuboard showing all available items with prices, organised by category. "Sold Out" badge auto-appears when is_available=false. A "Today\'s Special" marquee slot that the manager can fill. Font sizes designed for visibility at 5 metres. Auto-refreshes every 60 seconds.',
+    why: 'Replace paper menus and printed specials boards. Instant updates when something runs out — no more customer disappointment. Professional touch that customers notice.',
+    reuse: ['GET /api/menu', 'is_available field', 'Announcement model for special slot', 'MenuItem categories'],
+    toAdd: ['New /menuboard route', 'Large-text CSS layout', 'Today\'s Special slot from Announcements', '60s auto-refresh', 'QR code to order at bottom'],
+    stack: ['React', 'CSS typography', 'Polling'],
+  },
+
+  // ── CUSTOMER ─────────────────────────────────────────────────────────────
+  {
+    id: 4, cat: 'customer', icon: '📱', title: 'QR Code Table Ordering',
+    sub: 'Customers scan, browse menu, order — no captain needed',
+    impact: 'high', effort: 'med', phase: 3,
+    matrixX: 55, matrixY: 90,
+    what: 'Each table gets a unique QR code URL: /order?table=T3. Customer scans with phone, sees the full live menu, adds items, chooses spice level, submits. The order arrives in the kitchen queue tagged with the table number. Captain gets notified. No app download required — pure web.',
+    why: 'Reduces captain workload by ~40%. Orders come in faster and with fewer errors. Huge differentiator — most local restaurants don\'t have this. Customers expect it post-pandemic.',
+    reuse: ['MenuItem API', 'Order creation endpoint', 'CartContext logic', 'POS order placement', 'RestaurantTable model for table_number'],
+    toAdd: ['Public /order?table= route', 'QR code generation (qrcode.js)', 'Table-tagged order submission', 'Captain notification on new table order', 'Print-ready QR PDF for each table'],
+    stack: ['qrcode.js', 'React', 'Existing order API'],
+  },
+
+  {
+    id: 6, cat: 'customer', icon: '🎂', title: 'Birthday & Anniversary CRM',
+    sub: 'Auto-send personalised offers on special dates',
+    impact: 'med', effort: 'easy', phase: 1,
+    matrixX: 18, matrixY: 58,
+    what: 'Customers save their birthday and anniversary in their profile. A daily server-side check finds who has a special date today → creates a personalised Announcement with an auto-generated coupon code (BDAY-{userId}) sent to them. Admin can configure the default offer (e.g. 15% off).',
+    why: 'Personal touches drive repeat visits more than any discount campaign. Zero infrastructure cost — uses your existing Announcement model and the Coupon module from the revenue section.',
+    reuse: ['User model (add dob, anniversary fields)', 'Announcement model', 'Coupon system (new)', 'GiftCard code generation pattern'],
+    toAdd: ['dob + anniversary fields on User', 'Node-cron daily birthday check', 'Personalised message template', 'Auto-coupon generator', 'Customer profile UI birthday fields'],
+    stack: ['node-cron', 'Existing Announcement', 'Coupon module'],
+  },
+  {
+    id: 7, cat: 'customer', icon: '🌾', title: 'Allergen & Nutrition Tags',
+    sub: 'Allergen badges and calorie counts on every dish',
+    impact: 'med', effort: 'easy', phase: 2,
+    matrixX: 22, matrixY: 55,
+    what: 'Add allergen tags (nuts, gluten, dairy, eggs, shellfish) and calorie count to MenuItem. Show coloured badges on the menu page and on order tickets. Filter menu by allergen-free. Chef sees allergens on the kitchen order card. Helps with compliance and premium positioning.',
+    why: 'Health-conscious customers increasingly filter by this. Regulatory pressure in India is increasing. Simple data fields — the model just needs 3 extra columns.',
+    reuse: ['MenuItem model (add allergens array + calories)', 'Menu API filter system', 'Chef kitchen order card', 'Home page menu display'],
+    toAdd: ['allergens + calories fields on MenuItem', 'Allergen badge components', 'Filter by allergen on menu page', 'Allergen display on order card for chefs', 'Manager UI to set allergens'],
+    stack: ['MongoDB array field', 'React badge components'],
+  },
+  {
+    id: 8, cat: 'customer', icon: '⏳', title: 'Table Waitlist Manager',
+    sub: 'Digital queue when the restaurant is full',
+    impact: 'med', effort: 'med', phase: 2,
+    matrixX: 52, matrixY: 55,
+    what: 'When all tables are occupied, customers can join a digital waitlist (name + phone + party size) from the website or via the captain. When a table becomes available, the system notifies the next in line (in-app notification + optional WhatsApp). Estimated wait time displayed.',
+    why: 'Lost walk-ins are lost revenue. A waitlist converts would-be cancellations into seated guests. Captains currently have no tool for managing this — it\'s all verbal.',
+    reuse: ['RestaurantTable status system', 'Notification model', 'Reservation model as base', 'Captain dashboard table tab'],
+    toAdd: ['Waitlist model (name, phone, party_size, position, status)', 'Public /waitlist join form', 'Captain waitlist view + "seat now" action', 'Table status change → trigger next in queue', 'Wait time estimation'],
+    stack: ['New Waitlist model', 'Notification API', 'Optional WhatsApp'],
+  },
+  {
+    id: 9, cat: 'customer', icon: '⭐', title: 'Customer Feedback QR',
+    sub: 'Post-meal QR → instant star rating + comment',
+    impact: 'med', effort: 'easy', phase: 2,
+    matrixX: 16, matrixY: 60,
+    what: 'A small QR code card on every table and on printed receipts. Links to /feedback?order=:id — a minimal one-page form: 1–5 stars, optional comment, optional dish highlight. Submits to the existing Feedback model. Manager sees it instantly in the Feedback Box.',
+    why: 'Your Feedback model exists but has zero customer touchpoints. Right now feedback only comes from the website contact form. This creates a natural, effortless feedback loop at the moment of peak satisfaction.',
+    reuse: ['Feedback model', 'POST /api/feedback', 'Feedback Box dashboard panel', 'QR generation (from QR table ordering module)'],
+    toAdd: ['Public /feedback?order= route', 'Minimal star-rating UI', 'Auto-link to order via query param', 'QR code card printable design'],
+    stack: ['React', 'Existing Feedback API', 'qrcode.js'],
+  },
+
+  // ── BUSINESS INTELLIGENCE ─────────────────────────────────────────────────
+  {
+    id: 10, cat: 'business', icon: '📊', title: 'Menu Engineering Matrix',
+    sub: 'Star / Plowhouse / Puzzle / Dog profitability analysis',
+    impact: 'high', effort: 'med', phase: 2,
+    matrixX: 50, matrixY: 88,
+    what: 'Plots every dish on a 2D bubble chart: X-axis = popularity (units sold this month from OrderItem), Y-axis = contribution margin (price − ingredient cost using MenuRecipe × unit_cost). Four quadrants: Stars (high pop, high margin) → promote; Plowhorses (high pop, low margin) → reprice; Puzzles (low pop, high margin) → market; Dogs (low pop, low margin) → remove.',
+    why: 'You already have all the data: MenuRecipe with ingredient quantities, Ingredient with unit_cost, OrderItem with quantities sold. This is 100% analytical — no new data collection. Direct, immediate revenue tool. No competitor in this segment has it.',
+    reuse: ['MenuRecipe model', 'Ingredient unit_cost', 'OrderItem aggregation', '/api/dashboard/top-items route', '/api/orders/financials logic'],
+    toAdd: ['Menu engineering backend route (aggregate cost + popularity)', 'Bubble chart component (Chart.js or D3)', 'Quadrant overlay UI', 'Action recommendations per dish', 'Date range filter'],
+    stack: ['MongoDB aggregate', 'Chart.js bubble chart', 'React'],
+  },
+  {
+    id: 11, cat: 'business', icon: '👥', title: 'Customer RFM Segmentation',
+    sub: 'VIP, loyal, at-risk, lost — from real order data',
+    impact: 'high', effort: 'med', phase: 2,
+    matrixX: 52, matrixY: 86,
+    what: 'Groups all customers by Recency (days since last order), Frequency (total orders), Monetary (lifetime spend). Segments: Champions (R↑ F↑ M↑), Loyal (high F), At-Risk (R↓ was Champion), Lost (R very low). Owner sees each segment with count and revenue contribution. Can send targeted Announcements per segment.',
+    why: 'Your Order table has customer_id, total, and created_at. This is pure aggregation — no new data. Enables targeted marketing for the first time. Industry standard in restaurant analytics.',
+    reuse: ['Order model (customer_id, total, created_at)', 'User model', 'Announcement model', 'MongoDB aggregate pipeline'],
+    toAdd: ['/api/dashboard/rfm route (aggregate by user)', 'RFM score calculator', 'Segment labels and thresholds', 'RFM panel in Command Hub', 'Segment → Announcement broadcast'],
+    stack: ['MongoDB $group aggregate', 'React data grid', 'Existing Announcement'],
+  },
+  {
+    id: 12, cat: 'business', icon: '📄', title: 'Automated Daily Business Report',
+    sub: 'One-click PDF: revenue, orders, staff, inventory',
+    impact: 'med', effort: 'easy', phase: 1,
+    matrixX: 14, matrixY: 60,
+    what: 'A "Download Daily Report" button in the owner dashboard generates a PDF snapshot: today\'s revenue + order count + top 5 dishes + low-stock alerts + staff attendance + leave summary. Auto-scheduled option: sends to owner email at midnight. Professional branded layout with Biryani Box header.',
+    why: 'Every data source for this already exists across your dashboard routes. It is pure aggregation and PDF generation. Owners and investors want paper trails. One API call assembles everything.',
+    reuse: ['/api/dashboard/overview', '/api/dashboard/top-items', '/api/dashboard/inventory-alerts', 'ShiftLog model', 'Leave model'],
+    toAdd: ['PDF generation (jsPDF or html2pdf)', 'Report layout template', '"Generate Report" button in owner dashboard', 'Optional: node-cron daily email', 'Date range parameter'],
+    stack: ['jsPDF or html2pdf', 'node-cron (optional)', 'React download button'],
+  },
+  {
+    id: 13, cat: 'business', icon: '📈', title: 'Predictive Stock Depletion',
+    sub: 'Forecast days until each ingredient runs out',
+    impact: 'med', effort: 'easy', phase: 1,
+    matrixX: 18, matrixY: 62,
+    what: 'Calculates 7-day average ingredient consumption: OrderItem quantities × MenuRecipe ingredient quantities. Divides current stock by daily average → "X days until depletion." Shows countdown badges in the Ingredients panel. Critical alert (<3 days) with red badge. Accurate and dynamic versus the fixed min_stock threshold.',
+    why: 'Your current min_stock is a fixed number that never updates. Predictive depletion adapts to actual sales velocity — if it was busy weekend, it recalculates. All data exists: Ingredient, MenuRecipe, OrderItem.',
+    reuse: ['Ingredient model', 'MenuRecipe model', 'OrderItem model', '/api/dashboard/inventory-alerts', 'IngredientManager component'],
+    toAdd: ['Consumption aggregation query (7-day lookback)', 'Depletion ETA calculation (stock ÷ avg_daily)', '"Days left" field on ingredient card', 'Red alert badge for <3 days', 'Sorted by urgency view'],
+    stack: ['MongoDB aggregate', 'React badge components'],
+  },
+  {
+    id: 14, cat: 'business', icon: '🧮', title: 'Food Cost % Calculator',
+    sub: 'Real-time cost percentage per dish and overall',
+    impact: 'high', effort: 'easy', phase: 1,
+    matrixX: 16, matrixY: 84,
+    what: 'For each menu item, calculate: food_cost = sum(ingredient qty × unit_cost) from MenuRecipe. Food cost % = (food_cost ÷ selling_price) × 100. Industry target is 25–35%. Color-code in Menu Master: green (<30%), yellow (30–40%), red (>40%). Show overall restaurant food cost % in Command Hub KPIs.',
+    why: 'You built MenuRecipe exactly for this purpose — ingredient costs per dish are already tracked. No one is using that data. This turns it into a daily operational metric that directly drives profit decisions.',
+    reuse: ['MenuRecipe model', 'Ingredient unit_cost', 'MenuItem price', '/api/recipes route', 'Menu Master component'],
+    toAdd: ['Cost calculation helper (server-side + client-side)', 'Cost % badge on each menu card', 'Color coding (green/yellow/red)', 'Overall food cost % in Command Hub', 'Sort by highest cost % filter'],
+    stack: ['Existing models only', 'React badge components'],
+  },
+  {
+    id: 15, cat: 'business', icon: '🧾', title: 'GST & Invoice Reports',
+    sub: 'GST-compliant tax breakdown and downloadable invoices',
+    impact: 'high', effort: 'med', phase: 3,
+    matrixX: 50, matrixY: 82,
+    what: 'Your checkout route already generates invoice data. Extend it to add Indian GST breakdown: CGST (2.5%) + SGST (2.5%) = 5% total for restaurant. Generate a properly formatted, downloadable PDF invoice per order with GSTIN, HSN code (996331 for restaurant services), party details. Monthly GST summary report for accounting.',
+    why: 'Indian GST compliance is mandatory. Every business needs proper invoices. Your /api/checkout/invoice/:orderId already exists — this just adds the tax math and a professional PDF template.',
+    reuse: ['GET /api/checkout/invoice/:orderId', 'Order + OrderItem models', 'User model for customer details', 'jsPDF (from daily report)'],
+    toAdd: ['CGST/SGST calculation (5% total)', 'GSTIN + HSN code fields (restaurant settings)', 'PDF invoice template with GST table', 'Monthly GST summary route', 'Download button per order in OrderHistory'],
+    stack: ['jsPDF', 'Existing invoice route', 'Tax math'],
+  },
+
+  // ── STAFF MANAGEMENT ──────────────────────────────────────────────────────
+  {
+    id: 16, cat: 'staff', icon: '💰', title: 'Payroll Calculator',
+    sub: 'Monthly salary from shift hours + leave deductions',
+    impact: 'high', effort: 'easy', phase: 1,
+    matrixX: 17, matrixY: 87,
+    what: 'For the selected month: pull each staff member\'s ShiftLog total hours. Calculate hourly rate = salary ÷ (working_days × 8). Deduct unpaid leave days. Apply any manual bonuses/deductions. Generate a printable payslip HTML page. Owner sees a "Run Payroll" button; generates the full month\'s breakdown for all staff.',
+    why: 'User.salary exists. ShiftLogs track exact hours worked. Leave model tracks unpaid days. All the inputs are there — the output (payslip) just doesn\'t exist yet.',
+    reuse: ['User.salary field', 'ShiftLog model (hours)', 'Leave model (unpaid days)', 'Staff Management component', 'Existing /api/shifts route'],
+    toAdd: ['Payroll calculation route (/api/payroll/:month)', 'Payslip PDF template', '"Run Payroll" owner button', 'Bonus/deduction manual override field', 'Payslip download per staff member'],
+    stack: ['Node.js date math', 'jsPDF payslip', 'New /api/payroll route'],
+  },
+  {
+    id: 17, cat: 'staff', icon: '🏆', title: 'Staff Leaderboard',
+    sub: 'Monthly performance rankings with composite score',
+    impact: 'med', effort: 'easy', phase: 1,
+    matrixX: 19, matrixY: 58,
+    what: 'Composite score per staff member: captain = (orders served × 2) + (total revenue ÷ 1000) − (leaves taken × 5); chef = (orders cooked × 2) + (avg cook time score) − (leaves × 5). Monthly leaderboard visible to all staff in their dashboard. Top performer gets a "Star of the Month" badge on their profile.',
+    why: 'All raw data exists across Order, ShiftLog, and Leave models. Display layer only. Creates healthy competition and motivates performance without management having to intervene.',
+    reuse: ['Order model (captain_id, chef_id, total)', 'ShiftLog for hours', 'Leave model', '/api/dashboard/staff-performance route', 'Staff Management component'],
+    toAdd: ['Score formula calculator (route or client-side)', 'Leaderboard UI component in dashboard', 'Star of Month badge on staff profile', 'Historical leaderboard (past months)'],
+    stack: ['MongoDB aggregate (existing patterns)', 'React leaderboard UI'],
+  },
+  {
+    id: 18, cat: 'staff', icon: '🗓', title: 'Smart Staff Scheduling',
+    sub: 'Auto-generate weekly rosters from availability + leaves',
+    impact: 'med', effort: 'hard', phase: 3,
+    matrixX: 78, matrixY: 62,
+    what: 'Manager inputs minimum coverage per shift (e.g. 2 captains + 1 chef for lunch). System generates a weekly roster that: excludes staff on approved leave, respects weekly hour limits (40h), distributes weekends fairly, allows manual drag-to-swap adjustments. Exports as printable PDF schedule.',
+    why: 'Scheduling is done manually in every restaurant. Leave data and availability are already in the system. Automating even 70% of scheduling saves 2+ hours per week.',
+    reuse: ['Leave model (approved leaves)', 'ShiftLog (past hours per user)', 'User model (all staff)', 'Role definitions'],
+    toAdd: ['Scheduling algorithm (constraint satisfaction)', 'Roster model (week, assignments)', 'Schedule builder UI (drag-and-drop)', 'Coverage rules config per manager', 'PDF export of weekly roster'],
+    stack: ['Custom scheduling algo', 'New Roster model', 'React DnD calendar'],
+  },
+  {
+    id: 19, cat: 'staff', icon: '💵', title: 'Tip Distribution System',
+    sub: 'Track, pool, and split tips among serving staff',
+    impact: 'med', effort: 'med', phase: 3,
+    matrixX: 58, matrixY: 55,
+    what: 'At order payment, captain can enter tip amount received. Tips are pooled for the day. Owner/manager configures split rules (e.g. captains 60%, chefs 40%; or equal split). Each staff member sees their daily and monthly tip earnings on their profile. Included in payroll summary.',
+    why: 'Tips are a real daily workflow in Indian restaurants but are managed entirely informally. Digitising this prevents disputes and builds trust with staff.',
+    reuse: ['Order model (add tip_amount field)', 'User model (staff)', 'Payroll module (new)', 'ShiftLog (who was on shift)'],
+    toAdd: ['tip_amount field on Order', 'Tip pool calculation route', 'Split rules config (owner settings)', 'Tip earnings on staff profile', 'Monthly tip summary in payroll'],
+    stack: ['New tip_amount field', 'Calculation route', 'Profile UI'],
+  },
+  {
+    id: 20, cat: 'staff', icon: '📜', title: 'Recipe Version History',
+    sub: 'Track who changed ingredients, when, and why',
+    impact: 'med', effort: 'med', phase: 4,
+    matrixX: 62, matrixY: 52,
+    what: 'Every change to a MenuRecipe (add ingredient, change quantity, remove) is logged with: user who changed it, timestamp, old value, new value, optional reason. Manager can view the full changelog per dish. Can roll back to any previous version. Prevents undocumented recipe drift.',
+    why: 'Recipe consistency is a core quality issue in restaurant chains. Right now, a chef can change ingredient quantities with no trace. This adds accountability without friction.',
+    reuse: ['MenuRecipe model', 'MenuRecipe routes', 'User model (who changed)', 'Menu Master component'],
+    toAdd: ['RecipeVersion model (snapshot + diff)', 'Pre-save hook on MenuRecipe to log changes', 'Recipe history panel in Menu Master', 'Rollback endpoint', 'Who-changed label on current recipe'],
+    stack: ['New RecipeVersion model', 'Mongoose pre-save hook', 'React history panel'],
+  },
+
+  // ── REVENUE TOOLS ─────────────────────────────────────────────────────────
+  {
+    id: 21, cat: 'revenue', icon: '🎟', title: 'Coupon / Promo Code System',
+    sub: 'Time-limited, percentage or flat discount codes',
+    impact: 'high', effort: 'easy', phase: 1,
+    matrixX: 15, matrixY: 88,
+    what: 'Manager creates coupons: code (BIRYANI20), type (percent/flat), value (20%), min_order amount, expiry date, max_uses, applicable items or categories. Customer enters at checkout — backend validates and deducts. Owner sees real-time usage count and revenue impact per coupon in analytics.',
+    why: 'Gift cards already exist with the same code + validation pattern. Coupons are the same flow with different validation rules. 1–2 day build with massive marketing utility.',
+    reuse: ['GiftCard model as structural template', 'GiftCardTransaction for usage logging', 'checkout.js validation flow', 'Manager dashboard for creation'],
+    toAdd: ['Coupon model (code, type, value, expiry, min_order, max_uses, usage_count)', 'POST /api/coupons + validation endpoint', 'Checkout coupon field', 'Coupon analytics in Finance Center', 'Manager coupon creator UI'],
+    stack: ['New Coupon model', 'Checkout integration', 'React form'],
+  },
+  {
+    id: 22, cat: 'revenue', icon: '🍛', title: 'Menu Add-ons & Modifiers',
+    sub: 'Extra sauce, size choice, remove ingredient options',
+    impact: 'high', effort: 'med', phase: 3,
+    matrixX: 55, matrixY: 85,
+    what: 'Each MenuItem can have customisation groups: Size (Small −₹50 / Large +₹80), Extras (Extra Ghee +₹30, Double Protein +₹60), Preparation (Boneless, Less Oil), free Notes field. Customer picks modifiers at cart. OrderItem stores selected modifiers with price adjustments. Chef sees modifiers on kitchen card.',
+    why: 'Average order value increase of ₹40–100 per order through add-ons. Common in Swiggy/Zomato but rare in direct restaurant systems. Customers also get personalisation which improves satisfaction.',
+    reuse: ['MenuItem model (add customisations array)', 'CartItem model (add modifiers field)', 'OrderItem model (add modifiers field)', 'POS and cart UI', 'Chef kitchen order cards'],
+    toAdd: ['MenuCustomisation model or embedded array', 'Modifier picker UI in cart/POS', 'Price adjustment calculation', 'Modifier display on chef cards', 'Manager UI to define modifier groups'],
+    stack: ['MongoDB subdocument array', 'React accordion modifier picker'],
+  },
+  {
+    id: 23, cat: 'revenue', icon: '💬', title: 'WhatsApp Order Notifications',
+    sub: 'Auto-send order confirmation + status updates via WhatsApp',
+    impact: 'high', effort: 'hard', phase: 4,
+    matrixX: 80, matrixY: 86,
+    what: 'Integrate WhatsApp Business API (Twilio or direct Meta API). Trigger messages at key order lifecycle events: "Order received ✓", "Your Chicken Biryani is being prepared 🍛", "Ready for pickup", "Your order is on the way 🚴". Reservation confirmations also sent via WhatsApp. Phone number collected at order/reservation.',
+    why: 'WhatsApp open rate in India is 98% vs email at 15%. Every Indian customer uses WhatsApp. This is the single biggest customer experience upgrade possible.',
+    reuse: ['Order status lifecycle hooks (status change events)', 'Reservation model', 'phone field on User and Reservation', 'Order number'],
+    toAdd: ['WhatsApp Business API integration (Twilio or Meta Cloud API)', 'Message template design + approval', 'Notification trigger on order status change', 'Opt-out system', 'Phone number collection at checkout'],
+    stack: ['Twilio WhatsApp API or Meta Cloud API', 'Node.js webhook', 'Message templates'],
+  },
+  {
+    id: 24, cat: 'revenue', icon: '🌐', title: 'Multi-language Menu',
+    sub: 'English / Telugu / Hindi toggle for customer pages',
+    impact: 'med', effort: 'hard', phase: 4,
+    matrixX: 75, matrixY: 55,
+    what: 'Add name_te (Telugu) and name_hi (Hindi) fields to MenuItem. Customer-facing pages get a language toggle button. Selected language stored in localStorage. Menu names, descriptions, and category labels switch to the chosen language. Vijayawada customer base is primarily Telugu-speaking — native language builds trust and comfort.',
+    why: 'You are based in Vijayawada, Andhra Pradesh. Localisation for Telugu is a differentiator no competitor likely has. Shows cultural respect and dramatically increases comfort for non-English customers.',
+    reuse: ['MenuItem model (add localised fields)', 'Home.jsx menu section', 'Cart.jsx item names', 'Reservations page'],
+    toAdd: ['name_te, name_hi fields on MenuItem', 'Language toggle component (EN/తె/हि)', 'i18n context hook', 'Menu API to return localised names', 'Manager UI to enter translations'],
+    stack: ['React context for language', 'MongoDB localised fields'],
+  },
+  {
+    id: 25, cat: 'revenue', icon: '💳', title: 'Split Billing',
+    sub: 'Divide one order across multiple payment methods',
+    impact: 'med', effort: 'hard', phase: 4,
+    matrixX: 82, matrixY: 58,
+    what: 'At payment, captain enters a split: ₹500 cash + ₹300 UPI + ₹200 gift card. Each partial payment is recorded as a PaymentSplit sub-document on the Order. Order marked "paid" only when splits sum to total. Finance reports show payment method breakdown. Receipt shows each split.',
+    why: 'Common for group dining and corporate parties. Currently you force one payment method per order. This removes a friction point that causes captains to manually fudge payments.',
+    reuse: ['Order model (payment_method → payments array)', 'GiftCard validation', 'POS payment step', 'checkout.js receipt generation'],
+    toAdd: ['PaymentSplit sub-document on Order', 'Split payment UI in POS', 'Partial payment validation (sum must = total)', 'Updated receipt with split breakdown', 'Finance reports updated for method breakdown'],
+    stack: ['Order schema update', 'React split payment UI', 'Math validation'],
+  },
+];
+
+// Build grid
+let currentFilter = 'all';
+
+function buildCard(f) {
+  const catColor = CAT_COLORS[f.cat] || '#888';
+  const catLabel = CAT_LABELS[f.cat] || f.cat;
+  const impactClass = f.impact === 'high' ? 'badge-impact-high' : 'badge-impact-med';
+  const impactLabel = f.impact === 'high' ? 'High impact' : 'Medium impact';
+  const effortClass = {easy:'badge-effort-easy',med:'badge-effort-med',hard:'badge-effort-hard'}[f.effort];
+  const effortLabel = {easy:'Easy build',med:'Medium effort',hard:'Complex'}[f.effort];
+
+  const reuseHtml = f.reuse.map(r => `<span class="code-tag">${r}</span>`).join('');
+  const addHtml = f.toAdd.map(i => `<li>${i}</li>`).join('');
+  const stackHtml = f.stack.map(s => `<span class="stack-tag">${s}</span>`).join('');
+
+  const isNew = f.id >= 20; // last 6 are new additions suggested beyond the original 15
+
+  return `
+  <div class="feature-card" data-id="${f.id}" data-cat="${f.cat}" data-title="${f.title.toLowerCase()}" data-sub="${f.sub.toLowerCase()}" onclick="toggleCard(${f.id})">
+    <div class="card-accent" style="background:${catColor}"></div>
+    <div class="card-body">
+      <div class="card-top">
+        <div class="card-icon" style="background:${catColor}18;font-size:22px">${f.icon}</div>
+        <div class="card-meta">
+          <div class="card-title">${f.title}</div>
+          <div class="card-subtitle">${f.sub}</div>
+        </div>
+      </div>
+      <div class="card-badges">
+        <span class="badge badge-cat" style="color:${catColor};border-color:${catColor}40;background:${catColor}12">${catLabel}</span>
+        <span class="badge ${impactClass}">${impactLabel}</span>
+        <span class="badge ${effortClass}">${effortLabel}</span>
+        ${isNew ? '<span class="badge badge-new">New idea</span>' : ''}
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-hint">Click to see implementation details</span>
+        <div class="toggle-arrow">▼</div>
+      </div>
+    </div>
+    <div class="card-detail">
+      <div class="detail-section">
+        <div class="detail-label">What to build</div>
+        <div class="detail-text">${f.what}</div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Why it's unique / business case</div>
+        <div class="detail-text">${f.why}</div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Existing code to reuse</div>
+        <div class="reuse-tags">${reuseHtml}</div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">New things to add</div>
+        <ul class="impl-list">${addHtml}</ul>
+      </div>
+      <div class="detail-section" style="border:none;padding-bottom:0">
+        <div class="detail-label">Tech stack</div>
+        <div class="stack-tags">${stackHtml}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+const grid = document.getElementById('featuresGrid');
+
+function renderAll() {
+  grid.innerHTML = features.map((f,i) => {
+    const html = buildCard(f);
+    return html.replace('class="feature-card"', `class="feature-card" style="animation-delay:${i * 0.04}s"`);
+  }).join('');
+  applyFilters();
+}
+
+function toggleCard(id) {
+  const el = document.querySelector(`[data-id="${id}"]`);
+  el.classList.toggle('expanded');
+}
+
+function setFilter(cat, btn) {
+  currentFilter = cat;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  const q = document.getElementById('searchInput').value.toLowerCase().trim();
+  let shown = 0;
+  document.querySelectorAll('.feature-card').forEach(card => {
+    const cat = card.dataset.cat;
+    const title = card.dataset.title;
+    const sub = card.dataset.sub;
+    const catOk = currentFilter === 'all' || cat === currentFilter;
+    const searchOk = !q || title.includes(q) || sub.includes(q);
+    if (catOk && searchOk) { card.classList.remove('hidden'); shown++; }
+    else { card.classList.add('hidden'); }
+  });
+  document.getElementById('resultCount').innerHTML = `<strong>${shown}</strong> feature${shown !== 1 ? 's' : ''} shown`;
+}
+
+renderAll();
+
+// ── IMPACT MATRIX ──────────────────────────────────────────────────────────
+const matrixEl = document.getElementById('matrixInner');
+features.forEach(f => {
+  const dot = document.createElement('div');
+  dot.className = 'matrix-dot';
+  dot.style.left = f.matrixX + '%';
+  dot.style.top = (100 - f.matrixY) + '%';
+  dot.style.background = CAT_COLORS[f.cat];
+  dot.style.opacity = '0.85';
+  dot.innerHTML = `<div class="matrix-tooltip">${f.title}</div>`;
+  matrixEl.appendChild(dot);
+});
+</script>
+</body>
+</html>

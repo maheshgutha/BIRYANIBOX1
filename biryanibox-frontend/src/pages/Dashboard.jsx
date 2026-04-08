@@ -10,14 +10,15 @@ import {
   Megaphone, CreditCard, UserCheck, ClipboardList, Star, Filter,
   Search, LayoutDashboard, TrendingDown, Coffee, MapPin, Phone,
   Mail, User, Shield, AlertTriangle, Play, CheckSquare, Utensils,
-  Timer, ToggleLeft, ToggleRight, Hash,
+  Timer, ToggleLeft, ToggleRight, Hash, Briefcase, CheckCircle, XCircle,
+  Activity, BarChart2, TrendingUp as Trend,
 } from 'lucide-react';
 import { useAuth, useOrders } from '../context/useContextHooks';
 import { useNavigate } from 'react-router-dom';
 import {
   usersAPI, ordersAPI, ingredientsAPI, reservationsAPI, tablesAPI,
   feedbackAPI, announcementsAPI, shiftsAPI, notificationsAPI, normalizeOrder,
-  menuAPI,
+  menuAPI, cateringAPI, leavesAPI,
 } from '../services/api';
 import POS from '../components/POS';
 
@@ -63,8 +64,10 @@ const Sidebar = ({ activeTab, setActiveTab, user, unreadAnnouncements }) => {
     { id: 'menu',          label: 'Menu Master',    icon: FileText,        roles: ['owner', 'manager'] },
     { id: 'tables',        label: 'Table Status',   icon: LayoutDashboard, roles: ['owner', 'manager', 'captain'] },
     { id: 'reservations',  label: 'Reservations',   icon: Calendar,        roles: ['owner', 'manager', 'captain'] },
+    { id: 'catering',      label: 'Catering Orders',icon: Utensils,        roles: ['owner', 'manager'] },
     { id: 'feedback',      label: 'Feedback Box',   icon: MessageSquare,   roles: ['owner', 'manager'] },
     { id: 'announcements', label: 'Announcements',  icon: Megaphone,       roles: ['owner', 'manager', 'chef', 'captain'] },
+    { id: 'leaves',        label: 'Leave Module',   icon: Briefcase,       roles: ['owner', 'manager', 'chef', 'captain'] },
     { id: 'shifts',        label: 'Shift Logs',     icon: UserCheck,       roles: ['owner', 'manager', 'chef', 'captain'] },
     { id: 'staffmgmt',     label: 'Staff Mgmt',     icon: Users,           roles: ['owner', 'manager'] },
     { id: 'finance',       label: 'Finance Center', icon: DollarSign,      roles: ['owner', 'manager'] },
@@ -1349,11 +1352,12 @@ const AnnouncementsPanel = ({ isAdmin }) => {
 };
 
 // ─── SHIFT LOGS ───────────────────────────────────────────────────────────────
-const ShiftLogs = ({ user, isAdmin }) => {
+const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
   const [shifts, setShifts] = useState([]);
   const [activeShift, setActiveShift] = useState(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('today');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [msg, setMsg] = useState({ text: '', type: '' });
 
   const load = useCallback(async () => {
@@ -1378,7 +1382,6 @@ const ShiftLogs = ({ user, isAdmin }) => {
     try { await shiftsAPI.checkIn(); flash('Checked in successfully!'); load(); }
     catch (err) { flash(err.message, 'error'); }
   };
-
   const handleCheckOut = async () => {
     if (!activeShift) return;
     try { await shiftsAPI.checkOut(activeShift._id); flash('Checked out!'); load(); }
@@ -1392,15 +1395,53 @@ const ShiftLogs = ({ user, isAdmin }) => {
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
 
+  // Filter by role
+  const filteredShifts = roleFilter === 'all'
+    ? shifts
+    : shifts.filter(s => (s.user_id?.role || s.role) === roleFilter);
+
+  // Analytics calculations
+  const totalHours = filteredShifts.reduce((a, s) => a + (s.duration_minutes || 0), 0) / 60;
+  const avgHours = filteredShifts.length ? totalHours / filteredShifts.length : 0;
+  const activeCount = filteredShifts.filter(s => s.status === 'active').length;
+
+  // Build bar chart data from shifts grouped by user
+  const staffStats = useMemo(() => {
+    const map = {};
+    filteredShifts.forEach(s => {
+      const name = s.user_id?.name || 'Unknown';
+      if (!map[name]) map[name] = { name, hours: 0, sessions: 0, role: s.user_id?.role || s.role };
+      map[name].hours += (s.duration_minutes || 0) / 60;
+      map[name].sessions++;
+    });
+    return Object.values(map).sort((a, b) => b.hours - a.hours).slice(0, 8);
+  }, [filteredShifts]);
+
+  const maxHours = staffStats.length ? Math.max(...staffStats.map(s => s.hours), 1) : 1;
+
+  const roleColors = {
+    captain: 'bg-green-500 text-green-400',
+    chef:    'bg-orange-500 text-orange-400',
+    manager: 'bg-blue-500 text-blue-400',
+    owner:   'bg-purple-500 text-purple-400',
+  };
+  const roleBadge = {
+    captain: 'bg-green-500/10 text-green-400 border-green-500/20',
+    chef:    'bg-orange-500/10 text-orange-400 border-orange-500/20',
+    manager: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    owner:   'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><UserCheck size={28} className="text-primary" />Shift Logs</h2>
-          <p className="text-text-muted text-sm mt-1">Check-in/checkout tracking</p>
+          <p className="text-text-muted text-sm mt-1">Attendance analytics & check-in tracking</p>
         </div>
         <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
-          {['today', 'weekly', 'monthly'].map(p => (
+          {['today', 'weekly', 'monthly', 'yearly'].map(p => (
             <button key={p} onClick={() => setPeriod(p)}
               className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${period === p ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{p}</button>
           ))}
@@ -1409,51 +1450,108 @@ const ShiftLogs = ({ user, isAdmin }) => {
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
-      {/* Personal check-in/out control */}
+      {/* Personal check-in/out */}
       <div className={`p-6 rounded-2xl border ${activeShift ? 'bg-green-500/10 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-bold text-white">{activeShift ? 'Currently on shift' : 'Not checked in'}</p>
-            {activeShift && (
-              <p className="text-xs text-green-400 mt-1">
-                Started: {new Date(activeShift.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </p>
-            )}
+            {activeShift && <p className="text-xs text-green-400 mt-1">Started: {new Date(activeShift.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
           </div>
           {activeShift ? (
-            <button onClick={handleCheckOut}
-              className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">
-              Check Out
-            </button>
+            <button onClick={handleCheckOut} className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">Check Out</button>
           ) : (
-            <button onClick={handleCheckIn}
-              className="px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">
-              Check In
-            </button>
+            <button onClick={handleCheckIn} className="px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">Check In</button>
           )}
         </div>
+      </div>
+
+      {/* Analytics cards */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Total Hours', value: totalHours.toFixed(1) + 'h', icon: Clock, color: 'text-primary' },
+          { label: 'Avg Hours/Session', value: avgHours.toFixed(1) + 'h', icon: BarChart3, color: 'text-blue-400' },
+          { label: 'Currently Active', value: activeCount, icon: Activity, color: 'text-green-400' },
+        ].map(({ label, value, icon: Icon, color }) => (
+          <div key={label} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
+              <Icon size={18} className={color} />
+            </div>
+            <div>
+              <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest">{label}</p>
+              <p className={`text-2xl font-black ${color}`}>{value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Staff Hours Bar Chart */}
+      {staffStats.length > 0 && (
+        <div className="bg-secondary/40 rounded-3xl border border-white/5 p-6">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
+            <BarChart2 size={16} className="text-primary" /> Staff Hours — {period}
+          </h3>
+          <div className="space-y-3">
+            {staffStats.map(s => (
+              <div key={s.name} className="flex items-center gap-3">
+                <div className="w-28 shrink-0">
+                  <p className="text-xs font-bold text-white truncate">{s.name}</p>
+                  <p className={`text-[9px] font-bold uppercase ${(roleColors[s.role] || 'text-text-muted').split(' ')[1]}`}>{s.role}</p>
+                </div>
+                <div className="flex-1 relative h-6 bg-white/5 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${(roleColors[s.role] || 'bg-primary').split(' ')[0]}/60`}
+                    style={{ width: `${Math.min((s.hours / maxHours) * 100, 100)}%` }}
+                  />
+                  <span className="absolute inset-0 flex items-center px-3 text-[10px] font-black text-white">{s.hours.toFixed(1)}h · {s.sessions} sessions</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Role filter buttons */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-[10px] text-text-muted font-black uppercase tracking-widest">Filter:</span>
+        {['all', 'captain', 'chef', 'manager', 'owner'].map(r => (
+          <button key={r} onClick={() => setRoleFilter(r)}
+            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${roleFilter === r
+              ? r === 'all' ? 'bg-primary text-white border-primary' : `border ${roleBadge[r] || 'bg-primary text-white border-primary'} opacity-100`
+              : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
+            {r}
+          </button>
+        ))}
       </div>
 
       {/* Shifts table */}
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
           <div className="flex px-6 py-3 bg-white/5 text-[10px] font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
-            <div className="w-[25%]">Staff</div>
-            <div className="w-[15%]">Role</div>
+            <div className="w-[28%]">Staff</div>
+            <div className="w-[14%]">Role</div>
             <div className="w-[20%]">Check In</div>
             <div className="w-[20%]">Check Out</div>
-            <div className="w-[15%]">Duration</div>
+            <div className="w-[13%]">Duration</div>
             <div className="w-[5%]">Status</div>
           </div>
           <div className="divide-y divide-white/5">
-            {shifts.map(s => (
-              <div key={s._id} className="flex items-center px-6 py-4 hover:bg-white/3">
-                <div className="w-[25%]">
-                  <p className="text-sm font-bold text-white">{s.user_id?.name || '—'}</p>
-                  <p className="text-[10px] text-text-muted">{s.date}</p>
+            {filteredShifts.map(s => (
+              <div key={s._id}
+                onClick={() => onViewProfile && onViewProfile(s.user_id || { _id: s.user_id, name: '—', role: s.role })}
+                className="flex items-center px-6 py-4 hover:bg-white/5 cursor-pointer transition-all group">
+                <div className="w-[28%] flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full overflow-hidden border border-primary/20 shrink-0">
+                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${s.user_id?.name || s._id}`} alt="" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">{s.user_id?.name || '—'}</p>
+                    <p className="text-[10px] text-text-muted">{s.date}</p>
+                  </div>
                 </div>
-                <div className="w-[15%]">
-                  <span className="text-xs text-primary uppercase font-bold">{s.user_id?.role || s.role}</span>
+                <div className="w-[14%]">
+                  <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase border ${roleBadge[s.user_id?.role || s.role] || 'text-text-muted bg-white/5 border-white/10'}`}>
+                    {s.user_id?.role || s.role}
+                  </span>
                 </div>
                 <div className="w-[20%] text-sm text-white/80">
                   {s.check_in ? new Date(s.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -1461,17 +1559,13 @@ const ShiftLogs = ({ user, isAdmin }) => {
                 <div className="w-[20%] text-sm text-white/80">
                   {s.check_out ? new Date(s.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : <span className="text-green-400 animate-pulse">Active</span>}
                 </div>
-                <div className="w-[15%] text-sm font-bold text-white">
-                  {formatDuration(s.duration_minutes)}
-                </div>
+                <div className="w-[13%] text-sm font-bold text-white">{formatDuration(s.duration_minutes)}</div>
                 <div className="w-[5%]">
-                  <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${s.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-text-muted'}`}>
-                    {s.status}
-                  </span>
+                  <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${s.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-text-muted'}`}>{s.status}</span>
                 </div>
               </div>
             ))}
-            {shifts.length === 0 && (
+            {filteredShifts.length === 0 && (
               <div className="py-16 text-center text-text-muted">
                 <UserCheck size={36} className="mx-auto mb-3 opacity-20" />
                 <p className="font-bold text-sm uppercase tracking-widest">No shift logs found</p>
@@ -1480,18 +1574,20 @@ const ShiftLogs = ({ user, isAdmin }) => {
           </div>
         </div>
       )}
+
     </div>
   );
 };
 
 // ─── STAFF MANAGEMENT ─────────────────────────────────────────────────────────
-const StaffManagement = ({ currentUserRole }) => {
+const StaffManagement = ({ currentUserRole, onViewProfile }) => {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [delConfirm, setDelConfirm] = useState(null);
   const [msg, setMsg] = useState({ text: '', type: '' });
+  const [roleFilter, setRoleFilter] = useState('all');
   const [form, setForm] = useState({
     name: '', email: '', phone: '', password: '', role: 'captain',
     dob: '', gender: '', address: '', city: '', state: '', pincode: '',
@@ -1565,6 +1661,9 @@ const StaffManagement = ({ currentUserRole }) => {
     chef:    'text-orange-400 bg-orange-500/10 border-orange-500/20',
   };
 
+  // Filter staff by role
+  const filteredStaff = roleFilter === 'all' ? staff : staff.filter(u => u.role === roleFilter);
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -1579,49 +1678,54 @@ const StaffManagement = ({ currentUserRole }) => {
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
-      {/* Screenshot-style Add/Edit Staff Modal */}
+      {/* Role filter buttons */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-[10px] text-text-muted font-black uppercase tracking-widest">Filter:</span>
+        {['all', ...allowedRoles].map(r => (
+          <button key={r} onClick={() => setRoleFilter(r)}
+            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${roleFilter === r
+              ? r === 'all' ? 'bg-primary text-white border-primary' : roleColor[r] + ' opacity-100'
+              : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
+            {r} {r !== 'all' && `(${staff.filter(u => u.role === r).length})`}
+          </button>
+        ))}
+        <span className="ml-auto text-[10px] text-text-muted">{filteredStaff.length} shown</span>
+      </div>
+
+      {/* Add/Edit Staff Modal */}
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
               className="bg-[#1a1a1a] rounded-3xl border border-white/10 w-full max-w-md shadow-2xl my-4">
-              {/* Header */}
               <div className="flex items-center justify-between p-6 border-b border-white/10">
                 <h3 className="text-xl font-black text-white">{editTarget ? `Edit ${editTarget.name}` : 'Add New Staff'}</h3>
                 <button onClick={() => setShowForm(false)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all">
                   <X size={16} />
                 </button>
               </div>
-
               <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                {/* Full Name */}
                 <div>
                   <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">FULL NAME *</label>
                   <input type="text" required value={form.name} onChange={sf('name')} placeholder="e.g. Arjun Singh"
                     className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20" />
                 </div>
-
-                {/* Email */}
                 <div>
                   <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">EMAIL *</label>
                   <div className="relative">
-                    <input type="email" required value={form.email} onChange={sf('email')} placeholder="staff@spiceroute.com"
+                    <input type="email" required value={form.email} onChange={sf('email')} placeholder="staff@biryanibox.com"
                       className="w-full bg-[#252525] border border-white/10 p-3.5 pr-12 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20" />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 bg-primary/20 border border-primary/30 rounded-lg flex items-center justify-center">
                       <Mail size={13} className="text-primary" />
                     </div>
                   </div>
                 </div>
-
-                {/* Phone */}
                 <div>
                   <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">PHONE</label>
-                  <input type="tel" value={form.phone} onChange={sf('phone')} placeholder="+1-555-0100"
+                  <input type="tel" value={form.phone} onChange={sf('phone')} placeholder="+91-98765-43210"
                     className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20" />
                 </div>
-
-                {/* Role */}
                 <div>
                   <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ROLE *</label>
                   <div className="relative">
@@ -1634,16 +1738,12 @@ const StaffManagement = ({ currentUserRole }) => {
                     <ChevronDown size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                   </div>
                 </div>
-
-                {/* Password (only for new staff) */}
                 {!editTarget && (
                   <div>
                     <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">PASSWORD *</label>
                     <PasswordField value={form.password} onChange={sf('password')} placeholder="Min 6 characters" required />
                   </div>
                 )}
-
-                {/* Optional fields collapsed */}
                 <details className="group">
                   <summary className="text-[10px] text-primary font-black uppercase tracking-widest cursor-pointer hover:text-primary/80 list-none flex items-center gap-2">
                     <Plus size={12} /> Additional Details (optional)
@@ -1654,7 +1754,7 @@ const StaffManagement = ({ currentUserRole }) => {
                         { label: 'Date of Birth', field: 'dob', type: 'date' },
                         { label: 'Joining Date', field: 'joining_date', type: 'date' },
                         { label: 'City', field: 'city', type: 'text' },
-                        { label: 'Salary ($)', field: 'salary', type: 'number' },
+                        { label: 'Salary (₹)', field: 'salary', type: 'number' },
                       ].map(({ label, field, type }) => (
                         <div key={field}>
                           <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{label}</label>
@@ -1665,17 +1765,12 @@ const StaffManagement = ({ currentUserRole }) => {
                     </div>
                   </div>
                 </details>
-
-                {/* Action buttons */}
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={() => setShowForm(false)}
-                    className="flex-1 py-3.5 border border-white/20 rounded-2xl text-sm font-bold text-white/70 hover:bg-white/5 transition-all">
-                    Cancel
-                  </button>
+                    className="flex-1 py-3.5 border border-white/20 rounded-2xl text-sm font-bold text-white/70 hover:bg-white/5 transition-all">Cancel</button>
                   <button type="submit"
                     className="flex-1 py-3.5 bg-primary hover:bg-primary-hover text-white rounded-2xl text-sm font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
-                    <Save size={15} />
-                    {editTarget ? 'UPDATE STAFF' : 'CREATE STAFF'}
+                    <Save size={15} />{editTarget ? 'UPDATE STAFF' : 'CREATE STAFF'}
                   </button>
                 </div>
               </form>
@@ -1688,50 +1783,52 @@ const StaffManagement = ({ currentUserRole }) => {
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
           <div className="divide-y divide-white/5">
-            {staff.map(u => (
+            {filteredStaff.map(u => (
               <div key={u._id} className="flex items-center px-6 py-5 hover:bg-white/3 group">
-                <div className="flex items-center gap-4 flex-1 min-w-0">
+                <button
+                  onClick={() => onViewProfile && onViewProfile(u)}
+                  className="flex items-center gap-4 flex-1 min-w-0 text-left"
+                >
                   <div className="w-11 h-11 rounded-full border border-primary/30 overflow-hidden shrink-0">
                     <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${u.name}`} alt="" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-white">{u.name}</p>
+                    <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">{u.name}</p>
                     <p className="text-[10px] text-text-muted">{u.email}</p>
                     {u.phone && <p className="text-[10px] text-text-muted">{u.phone}</p>}
                   </div>
-                </div>
+                </button>
                 <div className="w-[15%]">
                   <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${roleColor[u.role] || 'text-text-muted bg-white/5 border-white/10'}`}>{u.role}</span>
                 </div>
-                <div className="w-[15%] text-xs text-text-muted">
-                  {u.phone || '—'}
-                </div>
+                <div className="w-[15%] text-xs text-text-muted">{u.phone || '—'}</div>
                 <div className="w-[10%]">
                   <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase border ${u.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
                     {u.is_active ? 'Active' : 'Disabled'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                  <button onClick={() => openEdit(u)} className="p-2 bg-primary/20 text-primary rounded-lg hover:bg-primary hover:text-white transition-all" title="Edit">
-                    <Edit2 size={13} />
-                  </button>
+                  {onViewProfile && (
+                    <button onClick={() => onViewProfile(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition-all" title="View Profile">
+                      <Eye size={13} />
+                    </button>
+                  )}
+                  <button onClick={() => openEdit(u)} className="p-2 bg-primary/20 text-primary rounded-lg hover:bg-primary hover:text-white transition-all" title="Edit"><Edit2 size={13} /></button>
                   <button onClick={() => toggleActive(u)}
                     className={`p-2 rounded-lg transition-all ${u.is_active ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500 hover:text-white' : 'bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white'}`}
                     title={u.is_active ? 'Disable' : 'Enable'}>
                     {u.is_active ? <ToggleLeft size={13} /> : <ToggleRight size={13} />}
                   </button>
                   {currentUserRole === 'owner' && (
-                    <button onClick={() => setDelConfirm(u)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all" title="Delete">
-                      <Trash2 size={13} />
-                    </button>
+                    <button onClick={() => setDelConfirm(u)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all" title="Delete"><Trash2 size={13} /></button>
                   )}
                 </div>
               </div>
             ))}
-            {staff.length === 0 && (
+            {filteredStaff.length === 0 && (
               <div className="py-16 text-center text-text-muted">
                 <Users size={40} className="mx-auto mb-3 opacity-20" />
-                <p className="text-sm font-bold uppercase tracking-widest">No staff yet. Add your first!</p>
+                <p className="text-sm font-bold uppercase tracking-widest">No staff found for this role</p>
               </div>
             )}
           </div>
@@ -1760,6 +1857,377 @@ const StaffManagement = ({ currentUserRole }) => {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+};
+
+
+
+// ─── LEAVE MODULE ─────────────────────────────────────────────────────────────
+const LeaveModule = ({ user }) => {
+  const [leaves, setLeaves] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [msg, setMsg] = useState({ text: '', type: '' });
+  const [form, setForm] = useState({ from_date: '', to_date: '', leave_type: 'casual', reason: '' });
+  const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
+
+  const isStaff = ['captain', 'chef'].includes(user.role);
+  const isManager = user.role === 'manager';
+  const isOwner = user.role === 'owner';
+  const canApprove = isManager || isOwner;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await leavesAPI.getAll();
+      setLeaves(res.data || []);
+    } catch { setLeaves([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, []);
+  const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
+
+  const handleApply = async (e) => {
+    e.preventDefault();
+    try {
+      await leavesAPI.apply(form);
+      flash('Leave application submitted!');
+      setShowForm(false);
+      setForm({ from_date: '', to_date: '', leave_type: 'casual', reason: '' });
+      load();
+    } catch (err) { flash(err.message, 'error'); }
+  };
+
+  const handleApprove = async (id, status, remarks = '') => {
+    try {
+      await leavesAPI.updateStatus(id, { status, remarks });
+      flash(`Leave ${status}!`);
+      load();
+    } catch (err) { flash(err.message, 'error'); }
+  };
+
+  const handleDelete = async (id) => {
+    try { await leavesAPI.delete(id); flash('Leave cancelled'); load(); }
+    catch (err) { flash(err.message, 'error'); }
+  };
+
+  const statusColors = {
+    pending:  'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+    approved: 'bg-green-500/10 text-green-400 border-green-500/20',
+    rejected: 'bg-red-500/10 text-red-400 border-red-500/20',
+  };
+
+  const typeColors = {
+    casual: 'text-blue-400', sick: 'text-red-400', emergency: 'text-orange-400',
+    annual: 'text-purple-400', unpaid: 'text-gray-400',
+  };
+
+  // Permission check: can this user approve THIS leave?
+  const canApproveLeave = (leave) => {
+    if (isOwner) return true; // owner approves: captain, chef, manager
+    if (isManager) return ['captain', 'chef'].includes(leave.role || leave.user_id?.role); // manager approves: captain, chef only
+    return false;
+  };
+
+  // Stats
+  const pending = leaves.filter(l => l.status === 'pending').length;
+  const approved = leaves.filter(l => l.status === 'approved').length;
+  const myLeaves = leaves.filter(l => String(l.user_id?._id || l.user_id) === String(user._id));
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Briefcase size={28} className="text-primary" />Leave Module</h2>
+          <p className="text-text-muted text-sm mt-1">
+            {isStaff ? 'Apply and track your leave requests' : 'Manage and approve leave applications'}
+          </p>
+        </div>
+        <button onClick={() => setShowForm(s => !s)}
+          className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+          <Plus size={14} /> Apply Leave
+        </button>
+      </div>
+
+      <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Pending', value: pending, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+          { label: 'Approved', value: approved, color: 'text-green-400', bg: 'bg-green-500/10' },
+          { label: isStaff ? 'My Applications' : 'Total', value: isStaff ? myLeaves.length : leaves.length, color: 'text-primary', bg: 'bg-primary/10' },
+        ].map(({ label, value, color, bg }) => (
+          <div key={label} className={`${bg} rounded-2xl border border-white/5 p-5 text-center`}>
+            <p className={`text-3xl font-black ${color}`}>{value}</p>
+            <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mt-1">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Apply Form */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
+            className="bg-secondary/40 rounded-3xl border border-primary/30 p-8">
+            <h3 className="text-lg font-bold mb-6 text-white">New Leave Application</h3>
+            <form onSubmit={handleApply} className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">From Date *</label>
+                <input type="date" required value={form.from_date} onChange={sf('from_date')}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">To Date *</label>
+                <input type="date" required value={form.to_date} onChange={sf('to_date')}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Leave Type</label>
+                <select value={form.leave_type} onChange={sf('leave_type')}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none">
+                  {['casual', 'sick', 'emergency', 'annual', 'unpaid'].map(t => (
+                    <option key={t} value={t} className="capitalize">{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-1">
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Reason *</label>
+                <textarea required value={form.reason} onChange={sf('reason')} rows={1}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
+              </div>
+              <div className="md:col-span-2 flex gap-3">
+                <button type="submit" className="px-8 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover">Submit</button>
+                <button type="button" onClick={() => setShowForm(false)} className="px-8 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/5">Cancel</button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Leaves List */}
+      {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
+        <div className="space-y-3">
+          {leaves.length === 0 ? (
+            <div className="py-20 text-center text-text-muted bg-secondary/40 rounded-3xl border border-white/5">
+              <Briefcase size={40} className="mx-auto mb-3 opacity-20" />
+              <p className="font-bold text-sm uppercase tracking-widest">No leave applications yet</p>
+            </div>
+          ) : (
+            leaves.map(l => (
+              <div key={l._id} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 hover:border-white/10 transition-all">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full overflow-hidden border border-primary/20 shrink-0">
+                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${l.user_id?.name || l._id}`} alt="" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white">{l.user_id?.name || 'Unknown'}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-text-muted uppercase font-bold">{l.user_id?.role || l.role}</span>
+                        <span className="text-[10px] text-text-muted">·</span>
+                        <span className={`text-[10px] font-bold uppercase ${typeColors[l.leave_type] || 'text-text-muted'}`}>{l.leave_type}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${statusColors[l.status]}`}>{l.status}</span>
+                    {canApprove && canApproveLeave(l) && l.status === 'pending' && (
+                      <>
+                        <button onClick={() => handleApprove(l._id, 'approved')}
+                          className="px-3 py-1.5 bg-green-500/20 text-green-400 text-[10px] font-black rounded-lg hover:bg-green-500 hover:text-white transition-all flex items-center gap-1">
+                          <CheckCircle size={11} /> Approve
+                        </button>
+                        <button onClick={() => handleApprove(l._id, 'rejected')}
+                          className="px-3 py-1.5 bg-red-500/10 text-red-400 text-[10px] font-black rounded-lg hover:bg-red-500 hover:text-white transition-all flex items-center gap-1">
+                          <XCircle size={11} /> Reject
+                        </button>
+                      </>
+                    )}
+                    {String(l.user_id?._id || l.user_id) === String(user._id) && l.status === 'pending' && (
+                      <button onClick={() => handleDelete(l._id)}
+                        className="p-1.5 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all">
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  <div className="bg-white/5 rounded-xl p-3">
+                    <p className="text-[9px] text-text-muted uppercase font-bold mb-1">Period</p>
+                    <p className="text-xs font-bold text-white">
+                      {new Date(l.from_date).toLocaleDateString()} → {new Date(l.to_date).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="bg-white/5 rounded-xl p-3">
+                    <p className="text-[9px] text-text-muted uppercase font-bold mb-1">Days</p>
+                    <p className="text-xs font-bold text-primary">{l.days} day{l.days !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="bg-white/5 rounded-xl p-3">
+                    <p className="text-[9px] text-text-muted uppercase font-bold mb-1">Applied</p>
+                    <p className="text-xs font-bold text-white">{new Date(l.created_at).toLocaleDateString()}</p>
+                  </div>
+                </div>
+                <div className="mt-3 bg-white/5 rounded-xl p-3">
+                  <p className="text-[9px] text-text-muted uppercase font-bold mb-1">Reason</p>
+                  <p className="text-xs text-white/80">{l.reason}</p>
+                </div>
+                {l.approved_by && (
+                  <div className="mt-2 text-[10px] text-text-muted">
+                    {l.status === 'approved' ? '✓ Approved' : '✗ Rejected'} by {l.approved_by?.name} · {l.approved_at ? new Date(l.approved_at).toLocaleDateString() : ''}
+                    {l.remarks && <span> · "{l.remarks}"</span>}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── CATERING PANEL (Owner/Manager) ──────────────────────────────────────────
+const CateringPanel = () => {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState({ text: '', type: '' });
+  const [selected, setSelected] = useState(null);
+  const [priceForm, setPriceForm] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { const res = await cateringAPI.getAll(); setOrders(res.data || []); }
+    catch { setOrders([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, []);
+  useAutoRefresh(load, 30000);
+  const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
+
+  const updateStatus = async (id, status) => {
+    try {
+      await cateringAPI.update(id, { status });
+      flash(`Status updated to ${status}`);
+      load();
+    } catch (err) { flash(err.message, 'error'); }
+  };
+
+  const setPrice = async (id) => {
+    try {
+      await cateringAPI.update(id, { total_price: parseFloat(priceForm) });
+      flash('Price set!');
+      setPriceForm('');
+      setSelected(null);
+      load();
+    } catch (err) { flash(err.message, 'error'); }
+  };
+
+  const deleteOrder = async (id) => {
+    try { await cateringAPI.delete(id); flash('Order deleted'); load(); }
+    catch (err) { flash(err.message, 'error'); }
+  };
+
+  const statusColors = {
+    pending:   'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+    confirmed: 'bg-green-500/10 text-green-400 border-green-500/20',
+    completed: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    cancelled: 'bg-red-500/10 text-red-400 border-red-500/20',
+  };
+
+  const totalRevenue = orders.filter(o => o.status === 'confirmed' || o.status === 'completed')
+    .reduce((a, o) => a + (o.total_price || 0), 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Utensils size={28} className="text-primary" />Catering Orders</h2>
+          <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ₹{totalRevenue.toLocaleString()} confirmed revenue</p>
+        </div>
+      </div>
+
+      <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4">
+        {['pending', 'confirmed', 'completed', 'cancelled'].map(s => (
+          <div key={s} className={`rounded-2xl border p-4 text-center ${statusColors[s] || 'bg-white/5 border-white/10'}`}>
+            <p className="text-2xl font-black">{orders.filter(o => o.status === s).length}</p>
+            <p className="text-[10px] uppercase font-bold tracking-widest mt-1 capitalize">{s}</p>
+          </div>
+        ))}
+      </div>
+
+      {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
+        <div className="space-y-4">
+          {orders.length === 0 ? (
+            <div className="py-20 text-center text-text-muted bg-secondary/40 rounded-3xl border border-white/5">
+              <Utensils size={40} className="mx-auto mb-3 opacity-20" />
+              <p className="font-bold text-sm uppercase tracking-widest">No catering orders yet</p>
+            </div>
+          ) : orders.map(o => (
+            <div key={o._id} className="bg-secondary/40 rounded-2xl border border-white/5 hover:border-white/10 transition-all overflow-hidden">
+              <div className="p-5 flex items-start justify-between gap-4 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 flex-wrap mb-2">
+                    <h3 className="text-base font-bold text-white">{o.customer_name}</h3>
+                    <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${statusColors[o.status] || 'bg-white/5 border-white/10 text-text-muted'}`}>{o.status}</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-text-muted">
+                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Event Type</span><span className="text-white font-bold">{o.event_type || '—'}</span></div>
+                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Event Date</span><span className="text-white font-bold">{o.event_date ? new Date(o.event_date).toLocaleDateString() : '—'}</span></div>
+                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Guests</span><span className="text-white font-bold">{o.guest_count}</span></div>
+                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Price</span><span className="text-primary font-black">{o.total_price ? `₹${o.total_price.toLocaleString()}` : 'Quote pending'}</span></div>
+                  </div>
+                  {o.email && <p className="text-xs text-text-muted mt-2">{o.email} {o.phone && `· ${o.phone}`}</p>}
+                  {o.notes && <p className="text-xs text-white/60 mt-1 italic">"{o.notes}"</p>}
+                </div>
+                <div className="flex flex-col gap-2 shrink-0">
+                  {o.status === 'pending' && (
+                    <button onClick={() => updateStatus(o._id, 'confirmed')}
+                      className="px-3 py-1.5 bg-green-500/20 text-green-400 text-[10px] font-black rounded-lg hover:bg-green-500 hover:text-white transition-all">
+                      Confirm
+                    </button>
+                  )}
+                  {o.status === 'confirmed' && (
+                    <button onClick={() => updateStatus(o._id, 'completed')}
+                      className="px-3 py-1.5 bg-blue-500/20 text-blue-400 text-[10px] font-black rounded-lg hover:bg-blue-500 hover:text-white transition-all">
+                      Complete
+                    </button>
+                  )}
+                  {o.status !== 'cancelled' && (
+                    <button onClick={() => updateStatus(o._id, 'cancelled')}
+                      className="px-3 py-1.5 bg-red-500/10 text-red-400 text-[10px] font-black rounded-lg hover:bg-red-500 hover:text-white transition-all">
+                      Cancel
+                    </button>
+                  )}
+                  <button onClick={() => setSelected(selected === o._id ? null : o._id)}
+                    className="px-3 py-1.5 bg-primary/20 text-primary text-[10px] font-black rounded-lg hover:bg-primary hover:text-white transition-all">
+                    Set Price
+                  </button>
+                  <button onClick={() => deleteOrder(o._id)}
+                    className="px-3 py-1.5 bg-white/5 text-text-muted text-[10px] font-black rounded-lg hover:bg-red-500/20 hover:text-red-400 transition-all">
+                    Delete
+                  </button>
+                </div>
+              </div>
+              {selected === o._id && (
+                <div className="px-5 pb-4 flex gap-3 border-t border-white/5 pt-4">
+                  <input type="number" value={priceForm} onChange={e => setPriceForm(e.target.value)}
+                    placeholder="Enter price (₹)" className="flex-1 bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                  <button onClick={() => setPrice(o._id)} className="px-5 py-2 bg-primary text-white rounded-xl text-xs font-black">Save</button>
+                  <button onClick={() => setSelected(null)} className="px-4 py-2 border border-white/20 rounded-xl text-xs font-black text-text-muted">Cancel</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -2957,6 +3425,401 @@ const FinanceCenter = ({ orders }) => {
   );
 };
 
+
+// ════════════════════════════════════════════════════════════════════════════
+//  STAFF PROFILE VIEW — Full page shown when clicking any staff member
+// ════════════════════════════════════════════════════════════════════════════
+const StaffProfileView = ({ staffUser, onBack }) => {
+  const [allShifts, setAllShifts] = useState([]);
+  const [leaves,    setLeaves]    = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [period,    setPeriod]    = useState('monthly');
+
+  const formatDuration = (mins) => {
+    if (!mins) return '\u2014';
+    const h = Math.floor(mins / 60); const m = mins % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+
+  useEffect(() => {
+    if (!staffUser?._id) return;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [shiftsRes, leavesRes] = await Promise.all([
+          shiftsAPI.getAll(`?user_id=${staffUser._id}`),   // ← fixed: user_id not userId; no period so all shifts returned
+          leavesAPI.getAll(),
+        ]);
+        setAllShifts(shiftsRes.data || []);
+        const all = leavesRes.data || [];
+        setLeaves(all.filter(l => String(l.user_id?._id || l.user_id) === String(staffUser._id)));
+      } catch { }
+      finally { setLoading(false); }
+    };
+    load();
+  }, [staffUser._id]);
+
+  // Real duration in minutes from check_in→check_out (or check_in→now for active shifts)
+  const shiftMinutes = (s) => {
+    if (s.check_out) return Math.round((new Date(s.check_out) - new Date(s.check_in)) / 60000);
+    if (s.status === 'active' && s.check_in) return Math.round((Date.now() - new Date(s.check_in)) / 60000);
+    return s.duration_minutes || 0;
+  };
+
+  // Period filter — client-side using real check_in timestamp
+  const filteredShifts = useMemo(() => {
+    const now = new Date();
+    let cutoff = new Date(now); cutoff.setFullYear(cutoff.getFullYear() - 1);
+    if (period === 'today')   { cutoff = new Date(now); cutoff.setHours(0,0,0,0); }
+    if (period === 'weekly')  { cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 6); cutoff.setHours(0,0,0,0); }
+    if (period === 'monthly') { cutoff = new Date(now); cutoff.setDate(1); cutoff.setHours(0,0,0,0); }
+    return allShifts.filter(s => s.check_in && new Date(s.check_in) >= cutoff);
+  }, [allShifts, period]);
+
+  // KPIs — all computed from real check_in/check_out durations
+  const totalHours    = filteredShifts.reduce((a, s) => a + shiftMinutes(s), 0) / 60;
+  const uniqueDays    = new Set(filteredShifts.map(s => new Date(s.check_in).toDateString())).size;
+  const totalSessions = filteredShifts.length;
+  const avgHrsPerDay  = uniqueDays ? totalHours / uniqueDays : 0;
+
+  // Graph bars — built from real check_in/check_out timestamps
+  const graphBars = useMemo(() => {
+    const now = new Date();
+    if (period === 'today') {
+      // 24-hour breakdown — place each shift in the hour it started
+      const bars = Array.from({ length: 24 }, (_, h) => ({
+        label: `${h}`, hours: 0,
+        tip: `${String(h).padStart(2,'0')}:00 – ${String(h+1).padStart(2,'0')}:00`,
+      }));
+      filteredShifts.forEach(s => {
+        if (!s.check_in) return;
+        const h = new Date(s.check_in).getHours();
+        bars[h].hours += shiftMinutes(s) / 60;
+      });
+      return bars;
+    }
+    if (period === 'weekly') {
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(now); d.setDate(d.getDate() - (6 - i)); d.setHours(0,0,0,0);
+        const next = new Date(d); next.setDate(next.getDate() + 1);
+        const ds = allShifts.filter(s => s.check_in && new Date(s.check_in) >= d && new Date(s.check_in) < next);
+        const hours = ds.reduce((a, s) => a + shiftMinutes(s), 0) / 60;
+        return {
+          label: d.toLocaleDateString('en-IN', { weekday: 'short' }),
+          hours,
+          tip: `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h (${ds.length} shifts)`,
+        };
+      });
+    }
+    if (period === 'monthly') {
+      const yr = now.getFullYear(); const mo = now.getMonth();
+      const dim = new Date(yr, mo + 1, 0).getDate();
+      return Array.from({ length: dim }, (_, i) => {
+        const d = new Date(yr, mo, i + 1);
+        const next = new Date(yr, mo, i + 2);
+        const ds = allShifts.filter(s => s.check_in && new Date(s.check_in) >= d && new Date(s.check_in) < next);
+        const hours = ds.reduce((a, s) => a + shiftMinutes(s), 0) / 60;
+        return {
+          label: String(i + 1),
+          hours,
+          tip: `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h`,
+        };
+      });
+    }
+    // yearly — 12 monthly bars
+    return Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now); d.setDate(1); d.setMonth(d.getMonth() - (11 - i));
+      const ms = allShifts.filter(s => {
+        if (!s.check_in) return false;
+        const sd = new Date(s.check_in);
+        return sd.getMonth() === d.getMonth() && sd.getFullYear() === d.getFullYear();
+      });
+      const hours = ms.reduce((a, s) => a + shiftMinutes(s), 0) / 60;
+      const lbl = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+      return {
+        label: lbl, hours,
+        tip: `${lbl}: ${hours.toFixed(1)}h · ${new Set(ms.map(s => new Date(s.check_in).toDateString())).size}d · ${ms.length} shifts`,
+      };
+    });
+  }, [allShifts, filteredShifts, period]);
+
+  const maxBarH = Math.max(...graphBars.map(b => b.hours), 0.1);
+
+  const roleBadge = {
+    captain: 'bg-green-500/10 text-green-400 border-green-500/20',
+    chef:    'bg-orange-500/10 text-orange-400 border-orange-500/20',
+    manager: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    owner:   'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  };
+  const leaveStatusColors = {
+    pending:  'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+    approved: 'bg-green-500/10 text-green-400 border-green-500/20',
+    rejected: 'bg-red-500/10 text-red-400 border-red-500/20',
+  };
+  const periodLabel = { today: 'Today', weekly: 'This Week', monthly: 'This Month', yearly: 'This Year' };
+  const graphTitle  = { today: 'Hourly Breakdown — Today', weekly: 'Daily Breakdown — Last 7 Days', monthly: 'Daily Breakdown — This Month', yearly: 'Monthly Breakdown — Last 12 Months' };
+
+  return (
+    <div className="space-y-6">
+
+      {/* Back */}
+      <button onClick={onBack}
+        className="flex items-center gap-2 text-text-muted hover:text-primary transition-colors text-xs font-black uppercase tracking-widest group">
+        <ChevronRight size={14} className="rotate-180 group-hover:-translate-x-0.5 transition-transform" /> Back to List
+      </button>
+
+      {/* Profile header */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8">
+        <div className="flex items-center gap-8 flex-wrap">
+          <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-primary/40 shrink-0 shadow-xl shadow-primary/10">
+            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${staffUser.name || staffUser._id}`} alt="" className="w-full h-full" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-3xl font-black text-white">{staffUser.name || 'Staff Member'}</h2>
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
+              <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase border ${roleBadge[staffUser.role] || 'text-text-muted bg-white/5 border-white/10'}`}>{staffUser.role}</span>
+              <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase border ${staffUser.is_active !== false ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                {staffUser.is_active !== false ? '\u25cf Active' : '\u25cf Disabled'}
+              </span>
+            </div>
+            <div className="flex gap-5 mt-3 flex-wrap text-xs text-text-muted">
+              {staffUser.email        && <span className="flex items-center gap-1.5"><Mail size={11} className="text-primary" />{staffUser.email}</span>}
+              {staffUser.phone        && <span className="flex items-center gap-1.5"><Phone size={11} className="text-primary" />{staffUser.phone}</span>}
+              {staffUser.city         && <span className="flex items-center gap-1.5"><MapPin size={11} className="text-primary" />{staffUser.city}</span>}
+              {staffUser.joining_date && <span className="flex items-center gap-1.5"><Calendar size={11} className="text-primary" />Joined {new Date(staffUser.joining_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
+              {staffUser.salary       && <span className="flex items-center gap-1.5"><DollarSign size={11} className="text-primary" />\u20b9{Number(staffUser.salary).toLocaleString()}/mo</span>}
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Employee ID</p>
+            <p className="text-lg font-black text-white font-mono">BB-{(staffUser._id || '').slice(-6).toUpperCase()}</p>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div>
+      ) : (
+        <>
+          {/* Period + Tab row */}
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex gap-1.5 bg-white/5 p-1.5 rounded-xl border border-white/5">
+              {['today','weekly','monthly','yearly'].map(p => (
+                <button key={p} onClick={() => setPeriod(p)}
+                  className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${period === p ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-text-muted hover:text-white'}`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1.5 bg-white/5 p-1.5 rounded-xl border border-white/5">
+              {[{ id:'overview',label:'Overview' },{ id:'shifts',label:'Shifts' },{ id:'leaves',label:'Leaves' }].map(t => (
+                <button key={t.id} onClick={() => setActiveTab(t.id)}
+                  className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === t.id ? 'bg-white/10 text-white' : 'text-text-muted hover:text-white'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* KPI cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label:'Total Shifts',  value:totalSessions,              icon:UserCheck, color:'text-primary',    bg:'bg-primary/10'    },
+              { label:'Days Worked',   value:uniqueDays,                  icon:Calendar,  color:'text-blue-400',   bg:'bg-blue-500/10'   },
+              { label:'Total Hours',   value:totalHours.toFixed(1)+'h',  icon:Clock,     color:'text-green-400',  bg:'bg-green-500/10'  },
+              { label:'Avg Hrs/Day',   value:avgHrsPerDay.toFixed(1)+'h',icon:BarChart2, color:'text-orange-400', bg:'bg-orange-500/10' },
+            ].map(({ label, value, icon:Icon, color, bg }) => (
+              <div key={label} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 flex items-center gap-4">
+                <div className={`w-11 h-11 rounded-xl ${bg} flex items-center justify-center shrink-0`}><Icon size={18} className={color} /></div>
+                <div>
+                  <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest">{label}</p>
+                  <p className={`text-2xl font-black ${color}`}>{value}</p>
+                  <p className="text-[9px] text-text-muted mt-0.5">{periodLabel[period]}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* OVERVIEW TAB */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+
+              {/* Bar chart */}
+              <div className="bg-secondary/40 rounded-3xl border border-white/5 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                    <BarChart2 size={16} className="text-primary" /> {graphTitle[period]}
+                  </h3>
+                  <span className="text-[10px] text-text-muted font-bold">{totalHours.toFixed(1)}h total</span>
+                </div>
+                {/* Chart container — fixed height, flex row aligned to bottom */}
+                <div style={{ height: 150, display: 'flex', alignItems: 'flex-end', gap: 2, padding: '0 4px' }}>
+                  {graphBars.map((bar, i) => {
+                    const pct = maxBarH > 0 ? (bar.hours / maxBarH) * 100 : 0;
+                    const barH = Math.max(pct / 100 * 110, bar.hours > 0 ? 3 : 0);
+                    return (
+                      <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}
+                        className="group">
+                        {/* Tooltip */}
+                        {bar.hours > 0 && (
+                          <div style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 6, zIndex: 20, pointerEvents: 'none' }}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="bg-[#111] border border-primary/40 rounded-lg px-2 py-1 text-[9px] text-white font-bold whitespace-nowrap shadow-xl">
+                              {bar.tip}
+                            </div>
+                          </div>
+                        )}
+                        {/* Bar */}
+                        <div style={{ width: '100%', height: barH, minHeight: bar.hours > 0 ? 3 : 0, borderRadius: '3px 3px 0 0', transition: 'height 0.5s ease' }}
+                          className={bar.hours > 0 ? 'bg-primary/70 group-hover:bg-primary' : 'bg-white/5'} />
+                        {/* Label */}
+                        <span style={{ fontSize: graphBars.length > 20 ? 6 : 8, color: '#666', fontWeight: 700, textAlign: 'center', lineHeight: 1, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%' }}>
+                          {bar.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, padding: '0 4px' }}
+                  className="text-[9px] text-text-muted">
+                  <span>0h</span>
+                  <span>{(maxBarH / 2).toFixed(1)}h</span>
+                  <span>{maxBarH.toFixed(1)}h</span>
+                </div>
+              </div>
+
+              {/* Leave summary + performance */}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-secondary/40 rounded-2xl border border-white/5 p-5">
+                  <h4 className="text-xs font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2"><Briefcase size={13} className="text-primary" />Leave Summary</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label:'Total',    value:leaves.length,                                  color:'text-white'      },
+                      { label:'Approved', value:leaves.filter(l => l.status === 'approved').length, color:'text-green-400'  },
+                      { label:'Pending',  value:leaves.filter(l => l.status === 'pending').length,  color:'text-yellow-400' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-white/5 rounded-xl p-3 text-center">
+                        <p className={`text-xl font-black ${color}`}>{value}</p>
+                        <p className="text-[9px] text-text-muted uppercase font-bold mt-1">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-secondary/40 rounded-2xl border border-white/5 p-5">
+                  <h4 className="text-xs font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2"><Activity size={13} className="text-primary" />Performance — {periodLabel[period]}</h4>
+                  <div className="space-y-4">
+                    {[
+                      { label:'Days Worked', value:`${uniqueDays}d`, bar: period==='today'?Math.min(1,uniqueDays):period==='weekly'?Math.min(1,uniqueDays/7):period==='monthly'?Math.min(1,uniqueDays/26):Math.min(1,uniqueDays/312) },
+                      { label:'Avg Hrs/Shift', value:totalSessions?`${(totalHours/totalSessions).toFixed(1)}h`:'—', bar:Math.min(1,(totalHours/Math.max(totalSessions,1))/10) },
+                    ].map(({ label, bar, value }) => (
+                      <div key={label}>
+                        <div className="flex justify-between text-xs font-bold text-text-muted mb-1.5"><span>{label}</span><span className="text-white">{value}</span></div>
+                        <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                          <div className="h-full bg-primary rounded-full transition-all duration-700" style={{ width:`${Math.max(bar*100,0)}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SHIFTS TAB */}
+          {activeTab === 'shifts' && (
+            <div className="space-y-4">
+              <div className="bg-secondary/40 rounded-2xl border border-white/5 px-6 py-4 flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-6">
+                  {[{label:'Shifts',value:totalSessions,color:'text-primary'},{label:'Days',value:uniqueDays,color:'text-blue-400'},{label:'Hours',value:totalHours.toFixed(1)+'h',color:'text-green-400'},{label:'Avg/Day',value:avgHrsPerDay.toFixed(1)+'h',color:'text-orange-400'}].map(({label,value,color})=>(
+                    <div key={label} className="text-center">
+                      <p className={`text-lg font-black ${color}`}>{value}</p>
+                      <p className="text-[9px] text-text-muted font-bold uppercase">{label}</p>
+                    </div>
+                  ))}
+                </div>
+                <span className="text-[10px] text-text-muted font-bold uppercase tracking-widest bg-white/5 px-3 py-1.5 rounded-lg">{periodLabel[period]}</span>
+              </div>
+              <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
+                <div className="flex px-6 py-3 bg-white/5 text-[10px] font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
+                  <div className="w-[20%]">Date</div><div className="w-[10%]">Day</div><div className="w-[22%]">Check In</div><div className="w-[22%]">Check Out</div><div className="w-[16%]">Duration</div><div className="w-[10%]">Status</div>
+                </div>
+                <div className="divide-y divide-white/5 max-h-[520px] overflow-y-auto">
+                  {filteredShifts.length === 0 ? (
+                    <div className="py-16 text-center text-text-muted">
+                      <Clock size={32} className="mx-auto mb-2 opacity-20" />
+                      <p className="font-bold text-sm uppercase">No shifts for {periodLabel[period].toLowerCase()}</p>
+                    </div>
+                  ) : filteredShifts.map(s => {
+                    const ci = s.check_in  ? new Date(s.check_in)  : null;
+                    const co = s.check_out ? new Date(s.check_out) : null;
+                    const realMins = shiftMinutes(s);
+                    return (
+                      <div key={s._id} className="flex items-center px-6 py-3.5 hover:bg-white/3 transition-all">
+                        <div className="w-[20%] text-sm text-white font-bold">{s.date}</div>
+                        <div className="w-[10%] text-[10px] text-text-muted font-bold">{ci?ci.toLocaleDateString('en-IN',{weekday:'short'}):'—'}</div>
+                        <div className="w-[22%] text-sm text-white/80 font-mono">{ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—'}</div>
+                        <div className="w-[22%] text-sm text-white/80 font-mono">{co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):<span className="text-green-400 animate-pulse text-xs font-bold">Active</span>}</div>
+                        <div className="w-[16%] text-sm font-black text-primary">{formatDuration(realMins)}</div>
+                        <div className="w-[10%]"><span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${s.status==='active'?'bg-green-500/20 text-green-400':'bg-white/5 text-text-muted'}`}>{s.status}</span></div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {filteredShifts.length > 0 && (
+                  <div className="px-6 py-3 bg-white/3 border-t border-white/5 flex justify-between text-xs font-bold text-text-muted">
+                    <span>{filteredShifts.length} records</span>
+                    <span className="text-primary">{totalHours.toFixed(1)}h total, {uniqueDays} days</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* LEAVES TAB */}
+          {activeTab === 'leaves' && (
+            <div className="space-y-3">
+              {leaves.length === 0 ? (
+                <div className="py-20 text-center text-text-muted bg-secondary/40 rounded-3xl border border-white/5">
+                  <Briefcase size={40} className="mx-auto mb-3 opacity-20" />
+                  <p className="font-bold text-sm uppercase tracking-widest">No leave applications</p>
+                </div>
+              ) : leaves.map(l => (
+                <div key={l._id} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 hover:border-white/10 transition-all">
+                  <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-black text-white capitalize">{l.leave_type} Leave</span>
+                        <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${leaveStatusColors[l.status]}`}>{l.status}</span>
+                      </div>
+                      <p className="text-xs text-text-muted">
+                        {new Date(l.from_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})} to {new Date(l.to_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+                        <span className="ml-2 text-primary font-bold">({l.days} day{l.days!==1?'s':''})</span>
+                      </p>
+                    </div>
+                    <p className="text-[10px] text-text-muted">Applied: {new Date(l.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <div className="bg-white/5 rounded-xl p-3 mb-3">
+                    <p className="text-[9px] text-text-muted uppercase font-bold mb-1">Reason</p>
+                    <p className="text-xs text-white/80">{l.reason}</p>
+                  </div>
+                  {l.approved_by && (
+                    <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-xl border ${l.status==='approved'?'bg-green-500/5 border-green-500/20 text-green-400':'bg-red-500/5 border-red-500/20 text-red-400'}`}>
+                      {l.status==='approved'?<CheckCircle size={12}/>:<XCircle size={12}/>}
+                      <span className="font-bold">{l.status==='approved'?'Approved':'Rejected'} by {l.approved_by?.name}</span>
+                      {l.approved_at && <span className="text-text-muted ml-1">· {new Date(l.approved_at).toLocaleDateString()}</span>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ══════════════════════════════════════════════════════════════════════════════
 //  MAIN DASHBOARD
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2974,12 +3837,13 @@ const Dashboard = () => {
   const [financial, setFinancial] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [unreadAnnouncements, setUnreadAnnouncements] = useState(0);
+  const [profileViewUser, setProfileViewUser] = useState(null);
 
   const TITLE_MAP = {
     overview: 'Command Hub', pos: 'Order Booking', orders: 'Live Orders',
     kitchen: 'My Kitchen', menu: 'Menu Master', tables: 'Table Status',
-    reservations: 'Reservations', feedback: 'Feedback Box',
-    announcements: 'Announcements', shifts: 'Shift Logs',
+    reservations: 'Reservations', catering: 'Catering Orders', feedback: 'Feedback Box',
+    announcements: 'Announcements', leaves: 'Leave Module', shifts: 'Shift Logs',
     staffmgmt: 'Staff Management', finance: 'Finance Center',
     my_orders: 'My Orders', chef_orders: 'Order History', staff: 'My Profile',
   };
@@ -3008,17 +3872,27 @@ const Dashboard = () => {
 
   const isAdmin = ['owner', 'manager'].includes(user.role);
 
+  // Wrap tab change to also clear staff profile view
+  const handleTabChange = useCallback((tab) => {
+    setProfileViewUser(null);
+    setActiveTab(tab);
+  }, []);
+
   return (
     <div className="min-h-screen bg-bg-main pl-64">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} unreadAnnouncements={unreadAnnouncements} />
+      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} />
       <div className="flex-1">
-        <Header title={TITLE_MAP[activeTab] || ''} onRefresh={handleRefresh} loading={refreshing} />
+        <Header title={profileViewUser ? `${profileViewUser.name || 'Staff'} — Profile` : (TITLE_MAP[activeTab] || '')} onRefresh={handleRefresh} loading={refreshing} />
         <main className="px-8 py-8">
           {/* ── Global Shift Badge (top of every page) ─────────────────── */}
           <div className="flex justify-end mb-5">
             <ShiftCheckinBadge />
           </div>
 
+          {/* ── Staff Profile Full Page View ─────────────────────────────── */}
+          {profileViewUser ? (
+            <StaffProfileView staffUser={profileViewUser} onBack={() => setProfileViewUser(null)} />
+          ) : (
           <AnimatePresence mode="wait">
 
             {/* COMMAND HUB */}
@@ -3094,6 +3968,20 @@ const Dashboard = () => {
               </MotionDiv>
             )}
 
+            {/* CATERING ORDERS */}
+            {activeTab === 'catering' && isAdmin && (
+              <MotionDiv key="catering" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CateringPanel />
+              </MotionDiv>
+            )}
+
+            {/* LEAVE MODULE */}
+            {activeTab === 'leaves' && (
+              <MotionDiv key="leaves" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <LeaveModule user={user} />
+              </MotionDiv>
+            )}
+
             {/* ANNOUNCEMENTS */}
             {activeTab === 'announcements' && (
               <MotionDiv key="announcements" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -3104,14 +3992,14 @@ const Dashboard = () => {
             {/* SHIFT LOGS */}
             {activeTab === 'shifts' && (
               <MotionDiv key="shifts" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <ShiftLogs user={user} isAdmin={isAdmin} />
+                <ShiftLogs user={user} isAdmin={isAdmin} onViewProfile={setProfileViewUser} />
               </MotionDiv>
             )}
 
             {/* STAFF MANAGEMENT */}
             {activeTab === 'staffmgmt' && isAdmin && (
               <MotionDiv key="staffmgmt" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <StaffManagement currentUserRole={user.role} />
+                <StaffManagement currentUserRole={user.role} onViewProfile={setProfileViewUser} />
               </MotionDiv>
             )}
 
@@ -3168,6 +4056,7 @@ const Dashboard = () => {
             )}
 
           </AnimatePresence>
+          )} {/* end profileViewUser conditional */}
         </main>
       </div>
     </div>

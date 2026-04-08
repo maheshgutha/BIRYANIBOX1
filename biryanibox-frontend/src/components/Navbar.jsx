@@ -36,11 +36,12 @@ const Navbar = () => {
   }, []);
 
   const navLinks = [
-    { name: 'Home',       href: '/'           },
-    { name: 'Menu',       href: '/#menu'      },
-    { name: 'Rewards',    href: '/history?tab=rewards' },
-    { name: 'Gift Cards', href: '/gift-cards' },
-    { name: 'Catering',   href: '/catering'   },
+    { name: 'Home',         href: '/'           },
+    { name: 'Menu',         href: '/#menu'      },
+    { name: 'Reservations', href: '/reservations' },
+    { name: 'Rewards',      href: '/history?tab=rewards' },
+    { name: 'Gift Cards',   href: '/gift-cards' },
+    { name: 'Catering',     href: '/catering'   },
   ];
 
   return (

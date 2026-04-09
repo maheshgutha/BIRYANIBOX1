@@ -106,7 +106,7 @@ const Navbar = () => {
             {/* Delivery type badge — subtle reminder */}
             {orderType === 'delivery' && (
               <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-white/50 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
-                <Truck size={11} className="text-primary" /> +₹40 fee
+                <Truck size={11} className="text-primary" /> +$40 fee
               </div>
             )}
 

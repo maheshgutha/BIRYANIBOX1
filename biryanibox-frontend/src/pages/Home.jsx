@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence, useMotionValue, useSpring, useTransform, useScroll, useInView } from 'framer-motion';
 
 const MotionDiv = motion.div;
 const MotionButton = motion.button;
@@ -21,6 +21,84 @@ import muttonBiryani from '../assets/mutton-biryani.png';
 import chickenTikka from '../assets/chicken-tikka.png';
 import rasmalai from '../assets/rasmalai.png';
 import backgroundInterior from '../assets/background.png';
+
+// ─── Floating 3D Particles ────────────────────────────────────────────────────
+const Floating3DParticles = () => {
+  const particles = Array.from({ length: 18 }, (_, i) => ({
+    id: i,
+    x: Math.random() * 100,
+    y: Math.random() * 100,
+    size: Math.random() * 6 + 3,
+    duration: Math.random() * 12 + 8,
+    delay: Math.random() * 5,
+    emoji: ['🌶️','✨','🍛','⭐','🔥','💫'][i % 6],
+  }));
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+      {particles.map(p => (
+        <motion.div
+          key={p.id}
+          className="absolute select-none"
+          style={{ left: `${p.x}%`, top: `${p.y}%`, fontSize: `${p.size}px`, opacity: 0.15 }}
+          animate={{
+            y: [0, -60, -120, -60, 0],
+            x: [0, 20, -10, 15, 0],
+            rotate: [0, 180, 360],
+            opacity: [0.05, 0.2, 0.05],
+          }}
+          transition={{ duration: p.duration, delay: p.delay, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          {p.emoji}
+        </motion.div>
+      ))}
+      {/* Glowing orbs */}
+      <motion.div
+        className="absolute w-[600px] h-[600px] rounded-full pointer-events-none"
+        style={{ background: 'radial-gradient(circle, rgba(229,138,48,0.08) 0%, transparent 70%)', left: '10%', top: '20%' }}
+        animate={{ scale: [1, 1.2, 1], x: [0, 30, 0], y: [0, -20, 0] }}
+        transition={{ duration: 15, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.div
+        className="absolute w-[400px] h-[400px] rounded-full pointer-events-none"
+        style={{ background: 'radial-gradient(circle, rgba(229,138,48,0.05) 0%, transparent 70%)', right: '5%', bottom: '30%' }}
+        animate={{ scale: [1, 1.3, 1], x: [0, -40, 0], y: [0, 30, 0] }}
+        transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut', delay: 3 }}
+      />
+    </div>
+  );
+};
+
+// ─── 3D Tilt Card ────────────────────────────────────────────────────────────
+const Tilt3DCard = ({ children, className = '', intensity = 10 }) => {
+  const ref = useRef(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const rotateX = useSpring(useTransform(y, [-0.5, 0.5], [intensity, -intensity]), { stiffness: 300, damping: 30 });
+  const rotateY = useSpring(useTransform(x, [-0.5, 0.5], [-intensity, intensity]), { stiffness: 300, damping: 30 });
+  const scale = useSpring(1, { stiffness: 300, damping: 30 });
+
+  const handleMouse = useCallback((e) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    x.set((e.clientX - rect.left) / rect.width - 0.5);
+    y.set((e.clientY - rect.top) / rect.height - 0.5);
+  }, [x, y]);
+
+  return (
+    <motion.div
+      ref={ref}
+      className={className}
+      style={{ rotateX, rotateY, scale, transformStyle: 'preserve-3d', perspective: 1000 }}
+      onMouseMove={handleMouse}
+      onMouseEnter={() => scale.set(1.02)}
+      onMouseLeave={() => { x.set(0); y.set(0); scale.set(1); }}
+    >
+      {children}
+    </motion.div>
+  );
+};
+
 
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 const Hero = ({ navigate }) => {
@@ -58,9 +136,22 @@ const Hero = ({ navigate }) => {
             <button onClick={() => navigate('/cart')} className="px-12 py-6 bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-xs rounded-full hover:bg-white/10 transition-all">View Rewards</button>
           </div>
         </MotionDiv>
-        <MotionDiv key={`img-${currentSlide}`} initial={{ opacity: 0, scale: 0.8, rotate: -10 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 1, type: 'spring' }} className="hidden lg:block relative">
+        <MotionDiv key={`img-${currentSlide}`} initial={{ opacity: 0, scale: 0.8, rotate: -10 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 1, type: 'spring' }} className="hidden lg:block relative" style={{ perspective: 1200 }}>
           <div className="absolute inset-0 bg-primary/20 filter blur-[150px] rounded-full animate-pulse" />
-          <img src={slides[currentSlide].image} alt="Dish" className="w-[85%] mx-auto relative z-10 filter drop-shadow-[0_45px_45px_rgba(229,138,48,0.4)]" />
+          <motion.img
+            src={slides[currentSlide].image}
+            alt="Dish"
+            className="w-[85%] mx-auto relative z-10 filter drop-shadow-[0_45px_45px_rgba(229,138,48,0.4)]"
+            animate={{ y: [0, -20, 0], rotateY: [0, 5, 0, -5, 0] }}
+            transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          {/* Orbiting glow rings */}
+          <motion.div
+            className="absolute inset-0 rounded-full border border-primary/20 pointer-events-none"
+            animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.7, 0.3] }}
+            transition={{ duration: 3, repeat: Infinity }}
+            style={{ left: '10%', right: '10%', top: '10%', bottom: '10%' }}
+          />
         </MotionDiv>
       </div>
       <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex gap-4 z-20">
@@ -139,8 +230,8 @@ const PopularItems = () => {
             const id = item._id || item.id;
             const isAdded = added === id;
             return (
-              <motion.div key={id} initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.07 }}
-                className="group bg-secondary/40 border border-white/8 rounded-3xl overflow-hidden hover:border-primary/40 transition-all">
+              <Tilt3DCard key={id} className="group bg-secondary/40 border border-white/8 rounded-3xl overflow-hidden hover:border-primary/40 transition-all" intensity={8}>
+              <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.07 }}>
                 <div className="h-44 overflow-hidden relative">
                   <img src={getImg(item)} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -161,6 +252,7 @@ const PopularItems = () => {
                   </div>
                 </div>
               </motion.div>
+              </Tilt3DCard>
             );
           })}
         </div>
@@ -214,7 +306,7 @@ const AllItemsList = () => {
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="w-1.5 h-1.5 rounded-full bg-primary/60 shrink-0" />
                       <span className="text-sm font-bold text-white/80 group-hover:text-white truncate">{item.name}</span>
-                      {item.is_veg && <span className="text-[8px] text-green-400 font-black shrink-0">VEG</span>}
+                      {(item.is_veg || item.isVeg) && <span className="text-[8px] text-green-400 font-black shrink-0">VEG</span>}
                     </div>
                     <span className="text-sm font-black text-primary ml-3 shrink-0">${(item.price || 0).toFixed(0)}</span>
                   </button>
@@ -241,6 +333,15 @@ const MenuCategories = () => {
   const [filterVeg, setFilterVeg] = useState('all');
   const [filterSpice, setFilterSpice] = useState('all');
   const [filterHalal, setFilterHalal] = useState(false);
+
+  const hasActiveFilters = filterVeg !== 'all' || filterSpice !== 'all' || filterHalal || searchQuery.trim() !== '';
+  const clearFilters = () => {
+    setFilterVeg('all');
+    setFilterSpice('all');
+    setFilterHalal(false);
+    setSearchQuery('');
+    setActiveCategory('All');
+  };
   const [selectedTable, setSelectedTable] = useState(null);
   const [tableConfirmed, setTableConfirmed] = useState(false);
   const [takeawayAddress, setTakeawayAddress] = useState('');
@@ -272,9 +373,13 @@ const MenuCategories = () => {
   const currentItems = activeCategory === 'All' ? menu : menu.filter(item => item.category === activeCategory);
   const filteredItems = currentItems.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = filterVeg === 'all' || (filterVeg === 'veg' && item.isVeg) || (filterVeg === 'non-veg' && !item.isVeg);
-    const matchesSpice = filterSpice === 'all' || item.spiceLevel === Number(filterSpice);
-    const matchesHalal = !filterHalal || item.isHalal;
+    // Support both camelCase (isVeg) and snake_case (is_veg) from API
+    const itemIsVeg   = item.isVeg   ?? item.is_veg   ?? false;
+    const itemIsHalal = item.isHalal ?? item.is_halal ?? false;
+    const itemSpice   = item.spiceLevel ?? item.spice_level ?? item.spice_level_id ?? 0;
+    const matchesType  = filterVeg === 'all' || (filterVeg === 'veg' && itemIsVeg) || (filterVeg === 'non-veg' && !itemIsVeg);
+    const matchesSpice = filterSpice === 'all' || Number(itemSpice) === Number(filterSpice);
+    const matchesHalal = !filterHalal || itemIsHalal;
     return matchesSearch && matchesType && matchesSpice && matchesHalal;
   });
 
@@ -477,21 +582,23 @@ const MenuCategories = () => {
           <AnimatePresence mode="popLayout">
             {filteredItems.length > 0 ? filteredItems.map(item => (
               <MotionDiv key={item.name} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
-                className="group bg-secondary/20 rounded-[40px] overflow-hidden border border-white/5 hover:border-primary/50 transition-all shadow-3xl hover:-translate-y-2">
+                whileHover={{ y: -8, rotateX: 3, scale: 1.01, boxShadow: '0 30px 60px rgba(229,138,48,0.15)' }}
+                style={{ transformStyle: 'preserve-3d', perspective: 1000 }}
+                className="group bg-secondary/20 rounded-[40px] overflow-hidden border border-white/5 hover:border-primary/50 transition-all shadow-3xl">
                 <div className="relative aspect-[4/3] overflow-hidden">
                   <img src={getMenuItemImage(item)} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
                   <div className="absolute top-6 left-6 flex flex-col gap-2">
-                    {item.isVeg && <div className="px-3 py-1 bg-green-500 text-white text-[8px] font-black uppercase tracking-widest rounded-full shadow-lg">Vegetarian</div>}
-                    {item.isHalal && <div className="px-3 py-1 bg-blue-600 text-white text-[8px] font-black uppercase tracking-widest rounded-full shadow-lg">Halal Certified</div>}
+                    {(item.isVeg || item.is_veg) && <div className="px-3 py-1 bg-green-500 text-white text-[8px] font-black uppercase tracking-widest rounded-full shadow-lg">Vegetarian</div>}
+                    {(item.isHalal || item.is_halal) && <div className="px-3 py-1 bg-blue-600 text-white text-[8px] font-black uppercase tracking-widest rounded-full shadow-lg">Halal Certified</div>}
                   </div>
                   <div className="absolute top-6 right-6 flex flex-col items-end gap-3">
-                    <div className={`w-6 h-6 border-2 rounded-sm flex items-center justify-center p-0.5 ${item.isVeg ? 'border-green-500' : 'border-red-500'}`}>
-                      <div className={`w-full h-full rounded-full ${item.isVeg ? 'bg-green-500' : 'bg-red-500'}`} />
+                    <div className={`w-6 h-6 border-2 rounded-sm flex items-center justify-center p-0.5 ${(item.isVeg || item.is_veg) ? 'border-green-500' : 'border-red-500'}`}>
+                      <div className={`w-full h-full rounded-full ${(item.isVeg || item.is_veg) ? 'bg-green-500' : 'bg-red-500'}`} />
                     </div>
-                    {item.spiceLevel > 0 && (
+                    {(item.spiceLevel || item.spice_level || 0) > 0 && (
                       <div className="flex gap-0.5 bg-black/40 backdrop-blur-md p-1.5 rounded-lg border border-white/10">
-                        {Array(item.spiceLevel).fill(0).map((_, i) => <span key={i} className="text-[10px]">🌶️</span>)}
+                        {Array(item.spiceLevel || item.spice_level || 0).fill(0).map((_, i) => <span key={i} className="text-[10px]">🌶️</span>)}
                       </div>
                     )}
                   </div>
@@ -528,7 +635,38 @@ const MenuCategories = () => {
                 </div>
               </MotionDiv>
             )) : (
-              <div className="col-span-full py-32 text-center text-white/20 font-black uppercase tracking-[0.5em]">Awaiting Dispatch Hub Response...</div>
+              <div className="col-span-full py-20 flex flex-col items-center justify-center text-center">
+                {menu.length === 0 ? (
+                  // Menu still loading from server
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                    <p className="text-white/20 font-black uppercase tracking-[0.5em] text-xs">Loading Menu...</p>
+                  </div>
+                ) : (
+                  // Menu loaded but filters return no results
+                  <MotionDiv initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-6">
+                    <div className="w-20 h-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center text-4xl">
+                      🔍
+                    </div>
+                    <div>
+                      <p className="text-white font-black text-xl mb-2">No items match your filters</p>
+                      <p className="text-text-muted text-sm">
+                        {filterVeg !== 'all' && <span className="inline-block px-2 py-0.5 bg-white/10 rounded-full text-xs mr-1 mb-1">{filterVeg}</span>}
+                        {filterSpice !== 'all' && <span className="inline-block px-2 py-0.5 bg-white/10 rounded-full text-xs mr-1 mb-1">{'🌶️'.repeat(Number(filterSpice))} spice</span>}
+                        {filterHalal && <span className="inline-block px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full text-xs mr-1 mb-1">Halal only</span>}
+                        {searchQuery && <span className="inline-block px-2 py-0.5 bg-primary/20 text-primary rounded-full text-xs mr-1 mb-1">"{searchQuery}"</span>}
+                      </p>
+                      <p className="text-text-muted/60 text-xs mt-2">Try removing some filters to see more items</p>
+                    </div>
+                    <button
+                      onClick={clearFilters}
+                      className="px-8 py-3 bg-primary text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-yellow-500 transition-all shadow-lg shadow-primary/20"
+                    >
+                      Clear All Filters
+                    </button>
+                  </MotionDiv>
+                )}
+              </div>
             )}
           </AnimatePresence>
         </div>
@@ -553,10 +691,15 @@ const WelcomeBlurb = () => (
           <div><p className="text-5xl font-black text-white">48h</p><p className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mt-2">Marination Hub</p></div>
         </div>
       </MotionDiv>
-      <MotionDiv initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} className="relative">
-        <div className="aspect-[4/5] rounded-[60px] overflow-hidden border border-white/10 shadow-3xl group">
+      <MotionDiv initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} className="relative" style={{ perspective: 1000 }}>
+        <motion.div
+          className="aspect-[4/5] rounded-[60px] overflow-hidden border border-white/10 shadow-3xl group"
+          whileHover={{ rotateY: -5, rotateX: 3, scale: 1.01 }}
+          style={{ transformStyle: 'preserve-3d' }}
+          transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+        >
           <img src={backgroundInterior} alt="Kitchen Artisan" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" />
-        </div>
+        </motion.div>
         <div className="absolute -bottom-10 -left-10 bg-secondary p-10 rounded-[40px] border border-white/10 shadow-3xl max-w-sm">
           <p className="text-lg italic text-white/90 leading-relaxed font-serif">"The flavor-legacy of the Nizam's era, now synchronized with the modern Northeast grid."</p>
           <p className="mt-8 text-[12px] font-black uppercase tracking-[0.4em] text-primary">— Rabbani Basha</p>
@@ -601,7 +744,9 @@ const Testimonials = () => (
               { name: 'Anita S.', role: 'Scranton Foodie', text: "The Chicken Tikka Masala is legendary. It's like Bittoo's but with a modern artisan twist." },
               { name: 'Rahul V.', role: 'Biryani Critic', text: 'Truly the only place in the Northeast that understands the ritual of slow-cooked Dum Biryani.' },
             ].map((t, i) => (
-              <div key={i} className="p-12 bg-secondary/20 border border-white/5 rounded-[40px] relative hover:border-primary/30 transition-all shadow-2xl group">
+              <motion.div key={i} className="p-12 bg-secondary/20 border border-white/5 rounded-[40px] relative hover:border-primary/30 transition-all shadow-2xl group"
+                whileHover={{ y: -6, rotateX: 2, boxShadow: '0 20px 40px rgba(229,138,48,0.1)' }}
+                style={{ transformStyle: 'preserve-3d', perspective: 800 }}>
                 <div className="absolute top-8 right-10 text-primary opacity-20 group-hover:opacity-100 transition-opacity"><Star size={32} /></div>
                 <p className="text-xl text-white/80 mb-8 italic font-serif leading-relaxed">"{t.text}"</p>
                 <div className="flex items-center gap-6">
@@ -611,7 +756,7 @@ const Testimonials = () => (
                     <p className="text-[10px] text-primary font-bold uppercase mt-1">{t.role}</p>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
@@ -871,6 +1016,7 @@ const Home = () => {
 
   return (
     <div className="bg-bg-main">
+      <Floating3DParticles />
       <Navbar />
       <Hero navigate={navigate} />
       <RestaurantVideo />

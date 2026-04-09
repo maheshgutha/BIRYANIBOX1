@@ -248,6 +248,38 @@ const KitchenFlowBar = ({ orders }) => {
 };
 
 // ─── ORDER TABLE (with role-based status controls) ───────────────────────────
+// Live cooking timer hook — ticks every second
+const useCookTimer = (order) => {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (order.status !== 'start_cooking' || !order.cooking_started_at) return;
+    const tick = () => setElapsed(Math.floor((Date.now() - new Date(order.cooking_started_at)) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [order.status, order.cooking_started_at]);
+  return elapsed;
+};
+
+const CookDurationCell = ({ order }) => {
+  const elapsed = useCookTimer(order);
+  if (order.status === 'start_cooking' && order.cooking_started_at) {
+    const m = Math.floor(elapsed / 60), s = elapsed % 60;
+    return (
+      <span className="flex items-center gap-1 text-orange-400 font-black text-[11px]">
+        <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse inline-block" />
+        {String(m).padStart(2,'0')}:{String(s).padStart(2,'0')}
+      </span>
+    );
+  }
+  if ((order.status === 'completed_cooking' || order.status === 'served' || order.status === 'paid')
+      && order.cooking_started_at && order.cooking_completed_at) {
+    const mins = Math.round((new Date(order.cooking_completed_at) - new Date(order.cooking_started_at)) / 60000);
+    return <span className="text-green-400 font-bold text-[11px]">✓ {mins}m</span>;
+  }
+  return <span className="text-text-muted text-[11px]">—</span>;
+};
+
 const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors }) => {
   // Which statuses can this role trigger?
   const chefStatuses     = ['start_cooking', 'completed_cooking'];
@@ -284,6 +316,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors }) =>
             <th className="text-left px-4 py-3 font-bold">Status</th>
             <th className="text-left px-4 py-3 font-bold">Spice</th>
             <th className="text-left px-4 py-3 font-bold">Time</th>
+            <th className="text-left px-4 py-3 font-bold">Cook Duration</th>
             <th className="text-right px-4 py-3 font-bold">Actions</th>
           </tr>
         </thead>
@@ -320,6 +353,9 @@ const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors }) =>
                   {new Date(ord.created_at || ord.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </td>
                 <td className="px-4 py-3">
+                  <CookDurationCell order={ord} />
+                </td>
+                <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
                     {canAdvance(ord) && (
                       <button onClick={() => onStatusUpdate(id, TRANSITIONS[ord.status])}
@@ -338,7 +374,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors }) =>
             );
           })}
           {orders.length === 0 && (
-            <tr><td colSpan={8} className="py-20 text-center text-text-muted">
+            <tr><td colSpan={9} className="py-20 text-center text-text-muted">
               <AlertCircle size={32} className="mx-auto mb-3 opacity-20" />
               <p className="font-bold uppercase tracking-widest text-sm">No orders found</p>
             </td></tr>
@@ -1826,7 +1862,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                         { label: 'Date of Birth', field: 'dob', type: 'date' },
                         { label: 'Joining Date', field: 'joining_date', type: 'date' },
                         { label: 'City', field: 'city', type: 'text' },
-                        { label: 'Salary (₹)', field: 'salary', type: 'number' },
+                        { label: 'Salary (USD)', field: 'salary', type: 'number' },
                       ].map(({ label, field, type }) => (
                         <div key={field}>
                           <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{label}</label>
@@ -2221,7 +2257,7 @@ const CateringPanel = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><Utensils size={28} className="text-primary" />Catering Orders</h2>
-          <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ₹{totalRevenue.toLocaleString()} confirmed revenue</p>
+          <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ${totalRevenue.toLocaleString()} confirmed revenue</p>
         </div>
       </div>
 
@@ -2256,9 +2292,13 @@ const CateringPanel = () => {
                     <div><span className="text-[9px] uppercase font-bold block mb-0.5">Event Type</span><span className="text-white font-bold">{o.event_type || '—'}</span></div>
                     <div><span className="text-[9px] uppercase font-bold block mb-0.5">Event Date</span><span className="text-white font-bold">{o.event_date ? new Date(o.event_date).toLocaleDateString() : '—'}</span></div>
                     <div><span className="text-[9px] uppercase font-bold block mb-0.5">Guests</span><span className="text-white font-bold">{o.guest_count}</span></div>
-                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Price</span><span className="text-primary font-black">{o.total_price ? `₹${o.total_price.toLocaleString()}` : 'Quote pending'}</span></div>
+                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Price</span><span className="text-primary font-black">{o.total_price ? `$${o.total_price.toLocaleString()}` : 'Quote pending'}</span></div>
+                    {o.quote_value > 0 && (
+                      <div><span className="text-[9px] uppercase font-bold block mb-0.5">Customer Est.</span><span className="text-yellow-400 font-black">${o.quote_value.toLocaleString()}</span></div>
+                    )}
                   </div>
                   {o.email && <p className="text-xs text-text-muted mt-2">{o.email} {o.phone && `· ${o.phone}`}</p>}
+                  {o.menu_selection && <p className="text-xs text-white/60 mt-1"><span className="text-primary font-bold">Menu:</span> {o.menu_selection}</p>}
                   {o.notes && <p className="text-xs text-white/60 mt-1 italic">"{o.notes}"</p>}
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
@@ -2293,7 +2333,7 @@ const CateringPanel = () => {
               {selected === o._id && (
                 <div className="px-5 pb-4 flex gap-3 border-t border-white/5 pt-4">
                   <input type="number" value={priceForm} onChange={e => setPriceForm(e.target.value)}
-                    placeholder="Enter price (₹)" className="flex-1 bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    placeholder="Enter price (USD)" className="flex-1 bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
                   <button onClick={() => setPrice(o._id)} className="px-5 py-2 bg-primary text-white rounded-xl text-xs font-black">Save</button>
                   <button onClick={() => setSelected(null)} className="px-4 py-2 border border-white/20 rounded-xl text-xs font-black text-text-muted">Cancel</button>
                 </div>
@@ -2739,7 +2779,7 @@ const WasteManagement = ({ ingredients }) => {
               <tbody>
                 {entries.slice(0, 20).map(e => (
                   <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
-                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
+                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short' })}</td>
                     <td className="p-3 text-white font-bold">{e.ingredient_name}</td>
                     <td className="p-3 text-white">{e.quantity} {e.unit}</td>
                     <td className="p-3"><span className="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-300 capitalize">{e.reason.replace('_',' ')}</span></td>
@@ -3242,7 +3282,7 @@ const FinanceCenter = ({ orders }) => {
     const next = new Date(d); next.setDate(next.getDate() + 1);
     const rev = orders.filter(o => o.status === 'paid' && new Date(o.created_at || o.timestamp) >= d && new Date(o.created_at || o.timestamp) < next)
       .reduce((s, o) => s + (o.total || 0), 0);
-    return { day: d.toLocaleDateString('en-IN', { weekday: 'short' }), rev };
+    return { day: d.toLocaleDateString('en-US', { weekday: 'short' }), rev };
   });
   const maxRev = Math.max(...last7.map(d => d.rev), 1);
 
@@ -3499,7 +3539,7 @@ const FinanceCenter = ({ orders }) => {
               <tbody>
                 {filteredBudget.map(e => (
                   <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
-                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                     <td className="p-3 text-white font-bold">{e.label}</td>
                     <td className="p-3">
                       <span className={`text-[10px] px-2 py-1 rounded-full font-black uppercase ${e.type === 'expense' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{e.type}</span>
@@ -3668,7 +3708,7 @@ const RidersPanel = ({ currentUserRole }) => {
           { label: 'Total Riders',   value: riders.length,           color: 'text-primary',    bg: 'bg-primary/10',    icon: Truck    },
           { label: 'Active Now',     value: activeDeliveries.length, color: 'text-green-400',  bg: 'bg-green-500/10',  icon: Activity },
           { label: 'Pending Orders', value: pendingDeliveries.length,color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: Package  },
-          { label: 'Total Paid Out', value: `₹${totalEarnings}`,     color: 'text-blue-400',   bg: 'bg-blue-500/10',   icon: DollarSign },
+          { label: 'Total Paid Out', value: `$${totalEarnings}`,     color: 'text-blue-400',   bg: 'bg-blue-500/10',   icon: DollarSign },
         ].map(({ label, value, color, bg, icon: Icon }) => (
           <div key={label} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 flex items-center gap-4">
             <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shrink-0`}><Icon size={18} className={color} /></div>
@@ -3879,7 +3919,7 @@ const RidersPanel = ({ currentUserRole }) => {
               <div className="grid grid-cols-3 gap-3 p-6 border-b border-white/10">
                 {[
                   { label: 'Total', value: riderDels.filter(d => d.status === 'delivered').length, color: 'text-primary' },
-                  { label: 'Earned', value: `₹${riderDels.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 40), 0)}`, color: 'text-green-400' },
+                  { label: 'Earned', value: `$${riderDels.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 5), 0)}`, color: 'text-green-400' },
                   { label: 'Phone', value: activeRider.phone || '—', color: 'text-text-muted' },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="bg-white/5 rounded-xl p-3 text-center">
@@ -3907,11 +3947,11 @@ const RidersPanel = ({ currentUserRole }) => {
                         <div className="min-w-0 flex-1 mr-3">
                           <p className="text-sm font-bold text-white truncate">{d.order_id?.order_number || `BOX-${(d._id || '').slice(-5).toUpperCase()}`}</p>
                           <p className="text-[10px] text-text-muted truncate">{d.delivery_address}</p>
-                          {d.delivered_at && <p className="text-[10px] text-text-muted">{new Date(d.delivered_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
+                          {d.delivered_at && <p className="text-[10px] text-text-muted">{new Date(d.delivered_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
                         </div>
                         <div className="text-right shrink-0">
                           <p className={`text-sm font-black ${d.status === 'delivered' ? 'text-green-400' : 'text-text-muted'}`}>
-                            {d.status === 'delivered' ? `+₹${d.delivery_fee || 40}` : d.status}
+                            {d.status === 'delivered' ? `+$${d.delivery_fee || 5}` : d.status}
                           </p>
                         </div>
                       </div>
@@ -4008,9 +4048,9 @@ const StaffProfileView = ({ staffUser, onBack }) => {
         const ds = allShifts.filter(s => s.check_in && new Date(s.check_in) >= d && new Date(s.check_in) < next);
         const hours = ds.reduce((a, s) => a + shiftMinutes(s), 0) / 60;
         return {
-          label: d.toLocaleDateString('en-IN', { weekday: 'short' }),
+          label: d.toLocaleDateString('en-US', { weekday: 'short' }),
           hours,
-          tip: `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h (${ds.length} shifts)`,
+          tip: `${d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h (${ds.length} shifts)`,
         };
       });
     }
@@ -4025,7 +4065,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
         return {
           label: String(i + 1),
           hours,
-          tip: `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h`,
+          tip: `${d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h`,
         };
       });
     }
@@ -4038,7 +4078,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
         return sd.getMonth() === d.getMonth() && sd.getFullYear() === d.getFullYear();
       });
       const hours = ms.reduce((a, s) => a + shiftMinutes(s), 0) / 60;
-      const lbl = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+      const lbl = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
       return {
         label: lbl, hours,
         tip: `${lbl}: ${hours.toFixed(1)}h · ${new Set(ms.map(s => new Date(s.check_in).toDateString())).size}d · ${ms.length} shifts`,
@@ -4089,7 +4129,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
               {staffUser.email        && <span className="flex items-center gap-1.5"><Mail size={11} className="text-primary" />{staffUser.email}</span>}
               {staffUser.phone        && <span className="flex items-center gap-1.5"><Phone size={11} className="text-primary" />{staffUser.phone}</span>}
               {staffUser.city         && <span className="flex items-center gap-1.5"><MapPin size={11} className="text-primary" />{staffUser.city}</span>}
-              {staffUser.joining_date && <span className="flex items-center gap-1.5"><Calendar size={11} className="text-primary" />Joined {new Date(staffUser.joining_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
+              {staffUser.joining_date && <span className="flex items-center gap-1.5"><Calendar size={11} className="text-primary" />Joined {new Date(staffUser.joining_date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
               {staffUser.salary       && <span className="flex items-center gap-1.5"><DollarSign size={11} className="text-primary" />\u20b9{Number(staffUser.salary).toLocaleString()}/mo</span>}
             </div>
           </div>
@@ -4259,7 +4299,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
                     return (
                       <div key={s._id} className="flex items-center px-6 py-3.5 hover:bg-white/3 transition-all">
                         <div className="w-[20%] text-sm text-white font-bold">{s.date}</div>
-                        <div className="w-[10%] text-[10px] text-text-muted font-bold">{ci?ci.toLocaleDateString('en-IN',{weekday:'short'}):'—'}</div>
+                        <div className="w-[10%] text-[10px] text-text-muted font-bold">{ci?ci.toLocaleDateString('en-US',{weekday:'short'}):'—'}</div>
                         <div className="w-[22%] text-sm text-white/80 font-mono">{ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—'}</div>
                         <div className="w-[22%] text-sm text-white/80 font-mono">{co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):<span className="text-green-400 animate-pulse text-xs font-bold">Active</span>}</div>
                         <div className="w-[16%] text-sm font-black text-primary">{formatDuration(realMins)}</div>
@@ -4295,7 +4335,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
                         <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${leaveStatusColors[l.status]}`}>{l.status}</span>
                       </div>
                       <p className="text-xs text-text-muted">
-                        {new Date(l.from_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})} to {new Date(l.to_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+                        {new Date(l.from_date).toLocaleDateString('en-US',{day:'numeric',month:'short',year:'numeric'})} to {new Date(l.to_date).toLocaleDateString('en-US',{day:'numeric',month:'short',year:'numeric'})}
                         <span className="ml-2 text-primary font-bold">({l.days} day{l.days!==1?'s':''})</span>
                       </p>
                     </div>

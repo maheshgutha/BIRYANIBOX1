@@ -99,6 +99,26 @@ const Catering = () => {
 
   const totalCustomItems = Object.values(selectedItems).reduce((a, b) => a + b, 0);
 
+  // ── Auto-generate quote value based on selection + guest count ──
+  const quoteValue = useMemo(() => {
+    const guests = Number(formData.guest_count) || 50;
+    if (builderMode === 'packages' && selectedPackage) {
+      return Math.round(selectedPackage.price_per_head * guests);
+    }
+    if (builderMode === 'custom' && Object.keys(selectedItems).length > 0) {
+      // Sum up: each item's price × servings ordered, scale to guest count
+      const totalServings = Object.values(selectedItems).reduce((a, b) => a + b, 0);
+      const itemCost = Object.entries(selectedItems).reduce((sum, [id, qty]) => {
+        const item = menuItems.find(i => (i._id || i.id) === id);
+        return sum + (item ? item.price * qty : 0);
+      }, 0);
+      // Cost per serving × guests
+      const costPerServing = totalServings > 0 ? itemCost / totalServings : 0;
+      return Math.round(costPerServing * guests);
+    }
+    return 0;
+  }, [builderMode, selectedPackage, selectedItems, formData.guest_count, menuItems]);
+
   const selectedItemNames = Object.entries(selectedItems)
     .map(([id, qty]) => {
       const item = menuItems.find(i => (i._id || i.id) === id);
@@ -126,6 +146,7 @@ const Catering = () => {
       guest_count:     Number(formData.guest_count),
       menu_selection:  menuSelections,
       package_id:      selectedPackage?.id || null,
+      quote_value:     quoteValue || null,
     };
 
     const res = await addCateringOrder(payload);
@@ -302,13 +323,25 @@ const Catering = () => {
           {(selectedPackage || totalCustomItems > 0) && (
             <div className="mb-6 p-4 bg-green-500/10 border border-green-500/20 rounded-xl flex items-start gap-3">
               <CheckCircle size={16} className="text-green-400 mt-0.5 shrink-0" />
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-black text-green-400">Menu Selection Ready</p>
                 <p className="text-xs text-text-muted mt-0.5">
                   {selectedPackage
                     ? `${selectedPackage.name} package · $${selectedPackage.price_per_head}/head`
                     : `${totalCustomItems} item type${totalCustomItems !== 1 ? 's' : ''} selected`}
                 </p>
+                {quoteValue > 0 && (
+                  <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] uppercase font-black text-text-muted tracking-widest">Estimated Quote</p>
+                      <p className="text-2xl font-black text-yellow-400">${quoteValue.toLocaleString()}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] uppercase font-black text-text-muted tracking-widest">For</p>
+                      <p className="text-lg font-black text-white">{formData.guest_count} guests</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -346,6 +379,15 @@ const Catering = () => {
               className="col-span-full md:col-span-1 py-3 bg-primary text-white font-black rounded-xl hover:bg-primary-hover transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
               <ChefHat size={16} /> Submit Quote Request
             </button>
+            {quoteValue > 0 && (
+              <div className="col-span-full md:col-span-2 flex items-center gap-3 px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+                <DollarSign size={16} className="text-yellow-400 shrink-0" />
+                <div>
+                  <p className="text-[10px] uppercase font-black text-yellow-400 tracking-widest">Your Estimated Quote</p>
+                  <p className="text-xl font-black text-white">${quoteValue.toLocaleString()} <span className="text-xs text-text-muted font-normal">for {formData.guest_count} guests</span></p>
+                </div>
+              </div>
+            )}
           </form>
         </MotionDiv>
 
@@ -377,7 +419,7 @@ const Catering = () => {
                     </div>
                     <div className="flex items-center gap-2 text-text-muted">
                       <DollarSign size={14} className="text-primary" />
-                      {order.total_price ? `$${order.total_price.toFixed(0)}` : 'Quote pending'}
+                      {order.total_price ? `$${order.total_price.toFixed(0)}` : order.quote_value ? `Est. $${order.quote_value.toLocaleString()} (pending confirmation)` : 'Quote pending'}
                     </div>
                   </div>
                 </MotionDiv>

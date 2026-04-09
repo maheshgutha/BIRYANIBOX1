@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const MotionDiv = motion.div;
 import {
   Truck, MapPin, CheckCircle, Package, Clock, Phone, Navigation,
-  RefreshCw, AlertCircle, Loader, Star, ChevronRight, IndianRupee,
+  RefreshCw, AlertCircle, Loader, Star, ChevronRight, DollarSign,
   Activity, XCircle, User, Home, ArrowRight, LogOut, Wifi, WifiOff,
   TrendingUp, BarChart3, ChevronDown, Bell, MessageCircle, Shield,
 } from 'lucide-react';
@@ -28,9 +28,9 @@ const fmt = {
     const h = Math.floor(mins / 60), m = mins % 60;
     return h > 0 ? `${h}h ${m}m` : `${m} min`;
   },
-  time: (d) => new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-  date: (d) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-  currency: (n) => `₹${(n || 0).toLocaleString('en-IN')}`,
+  time: (d) => new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+  date: (d) => new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }),
+  currency: (n) => `$${(n || 0).toLocaleString('en-US')}`,
 };
 
 // ─── Status config ─────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ const StatCard = ({ label, value, sub, icon: Icon, color = '#e8890c' }) => (
 const AvailableCard = ({ delivery, onAccept, onSkip, busy }) => {
   const [expanded, setExpanded] = useState(false);
   const order = delivery.order_id || {};
-  const fee   = delivery.delivery_fee || 40;
+  const fee   = delivery.delivery_fee || 5;
   const since = delivery.order_placed_at ? Math.floor((Date.now() - new Date(delivery.order_placed_at)) / 60000) : 0;
 
   return (
@@ -108,7 +108,7 @@ const AvailableCard = ({ delivery, onAccept, onSkip, busy }) => {
             </div>
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#10b981', lineHeight: 1 }}>₹{fee}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#10b981', lineHeight: 1 }}>${fee}</div>
             <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>YOUR EARN</div>
           </div>
         </div>
@@ -121,7 +121,7 @@ const AvailableCard = ({ delivery, onAccept, onSkip, busy }) => {
             </span>
           )}
           <span style={{ fontSize: 11, color: '#888', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', padding: '4px 10px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <IndianRupee size={10} /> Order: ₹{(order.total || 0).toFixed(0)}
+            <DollarSign size={10} /> Order: ${(order.total || 0).toFixed(0)}
           </span>
           {delivery.estimated_mins && (
             <span style={{ fontSize: 11, color: '#888', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', padding: '4px 10px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -169,7 +169,7 @@ const ActiveCard = ({ delivery, onUpdate, busy }) => {
   const order   = delivery.order_id || {};
   const stepIdx = STEPS.indexOf(delivery.status);
   const next    = NEXT_ACTION[delivery.status];
-  const fee     = delivery.delivery_fee || 40;
+  const fee     = delivery.delivery_fee || 5;
   const cfg     = STATUS[delivery.status] || STATUS.assigned;
 
   const openMaps = () => {
@@ -261,7 +261,7 @@ const ActiveCard = ({ delivery, onUpdate, busy }) => {
         {/* Earnings strip */}
         <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 14, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <span style={{ fontSize: 12, color: '#888' }}>Your earnings for this delivery</span>
-          <span style={{ fontSize: 20, fontWeight: 800, color: '#10b981' }}>₹{fee}</span>
+          <span style={{ fontSize: 20, fontWeight: 800, color: '#10b981' }}>${fee}</span>
         </div>
       </div>
 
@@ -285,7 +285,7 @@ const ActiveCard = ({ delivery, onUpdate, busy }) => {
         )}
         {delivery.status === 'delivered' && (
           <div style={{ gridColumn: '1/-1', padding: '14px', borderRadius: 14, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#10b981', fontWeight: 700, fontSize: 13 }}>
-            <CheckCircle size={18} /> Delivery Complete! ₹{fee} Earned
+            <CheckCircle size={18} /> Delivery Complete! ${fee} Earned
           </div>
         )}
       </div>
@@ -314,8 +314,8 @@ const HistoryItem = ({ delivery }) => {
         )}
       </div>
       <div style={{ textAlign: 'right', flexShrink: 0 }}>
-        <div style={{ fontSize: 16, fontWeight: 800, color: '#10b981' }}>+₹{delivery.delivery_fee || 40}</div>
-        <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>₹{(order.total || 0).toFixed(0)} order</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: '#10b981' }}>+${delivery.delivery_fee || 5}</div>
+        <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>${(order.total || 0).toFixed(0)} order</div>
       </div>
     </div>
   );
@@ -487,7 +487,7 @@ const DeliveryDashboard = () => {
         {/* ── STATS ROW ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '20px 0 0' }}>
           <StatCard label="Today's Deliveries" value={stats.today_deliveries || 0}     icon={Truck}       color="#e8890c" sub="completed today" />
-          <StatCard label="Today's Earnings"    value={fmt.currency(stats.today_earnings)} icon={IndianRupee} color="#10b981" sub="earned today" />
+          <StatCard label="Today's Earnings"    value={fmt.currency(stats.today_earnings)} icon={DollarSign} color="#10b981" sub="earned today" />
           <StatCard label="Total Deliveries"    value={stats.total_deliveries || 0}    icon={Activity}    color="#3b82f6" sub="all time" />
           <StatCard label="Total Earned"        value={fmt.currency(stats.total_earnings)} icon={TrendingUp}  color="#a855f7" sub="all time" />
         </div>
@@ -594,7 +594,7 @@ const DeliveryDashboard = () => {
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{history.length} completed</span>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: '#10b981' }}>₹{history.reduce((s, d) => s + (d.delivery_fee || 40), 0)} total earned</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#10b981' }}>${history.reduce((s, d) => s + (d.delivery_fee || 5), 0)} total earned</span>
                     </div>
                     {history.map(d => <HistoryItem key={d._id} delivery={d} />)}
                   </div>

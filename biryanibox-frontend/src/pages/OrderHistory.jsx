@@ -10,7 +10,7 @@ import {
   Megaphone, Star, MessageSquare, Phone, Send, RefreshCw,
   ShoppingBag, ChefHat, Bell, Utensils, CreditCard, X,
   AlertCircle, ChevronDown, CalendarDays, Edit2, Trash2,
-  Gift, Award, TrendingUp, Zap, Check,
+  Gift, Award, TrendingUp, Zap, Check, Mail, Ticket, Lock,
 } from 'lucide-react';
 
 const ORDER_STEPS = [
@@ -119,7 +119,7 @@ const LiveOrderCard = ({ order, onRefresh }) => {
         </div>
         <div className="flex justify-between items-center border-t border-white/10 pt-3">
           <span className="text-text-muted text-sm font-bold">Total</span>
-          <span className="text-primary text-base font-black">₹{(order.total || 0).toFixed(2)}</span>
+          <span className="text-primary text-base font-black">${(order.total || 0).toFixed(2)}</span>
         </div>
       </div>
     </div>
@@ -242,9 +242,24 @@ const InlineFeedbackForm = ({ user, onSuccess }) => {
         </div>
         <div>
           <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">📱 Mobile *</label>
-          <input type="tel" value={form.mobile_number} onChange={sf('mobile_number')} placeholder="+91 98765 43210" required
+          <input type="tel" value={form.mobile_number} onChange={sf('mobile_number')} placeholder="+1 555 000 0000" required
             className="w-full bg-black/40 border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/30" />
         </div>
+      </div>
+      {/* Email — mandatory */}
+      <div>
+        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block flex items-center gap-1.5">
+          <Mail size={10} className="text-primary" /> Email Address *
+          <span className="text-primary text-[9px] normal-case font-normal ml-1">(owner may reply here)</span>
+        </label>
+        <input
+          type="email"
+          required
+          value={form.customer_email}
+          onChange={sf('customer_email')}
+          placeholder="you@example.com"
+          className="w-full bg-black/40 border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/30"
+        />
       </div>
       <div>
         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Category</label>
@@ -360,7 +375,6 @@ const AddressesTab = () => {
 
   return (
     <div className="space-y-5">
-      {/* Flash */}
       <AnimatePresence>
         {msg.text && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
@@ -370,7 +384,6 @@ const AddressesTab = () => {
         )}
       </AnimatePresence>
 
-      {/* Address Form */}
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
@@ -403,7 +416,7 @@ const AddressesTab = () => {
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Full Address *</label>
                 <textarea required value={form.address_line} onChange={e => setForm(p => ({ ...p, address_line: e.target.value }))}
-                  rows={2} placeholder="Street, Area, City, Pincode"
+                  rows={2} placeholder="Street, Area, City, ZIP"
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
               </div>
               <label className="flex items-center gap-3 cursor-pointer">
@@ -469,7 +482,6 @@ const AddressesTab = () => {
             );
           })}
 
-          {/* Add New Card */}
           <button onClick={openAdd}
             className="min-h-[160px] border-2 border-dashed border-white/10 rounded-3xl flex flex-col items-center justify-center gap-4 text-text-muted hover:border-primary/50 hover:text-primary transition-all cursor-pointer group">
             <div className="w-12 h-12 rounded-2xl bg-white/5 group-hover:bg-primary/10 flex items-center justify-center transition-all">
@@ -483,22 +495,109 @@ const AddressesTab = () => {
   );
 };
 
+/* ─── Coupon Card ─────────────────────────────────────────────── */
+const CouponCard = ({ coupon, index }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(coupon.code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const isExpired = coupon.expires_at && new Date(coupon.expires_at) < new Date();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.07 }}
+      className={`relative overflow-hidden rounded-2xl border p-5 ${
+        coupon.is_used || isExpired
+          ? 'bg-white/5 border-white/10 opacity-60'
+          : 'bg-gradient-to-br from-primary/15 via-yellow-500/5 to-transparent border-primary/30'
+      }`}
+    >
+      {/* Dashed divider circles */}
+      <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-bg-main border border-white/10" />
+      <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-5 h-5 rounded-full bg-bg-main border border-white/10" />
+
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Ticket size={14} className={coupon.is_used || isExpired ? 'text-white/30' : 'text-primary'} />
+            <span className={`text-2xl font-black ${coupon.is_used || isExpired ? 'text-white/40' : 'text-primary'}`}>
+              ${coupon.amount} OFF
+            </span>
+          </div>
+          <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">
+            {coupon.is_used ? '✓ Used' : isExpired ? '⏱ Expired' : 'Valid coupon'}
+          </p>
+          {coupon.expires_at && !coupon.is_used && !isExpired && (
+            <p className="text-[9px] text-text-muted mt-0.5">
+              Expires {new Date(coupon.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+          )}
+        </div>
+        <div className="text-right">
+          <div className={`font-mono text-sm font-black px-3 py-1.5 rounded-xl mb-2 border ${
+            coupon.is_used || isExpired ? 'border-white/10 text-white/30 bg-white/5' : 'border-primary/30 text-primary bg-primary/10'
+          }`}>
+            {coupon.code}
+          </div>
+          {!coupon.is_used && !isExpired && (
+            <button onClick={handleCopy}
+              className="text-[9px] font-black uppercase tracking-widest text-primary hover:underline transition-all">
+              {copied ? '✓ Copied!' : 'Copy Code'}
+            </button>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 /* ─── Rewards Tab ───────────────────────────────────────────────── */
 const RewardsTab = ({ user }) => {
   const [loyalty, setLoyalty] = useState(null);
+  const [paidOrders, setPaidOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
     const uid = user._id || user.id;
     if (!uid) { setLoading(false); return; }
-    loyaltyAPI.getTransactions(uid)
-      .then(res => setLoyalty(res.data || null))
-      .catch(() => setLoyalty(null))
-      .finally(() => setLoading(false));
+
+    Promise.all([
+      loyaltyAPI.getTransactions(uid).then(r => r.data || null).catch(() => null),
+      ordersAPI.history(uid).then(r => r.data || []).catch(() => []),
+    ]).then(([loyaltyData, allOrders]) => {
+      setLoyalty(loyaltyData);
+      // Only paid orders count toward coupon spend
+      const paid = allOrders
+        .filter(o => o.status === 'paid')
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      setPaidOrders(paid);
+    }).finally(() => setLoading(false));
   }, [user]);
 
   const points = loyalty?.points ?? user?.loyalty_points ?? 0;
+  const rewardCoupons = user?.reward_coupons ?? [];
+
+  // Build running total from real paid order history
+  const MILESTONE = 1000;
+  const COUPON_VALUE = 200;
+
+  const orderRows = paidOrders.map((order, i) => {
+    const runningTotal = paidOrders.slice(0, i + 1).reduce((sum, o) => sum + (o.total || 0), 0);
+    return { order, runningTotal };
+  });
+
+  const totalSpent = orderRows.length > 0 ? orderRows[orderRows.length - 1].runningTotal : (user?.total_spent ?? 0);
+  const earnedMilestones = Math.floor(totalSpent / MILESTONE);
+  const spentTowardNext = totalSpent % MILESTONE;
+  const pctToNextCoupon = Math.min(100, (spentTowardNext / MILESTONE) * 100);
 
   // Tier thresholds
   const tiers = [
@@ -513,6 +612,16 @@ const RewardsTab = ({ user }) => {
 
   if (loading) return <div className="flex justify-center py-16"><Loader size={24} className="animate-spin text-primary" /></div>;
 
+  const activeCoupons = rewardCoupons.filter(c => !c.is_used && (!c.expires_at || new Date(c.expires_at) >= new Date()));
+  const usedOrExpiredCoupons = rewardCoupons.filter(c => c.is_used || (c.expires_at && new Date(c.expires_at) < new Date()));
+
+  // Milestone crossings: which orders pushed the running total past a $1000 mark
+  const milestoneCrossings = new Set();
+  orderRows.forEach(({ runningTotal }) => {
+    const ms = Math.floor(runningTotal / MILESTONE);
+    for (let m = 1; m <= ms; m++) milestoneCrossings.add(m);
+  });
+
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       {/* Points card */}
@@ -523,7 +632,7 @@ const RewardsTab = ({ user }) => {
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Total Loyalty Points</p>
               <p className="text-6xl font-black text-white">{points.toLocaleString()}</p>
-              <p className="text-text-muted text-sm mt-1">≈ ₹{(points * 0.1).toFixed(0)} redeemable value</p>
+              <p className="text-text-muted text-sm mt-1">≈ ${(points * 0.1).toFixed(0)} redeemable value</p>
             </div>
             <div className={`px-4 py-2 rounded-2xl border text-sm font-black flex items-center gap-2 ${currentTier.bg} ${currentTier.color}`}>
               <span>{currentTier.icon}</span> {currentTier.name}
@@ -547,13 +656,137 @@ const RewardsTab = ({ user }) => {
         </div>
       </div>
 
+      {/* ── Coupon Milestone Tracker (from real order history) ────── */}
+      <div className="bg-gradient-to-br from-yellow-500/10 via-primary/5 to-secondary/40 rounded-3xl border border-yellow-500/30 overflow-hidden relative">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 blur-2xl rounded-full pointer-events-none" />
+
+        {/* Header */}
+        <div className="relative z-10 px-6 pt-6 pb-4 border-b border-white/5 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={16} className="text-primary" />
+            <span className="text-[11px] font-black uppercase tracking-widest text-white">
+              Rewards Tracker — ${COUPON_VALUE} at ${MILESTONE.toLocaleString()}
+            </span>
+          </div>
+          <span className="text-primary font-black text-sm">${totalSpent.toFixed(2)} spent</span>
+        </div>
+
+        {/* Order rows table */}
+        <div className="relative z-10 px-6 pt-4">
+          {orderRows.length === 0 ? (
+            <p className="text-[11px] text-text-muted py-4 text-center">
+              No paid orders yet — start ordering to build your spend tracker.
+            </p>
+          ) : (
+            <>
+              {/* Table header */}
+              <div className="grid grid-cols-3 mb-2">
+                <span className="text-[9px] font-black uppercase tracking-widest text-text-muted">Date</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-text-muted text-center">Amount</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-text-muted text-right">Running Total</span>
+              </div>
+
+              {/* Order rows */}
+              <div className="space-y-0 max-h-52 overflow-y-auto">
+                {orderRows.map(({ order, runningTotal }, idx) => {
+                  const prevTotal = idx > 0 ? orderRows[idx - 1].runningTotal : 0;
+                  const crossedMs = Math.floor(prevTotal / MILESTONE) < Math.floor(runningTotal / MILESTONE);
+                  return (
+                    <React.Fragment key={order._id}>
+                      {crossedMs && (
+                        <motion.div
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="flex items-center gap-2 py-2 my-1"
+                        >
+                          <div className="flex-1 h-px bg-primary/40" />
+                          <span className="text-[9px] font-black text-primary uppercase tracking-widest px-2 py-1 bg-primary/10 border border-primary/30 rounded-full flex items-center gap-1">
+                            <Ticket size={9} /> ${COUPON_VALUE} Coupon Unlocked!
+                          </span>
+                          <div className="flex-1 h-px bg-primary/40" />
+                        </motion.div>
+                      )}
+                      <motion.div
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.04 }}
+                        className="grid grid-cols-3 py-2.5 border-b border-white/5 last:border-0 hover:bg-white/3 rounded-lg px-1 transition-colors"
+                      >
+                        <span className="text-xs text-white/60">
+                          {new Date(order.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}
+                        </span>
+                        <span className="text-xs font-black text-white text-center">
+                          +${(order.total || 0).toFixed(2)}
+                        </span>
+                        <span className="text-xs font-black text-primary text-right">
+                          ${runningTotal.toFixed(2)}
+                        </span>
+                      </motion.div>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Progress toward next coupon */}
+        <div className="relative z-10 px-6 pb-6 pt-5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] text-text-muted font-bold">
+              Next reward at ${((earnedMilestones + 1) * MILESTONE).toLocaleString()}
+            </span>
+            <span className="text-[10px] text-text-muted font-bold">
+              ${(MILESTONE - spentTowardNext).toFixed(2)} to go
+            </span>
+          </div>
+          <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${pctToNextCoupon}%` }}
+              transition={{ duration: 1.2, ease: 'easeOut' }}
+              className="h-full bg-gradient-to-r from-yellow-500 to-primary rounded-full"
+            />
+          </div>
+          <div className="flex items-center justify-between mt-3">
+            <span className="text-[10px] text-text-muted">Total coupons earned from spend</span>
+            <span className="text-xl font-black text-primary">{earnedMilestones}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Active Coupons */}
+      {activeCoupons.length > 0 && (
+        <div className="bg-secondary/40 rounded-2xl border border-white/5 p-6">
+          <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <Ticket size={16} className="text-primary" /> Active Coupons
+            <span className="text-[10px] font-black px-2 py-0.5 bg-primary/20 text-primary rounded-full">{activeCoupons.length}</span>
+          </h4>
+          <div className="space-y-3">
+            {activeCoupons.map((coupon, i) => (
+              <CouponCard key={coupon.code || i} coupon={coupon} index={i} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeCoupons.length === 0 && (
+        <div className="bg-secondary/40 rounded-2xl border border-white/5 p-6 text-center">
+          <Lock size={28} className="mx-auto mb-3 text-white/20" />
+          <p className="text-sm font-bold text-white/60 uppercase tracking-widest">No active coupons yet</p>
+          <p className="text-xs text-text-muted mt-1">
+            Spend ${(MILESTONE - spentTowardNext).toFixed(0)} more to unlock a ${COUPON_VALUE} coupon!
+          </p>
+        </div>
+      )}
+
       {/* How to earn */}
       <div className="bg-secondary/40 rounded-2xl border border-white/5 p-6">
         <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2"><Zap size={16} className="text-primary" />How to Earn Points</h4>
         <div className="space-y-3">
           {[
             { label: 'Every order placed',    pts: '+10 pts',  icon: ShoppingBag },
-            { label: 'Order above ₹500',      pts: '+25 pts',  icon: TrendingUp  },
+            { label: 'Order above $500',      pts: '+25 pts',  icon: TrendingUp  },
             { label: 'Submit feedback',        pts: '+5 pts',   icon: MessageSquare },
             { label: 'Refer a friend',         pts: '+50 pts',  icon: Gift        },
           ].map(({ label, pts, icon: Icon }) => (
@@ -570,7 +803,7 @@ const RewardsTab = ({ user }) => {
         </div>
       </div>
 
-      {/* Transaction history */}
+      {/* Points Transaction history */}
       {loyalty?.transactions?.length > 0 && (
         <div className="bg-secondary/40 rounded-2xl border border-white/5 p-6">
           <h4 className="text-base font-bold text-white mb-4 flex items-center gap-2"><Award size={16} className="text-primary" />Points History</h4>
@@ -579,7 +812,7 @@ const RewardsTab = ({ user }) => {
               <div key={tx._id} className="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0">
                 <div>
                   <p className="text-sm text-white font-bold capitalize">{tx.type?.replace('_', ' ') || 'Points'}</p>
-                  <p className="text-[10px] text-text-muted">{tx.description || '—'} · {new Date(tx.created_at || tx.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                  <p className="text-[10px] text-text-muted">{tx.description || '—'} · {new Date(tx.created_at || tx.createdAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</p>
                 </div>
                 <span className={`text-sm font-black ${tx.points > 0 ? 'text-green-400' : 'text-red-400'}`}>
                   {tx.points > 0 ? '+' : ''}{tx.points}
@@ -590,11 +823,25 @@ const RewardsTab = ({ user }) => {
         </div>
       )}
 
-      {!loyalty?.transactions?.length && (
+      {/* Used / Expired Coupons */}
+      {usedOrExpiredCoupons.length > 0 && (
+        <div className="bg-secondary/40 rounded-2xl border border-white/5 p-6">
+          <h4 className="text-base font-bold text-white/40 mb-4 flex items-center gap-2">
+            <Ticket size={16} className="text-white/20" /> Used / Expired Coupons
+          </h4>
+          <div className="space-y-3">
+            {usedOrExpiredCoupons.map((coupon, i) => (
+              <CouponCard key={coupon.code || i} coupon={coupon} index={i} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!loyalty?.transactions?.length && activeCoupons.length === 0 && paidOrders.length === 0 && (
         <div className="text-center py-10 text-text-muted">
           <Award size={36} className="mx-auto mb-3 opacity-20" />
           <p className="text-sm font-bold uppercase tracking-widest">No transactions yet</p>
-          <p className="text-xs mt-1">Start ordering to earn points!</p>
+          <p className="text-xs mt-1">Start ordering to earn points & unlock coupons!</p>
         </div>
       )}
     </div>
@@ -606,7 +853,6 @@ const OrderHistory = () => {
   const { user } = useAuth();
   const location = useLocation();
 
-  // Read ?tab= from URL query string so Navbar links work
   const getInitialTab = () => {
     const params = new URLSearchParams(location.search);
     const tab = params.get('tab');
@@ -620,7 +866,6 @@ const OrderHistory = () => {
   const [loading, setLoading] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
 
-  // Update tab when URL changes (e.g. clicking Rewards link again)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get('tab');
@@ -723,12 +968,12 @@ const OrderHistory = () => {
                       {(order.items || []).length > 2 && ` +${(order.items || []).length - 2} more`}
                     </p>
                     <p className="text-xs text-text-muted uppercase tracking-widest">
-                      {new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {new Date(order.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
                       {order.order_number && ` · ${order.order_number}`}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-lg font-bold text-primary mb-1">₹{(order.total || 0).toFixed(2)}</p>
+                    <p className="text-lg font-bold text-primary mb-1">${(order.total || 0).toFixed(2)}</p>
                     <span className={`text-[9px] font-black px-2 py-1 rounded-full uppercase
                       ${order.status === 'paid' ? 'bg-green-500/20 text-green-400' :
                         order.status === 'cancelled' ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-text-muted'}`}>
@@ -792,7 +1037,7 @@ const OrderHistory = () => {
                 <h2 className="text-2xl font-black text-white flex items-center gap-3 mb-1">
                   <Gift size={24} className="text-primary" /> My Rewards
                 </h2>
-                <p className="text-text-muted text-sm">Your loyalty points, tier status & transaction history</p>
+                <p className="text-text-muted text-sm">Your loyalty points, tier status, coupons & transaction history</p>
               </div>
               <RewardsTab user={user} />
             </MotionDiv>

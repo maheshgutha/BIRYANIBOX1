@@ -63,7 +63,7 @@ const CustomerNotificationToast = ({ notification, onDismiss }) => {
                   <span className="w-5 h-5 bg-primary/20 text-primary text-[10px] font-black rounded-full flex items-center justify-center">{item.quantity}</span>
                   <span className="text-xs text-white/90 font-medium">{item.name}</span>
                 </div>
-                <span className="text-xs font-bold text-primary">₹{(item.price * item.quantity).toFixed(0)}</span>
+                <span className="text-xs font-bold text-primary">${(item.price * item.quantity).toFixed(0)}</span>
               </div>
             ))}
           </div>
@@ -72,7 +72,7 @@ const CustomerNotificationToast = ({ notification, onDismiss }) => {
               <DollarSign size={14} className="text-primary" />
               Total — {totalItems} item{totalItems > 1 ? 's' : ''}
             </div>
-            <span className="text-primary text-xl font-black">₹{notification.total.toFixed(0)}</span>
+            <span className="text-primary text-xl font-black">${notification.total.toFixed(0)}</span>
           </div>
           <p className="text-[10px] text-text-muted text-center mt-3 uppercase tracking-widest">Sent to Owner & Manager Dashboards</p>
         </div>
@@ -240,7 +240,7 @@ const POS = ({ user }) => {
                       <span className="w-6 h-6 bg-primary/20 text-primary text-xs font-black rounded-full flex items-center justify-center">{item.quantity}</span>
                       <span className="text-sm text-white font-medium">{item.name}</span>
                     </div>
-                    <span className="text-primary font-bold text-sm">₹{(item.price * item.quantity).toFixed(0)}</span>
+                    <span className="text-primary font-bold text-sm">${(item.price * item.quantity).toFixed(0)}</span>
                   </div>
                 ))}
               </div>
@@ -253,8 +253,8 @@ const POS = ({ user }) => {
                     <p className="text-xs text-white/80 leading-relaxed">{deliveryAddress}</p>
                   </div>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-text-muted flex items-center gap-1"><Navigation size={11} /> {dist} km · ₹{RATE_PER_KM}/km</span>
-                    <span className="text-primary font-black">Delivery fee: ₹{deliveryFee}</span>
+                    <span className="text-text-muted flex items-center gap-1"><Navigation size={11} /> {dist} km · ${RATE_PER_KM}/km</span>
+                    <span className="text-primary font-black">Delivery fee: ${deliveryFee}</span>
                   </div>
                   {deliveryNotes && <p className="text-[11px] text-yellow-400 flex items-start gap-1"><AlertCircle size={11} className="mt-0.5 shrink-0" />{deliveryNotes}</p>}
                 </div>
@@ -263,13 +263,13 @@ const POS = ({ user }) => {
               {couponApplied && (
                 <div className="flex justify-between items-center px-4 py-2 mb-2 bg-green-500/10 border border-green-500/20 rounded-xl text-sm">
                   <span className="text-green-400 font-bold">Coupon ({couponApplied.discount}% OFF)</span>
-                  <span className="text-green-400 font-bold">-₹{discount.toFixed(0)}</span>
+                  <span className="text-green-400 font-bold">-${discount.toFixed(0)}</span>
                 </div>
               )}
 
               <div className="flex justify-between items-center px-4 py-3 bg-primary/10 border border-primary/20 rounded-2xl mb-4">
                 <span className="text-text-muted font-bold uppercase tracking-widest text-xs">Total</span>
-                <span className="text-primary text-2xl font-black">₹{total.toFixed(0)}</span>
+                <span className="text-primary text-2xl font-black">${total.toFixed(0)}</span>
               </div>
 
               {isDeliveryOrder && (
@@ -473,7 +473,7 @@ const POS = ({ user }) => {
                       </div>
                       <div className="flex justify-between items-start mb-2">
                         <h3 className={`text-lg font-bold leading-tight ${available ? 'text-white group-hover:text-primary transition-colors' : 'text-white/50'}`}>{item.name}</h3>
-                        <p className="text-lg font-bold text-white">₹{item.price}</p>
+                        <p className="text-lg font-bold text-white">${item.price}</p>
                       </div>
                       <p className="text-xs text-text-muted leading-relaxed line-clamp-2">Authentic recipe crafted with premium saffron and heritage spices.</p>
                     </div>
@@ -527,7 +527,7 @@ const POS = ({ user }) => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-xs font-bold text-white truncate">{item.name}</h4>
-                    <p className="text-[10px] text-primary font-bold">₹{(item.price * item.quantity).toFixed(0)}</p>
+                    <p className="text-[10px] text-primary font-bold">${(item.price * item.quantity).toFixed(0)}</p>
                   </div>
                   <div className="flex items-center gap-1.5 bg-bg-main/50 p-1 rounded-full border border-white/10">
                     <button onClick={e => { e.stopPropagation(); removeFromCart(item.id); }}
@@ -576,18 +576,18 @@ const POS = ({ user }) => {
               </div>
               {isDeliveryOrder && dist > 0 && dist <= 10 && (
                 <div className="flex justify-between items-center text-xs text-primary font-bold">
-                  <span className="flex items-center gap-1"><Truck size={10} /> Delivery ({dist}km × ₹10)</span>
-                  <span>+₹{deliveryFee}</span>
+                  <span className="flex items-center gap-1"><Truck size={10} /> Delivery ({dist}km × $5)</span>
+                  <span>+${deliveryFee}</span>
                 </div>
               )}
               {couponApplied && (
                 <div className="flex justify-between items-center text-xs text-green-400 font-bold">
-                  <span>Discount ({couponApplied.discount}%)</span><span>-₹{discount.toFixed(0)}</span>
+                  <span>Discount ({couponApplied.discount}%)</span><span>-${discount.toFixed(0)}</span>
                 </div>
               )}
               <div className="flex justify-between items-center text-xl font-bold text-white font-heading">
                 <span>Settlement</span>
-                <span className="text-primary">₹{total.toFixed(0)}</span>
+                <span className="text-primary">${total.toFixed(0)}</span>
               </div>
             </div>
 

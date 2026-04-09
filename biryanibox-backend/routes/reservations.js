@@ -3,6 +3,19 @@ const router = express.Router();
 const Reservation = require('../models/Reservation');
 const { protect, authorize } = require('../middleware/auth');
 
+// PUBLIC: Customer reservation lookup by name or phone — no auth required
+router.get('/public/search', async (req, res, next) => {
+  try {
+    const { name, phone } = req.query;
+    if (!name && !phone) return res.json({ success: true, count: 0, data: [] });
+    const conditions = [];
+    if (name)  conditions.push({ customer_name: { $regex: name,  $options: 'i' } });
+    if (phone) conditions.push({ phone:          { $regex: phone, $options: 'i' } });
+    const items = await Reservation.find({ $or: conditions }).sort({ date: 1 });
+    res.json({ success: true, count: items.length, data: items });
+  } catch (err) { next(err); }
+});
+
 router.get('/', protect, async (req, res, next) => {
   try {
     const { status, date } = req.query;

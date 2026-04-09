@@ -79,15 +79,20 @@ export const OrderProvider = ({ children }) => {
   const dismissCustomerNotification = () => setCustomerNotification(null);
 
   // Create order via API
-  const createOrder = async (cart, table, captain, customerName = null) => {
+  const createOrder = async (cart, table, captain, customerName = null, deliveryParams = {}) => {
     try {
       const user = JSON.parse(localStorage.getItem('bb_user') || 'null');
+      const { delivery_address, delivery_notes, distance_km } = deliveryParams;
+      const isDelivery = table === 'Takeaway' || deliveryParams.order_type === 'delivery';
       const payload = {
         items: cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
-        table_number: table,
-        captain_id: user?._id,
-        order_type: 'dine-in',
-        customer_id: user?.role === 'customer' ? user._id : undefined,
+        table_number:    table,
+        captain_id:      user?._id,
+        order_type:      isDelivery ? 'delivery' : 'dine-in',
+        customer_id:     user?.role === 'customer' ? user._id : undefined,
+        delivery_address: delivery_address || undefined,
+        delivery_notes:   delivery_notes   || undefined,
+        distance_km:      distance_km      || undefined,
       };
       const res = await ordersAPI.create(payload);
       const newOrder = normalizeOrder(res.data);

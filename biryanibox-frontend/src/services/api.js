@@ -20,11 +20,13 @@ const request = async (path, options = {}) => {
 
 // ── AUTH ──────────────────────────────────────────────────────────
 export const authAPI = {
-  login:          (body)  => request('/auth/login',          { method: 'POST', body: JSON.stringify(body) }),
-  register:       (body)  => request('/auth/register',       { method: 'POST', body: JSON.stringify(body) }),
-  me:             ()      => request('/auth/me'),
-  logout:         ()      => request('/auth/logout',         { method: 'POST' }),
-  forgotPassword: (email) => request('/auth/forgot-password',{ method: 'POST', body: JSON.stringify({ email }) }),
+  login:          (body)         => request('/auth/login',          { method: 'POST', body: JSON.stringify(body) }),
+  register:       (body)         => request('/auth/register',       { method: 'POST', body: JSON.stringify(body) }),
+  sendOTP:        (email, name)  => request('/auth/send-otp',       { method: 'POST', body: JSON.stringify({ email, name }) }),
+  verifyOTP:      (body)         => request('/auth/verify-otp',     { method: 'POST', body: JSON.stringify(body) }),
+  me:             ()             => request('/auth/me'),
+  logout:         ()             => request('/auth/logout',         { method: 'POST' }),
+  forgotPassword: (email)        => request('/auth/forgot-password',{ method: 'POST', body: JSON.stringify({ email }) }),
 };
 
 // ── MENU ──────────────────────────────────────────────────────────
@@ -40,31 +42,30 @@ export const menuAPI = {
 
 // ── INGREDIENTS ───────────────────────────────────────────────────
 export const ingredientsAPI = {
-  getAll:          ()          => request('/ingredients'),
-  create:          (body)      => request('/ingredients',           { method: 'POST', body: JSON.stringify(body) }),
-  update:          (id, body)  => request(`/ingredients/${id}`,     { method: 'PUT',  body: JSON.stringify(body) }),
-  updateStock:     (id, stock) => request(`/ingredients/${id}/stock`, { method: 'PATCH', body: JSON.stringify({ stock }) }),
-  delete:          (id)        => request(`/ingredients/${id}`,     { method: 'DELETE' }),
-  reorderForecast: ()          => request('/ingredients/reorder-forecast'),
-  exportCSV:       ()          => `${BASE}/ingredients/export`,
+  getAll:          (params = '') => request(`/ingredients${params}`),
+  create:          (body)        => request('/ingredients',              { method: 'POST', body: JSON.stringify(body) }),
+  update:          (id, body)    => request(`/ingredients/${id}`,        { method: 'PUT',  body: JSON.stringify(body) }),
+  updateStock:     (id, stock)   => request(`/ingredients/${id}/stock`,  { method: 'PATCH', body: JSON.stringify({ stock }) }),
+  delete:          (id)          => request(`/ingredients/${id}`,        { method: 'DELETE' }),
+  reorderForecast: ()            => request('/ingredients/reorder-forecast'),
+  exportCSV:       ()            => `${BASE}/ingredients/export`,
 };
 
 // ── ORDERS ────────────────────────────────────────────────────────
 export const ordersAPI = {
-  getAll:            (params = '') => request(`/orders${params}`),
-  getOne:            (id)          => request(`/orders/${id}`),
-  create:            (body)        => request('/orders',              { method: 'POST',  body: JSON.stringify(body) }),
-  updateStatus:      (id, status)  => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-  rate:              (id, body)    => request(`/orders/${id}/rating`, { method: 'PATCH', body: JSON.stringify(body) }),
-  delete:            (id)          => request(`/orders/${id}`,        { method: 'DELETE' }),
-  financials:        ()            => request('/orders/financials'),
-  // FIX: history now fetches by customerId — requires valid _id (not undefined)
-  history:           (customerId)  => request(`/orders/history/${customerId}`),
-  captainOrders:     (captainId, period) => request(`/orders/my-captain-orders/${captainId}?period=${period}`),
-  chefOrders:        (chefId, period)    => request(`/orders/my-chef-orders/${chefId}?period=${period}`),
+  getAll:        (params = '') => request(`/orders${params}`),
+  getOne:        (id)          => request(`/orders/${id}`),
+  create:        (body)        => request('/orders',              { method: 'POST',  body: JSON.stringify(body) }),
+  updateStatus:  (id, status)  => request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  rate:          (id, body)    => request(`/orders/${id}/rating`, { method: 'PATCH', body: JSON.stringify(body) }),
+  delete:        (id)          => request(`/orders/${id}`,        { method: 'DELETE' }),
+  financials:    ()            => request('/orders/financials'),
+  history:       (customerId)  => request(`/orders/history/${customerId}`),
+  captainOrders: (captainId, period) => request(`/orders/my-captain-orders/${captainId}?period=${period}`),
+  chefOrders:    (chefId, period)    => request(`/orders/my-chef-orders/${chefId}?period=${period}`),
 };
 
-// ── USERS / STAFF ─────────────────────────────────────────────────
+// ── USERS / STAFF / CUSTOMERS ─────────────────────────────────────
 export const usersAPI = {
   getAll:        (params = '') => request(`/users${params}`),
   getOne:        (id)          => request(`/users/${id}`),
@@ -76,6 +77,9 @@ export const usersAPI = {
   changePassword:(id, body)    => request(`/users/${id}/password`, { method: 'PATCH', body: JSON.stringify(body) }),
   getLoyalty:    (id)          => request(`/users/${id}/loyalty`),
   updateLoyalty: (id, body)    => request(`/users/${id}/loyalty`, { method: 'PATCH', body: JSON.stringify(body) }),
+  // Reward coupons
+  addRewardCoupon: (id, body)  => request(`/users/${id}/reward-coupon`, { method: 'POST', body: JSON.stringify(body) }),
+  useRewardCoupon: (id, code)  => request(`/users/${id}/use-coupon`,    { method: 'POST', body: JSON.stringify({ code }) }),
 };
 
 // ── CART ──────────────────────────────────────────────────────────
@@ -89,14 +93,15 @@ export const cartAPI = {
 
 // ── CHECKOUT ──────────────────────────────────────────────────────
 export const checkoutAPI = {
-  validate: ()      => request('/checkout/validate', { method: 'POST' }),
-  process:  (body)  => request('/checkout',          { method: 'POST', body: JSON.stringify(body) }),
+  validate: ()        => request('/checkout/validate', { method: 'POST' }),
+  process:  (body)    => request('/checkout',          { method: 'POST', body: JSON.stringify(body) }),
   invoice:  (orderId) => request(`/checkout/invoice/${orderId}`),
 };
 
 // ── RESERVATIONS ──────────────────────────────────────────────────
 export const reservationsAPI = {
-  getAll:   (params = '') => request(`/reservations${params}`),
+  getAll:       (params = '') => request(`/reservations${params}`),
+  publicSearch: (name, phone) => request(`/reservations/public/search?name=${encodeURIComponent(name || '')}&phone=${encodeURIComponent(phone || '')}`),
   getOne:   (id)          => request(`/reservations/${id}`),
   create:   (body)        => request('/reservations',          { method: 'POST',  body: JSON.stringify(body) }),
   update:   (id, body)    => request(`/reservations/${id}`,    { method: 'PUT',   body: JSON.stringify(body) }),
@@ -106,23 +111,23 @@ export const reservationsAPI = {
 
 // ── TABLES ────────────────────────────────────────────────────────
 export const tablesAPI = {
-  getAll:     ()         => request('/tables'),
-  getOne:     (id)       => request(`/tables/${id}`),
-  create:     (body)     => request('/tables',        { method: 'POST',  body: JSON.stringify(body) }),
-  update:     (id, body) => request(`/tables/${id}`,  { method: 'PUT',   body: JSON.stringify(body) }),
+  getAll:     ()           => request('/tables'),
+  getOne:     (id)         => request(`/tables/${id}`),
+  create:     (body)       => request('/tables',          { method: 'POST',  body: JSON.stringify(body) }),
+  update:     (id, body)   => request(`/tables/${id}`,    { method: 'PUT',   body: JSON.stringify(body) }),
   setStatus:  (id, status) => request(`/tables/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-  delete:     (id)       => request(`/tables/${id}`,  { method: 'DELETE' }),
+  delete:     (id)         => request(`/tables/${id}`,    { method: 'DELETE' }),
 };
 
 // ── SHIFTS ────────────────────────────────────────────────────────
 export const shiftsAPI = {
-  getAll:    (params = '') => request(`/shifts${params}`),
-  getActive: ()            => request('/shifts/active'),
-  getMyActive: ()          => request('/shifts/my-active'),
-  checkIn:   (notes = '')  => request('/shifts/checkin', { method: 'POST', body: JSON.stringify({ notes }) }),
-  checkOut:  (id, notes='') => request(`/shifts/${id}/checkout`, { method: 'PATCH', body: JSON.stringify({ notes }) }),
-  create:    (body)        => request('/shifts',         { method: 'POST', body: JSON.stringify(body) }),
-  delete:    (id)          => request(`/shifts/${id}`,   { method: 'DELETE' }),
+  getAll:      (params = '') => request(`/shifts${params}`),
+  getActive:   ()            => request('/shifts/active'),
+  getMyActive: ()            => request('/shifts/my-active'),
+  checkIn:     (notes = '')  => request('/shifts/checkin',         { method: 'POST',  body: JSON.stringify({ notes }) }),
+  checkOut:    (id, notes='')=> request(`/shifts/${id}/checkout`,  { method: 'PATCH', body: JSON.stringify({ notes }) }),
+  create:      (body)        => request('/shifts',                  { method: 'POST',  body: JSON.stringify(body) }),
+  delete:      (id)          => request(`/shifts/${id}`,            { method: 'DELETE' }),
 };
 
 // ── ANNOUNCEMENTS ─────────────────────────────────────────────────
@@ -138,54 +143,77 @@ export const announcementsAPI = {
 // ── FEEDBACK ──────────────────────────────────────────────────────
 export const feedbackAPI = {
   getAll:      (params='') => request(`/feedback${params}`),
-  create:      (body)      => request('/feedback',          { method: 'POST',  body: JSON.stringify(body) }),
-  markRead:    (id)        => request(`/feedback/${id}/read`, { method: 'PATCH' }),
+  create:      (body)      => request('/feedback',               { method: 'POST',  body: JSON.stringify(body) }),
+  markRead:    (id)        => request(`/feedback/${id}/read`,    { method: 'PATCH' }),
   markAllRead: ()          => request('/feedback/mark-all-read', { method: 'PATCH' }),
-  delete:      (id)        => request(`/feedback/${id}`,    { method: 'DELETE' }),
+  reply:       (id, reply_message) => request(`/feedback/${id}/reply`, { method: 'POST', body: JSON.stringify({ reply_message }) }),
+  delete:      (id)        => request(`/feedback/${id}`,         { method: 'DELETE' }),
 };
 
 // ── NOTIFICATIONS ─────────────────────────────────────────────────
 export const notificationsAPI = {
-  getAll:     ()     => request('/notifications'),
-  markRead:   (id)   => request(`/notifications/${id}/read`, { method: 'PATCH' }),
-  markAllRead:()     => request('/notifications/read-all',   { method: 'PATCH' }),
-  delete:     (id)   => request(`/notifications/${id}`,      { method: 'DELETE' }),
+  getAll:      ()    => request('/notifications'),
+  markRead:    (id)  => request(`/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllRead: ()    => request('/notifications/read-all',   { method: 'PATCH' }),
+  delete:      (id)  => request(`/notifications/${id}`,      { method: 'DELETE' }),
 };
 
 // ── CATERING ──────────────────────────────────────────────────────
 export const cateringAPI = {
-  getAll:  ()       => request('/catering'),
-  getOne:  (id)     => request(`/catering/${id}`),
-  create:  (body)   => request('/catering',       { method: 'POST',  body: JSON.stringify(body) }),
-  update:  (id,body)=> request(`/catering/${id}`, { method: 'PUT',   body: JSON.stringify(body) }),
-  delete:  (id)     => request(`/catering/${id}`, { method: 'DELETE' }),
+  getAll:  ()        => request('/catering'),
+  getOne:  (id)      => request(`/catering/${id}`),
+  create:  (body)    => request('/catering',        { method: 'POST',  body: JSON.stringify(body) }),
+  update:  (id,body) => request(`/catering/${id}`,  { method: 'PUT',   body: JSON.stringify(body) }),
+  delete:  (id)      => request(`/catering/${id}`,  { method: 'DELETE' }),
 };
 
 // ── GIFT CARDS ────────────────────────────────────────────────────
 export const giftCardsAPI = {
-  validate:  (code)    => request(`/gift-cards/validate/${code}`),
-  purchase:  (body)    => request('/gift-cards',  { method: 'POST', body: JSON.stringify(body) }),
-  getAll:    ()        => request('/gift-cards'),
+  validate: (code) => request(`/gift-cards/validate/${code}`),
+  purchase: (body) => request('/gift-cards',  { method: 'POST', body: JSON.stringify(body) }),
+  getAll:   ()     => request('/gift-cards'),
 };
 
 // ── ADDRESSES ─────────────────────────────────────────────────────
 export const addressesAPI = {
-  getAll:     ()         => request('/addresses'),
-  create:     (body)     => request('/addresses',              { method: 'POST',  body: JSON.stringify(body) }),
-  setDefault: (id)       => request(`/addresses/${id}/default`,{ method: 'PATCH' }),
-  update:     (id, body) => request(`/addresses/${id}`,        { method: 'PUT',   body: JSON.stringify(body) }),
-  delete:     (id)       => request(`/addresses/${id}`,        { method: 'DELETE' }),
+  getAll:     ()           => request('/addresses'),
+  create:     (body)       => request('/addresses',              { method: 'POST',  body: JSON.stringify(body) }),
+  setDefault: (id)         => request(`/addresses/${id}/default`,{ method: 'PATCH' }),
+  update:     (id, body)   => request(`/addresses/${id}`,        { method: 'PUT',   body: JSON.stringify(body) }),
+  delete:     (id)         => request(`/addresses/${id}`,        { method: 'DELETE' }),
 };
 
 // ── LOYALTY ───────────────────────────────────────────────────────
 export const loyaltyAPI = {
-  // GET /api/loyalty/:userId  → { success, data: { points, current_tier, next_tier } }
   getTransactions:     (userId) => request(`/loyalty/${userId}`),
-  // GET /api/loyalty/:userId/transactions → { success, data: [...txns] }
-  // FIX: was previously a raw fetch() call inside OrderHistory — now properly uses request()
   getUserTransactions: (userId) => request(`/loyalty/${userId}/transactions`),
   redeem:              (body)   => request('/loyalty/redeem', { method: 'POST', body: JSON.stringify(body) }),
   earn:                (body)   => request('/loyalty/earn',   { method: 'POST', body: JSON.stringify(body) }),
+};
+
+// ── LEAVES ────────────────────────────────────────────────────────
+export const leavesAPI = {
+  getAll:       (params = '') => request(`/leaves${params}`),
+  apply:        (body)        => request('/leaves',              { method: 'POST',  body: JSON.stringify(body) }),
+  updateStatus: (id, body)    => request(`/leaves/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) }),
+  delete:       (id)          => request(`/leaves/${id}`,        { method: 'DELETE' }),
+};
+
+// ── DELIVERIES ────────────────────────────────────────────────────
+export const deliveryAPI = {
+  getAll:       (params = '') => request(`/deliveries${params}`),
+  getAvailable: ()            => request('/deliveries/available'),
+  getMyActive:  ()            => request('/deliveries/my-active'),
+  getStats:     ()            => request('/deliveries/stats'),
+  getCompleted: ()            => request('/deliveries/completed'),
+  getById:      (id)          => request(`/deliveries/${id}`),
+  accept:       (id)          => request(`/deliveries/${id}/accept`, { method: 'PATCH' }),
+  reject:       (id)          => request(`/deliveries/${id}/reject`, { method: 'PATCH' }),
+  updateStatus: (id, status, location = '') =>
+    request(`/deliveries/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, current_location: location }) }),
+  assign:       (id, driver_id) =>
+    request(`/deliveries/${id}/assign`, { method: 'PATCH', body: JSON.stringify({ driver_id }) }),
+  create:       (body) => request('/deliveries', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // ── NORMALIZE HELPERS ─────────────────────────────────────────────
@@ -208,6 +236,7 @@ export const normalizeOrder = (order) => ({
   total: order.total,
   table: order.table_number,
   table_number: order.table_number,
+  order_type: order.order_type || 'dine_in',   // dine_in | pickup | delivery
   captain: order.captain_id?.name || order.captain_id || '',
   captain_id: order.captain_id,
   chef: order.chef_id?.name || order.chef_id || '',
@@ -219,6 +248,8 @@ export const normalizeOrder = (order) => ({
   created_at: order.created_at,
   cooking_started_at: order.cooking_started_at,
   cooking_completed_at: order.cooking_completed_at,
+  cooking_duration_minutes: order.cooking_duration_minutes,
+  estimated_cooking_minutes: order.estimated_cooking_minutes || 20,
   served_at: order.served_at,
   paid_at: order.paid_at,
   rating: order.rating || 0,
@@ -236,12 +267,7 @@ export const normalizeIngredient = (ing) => ({
   min_stock: ing.min_stock,
   unitCost: ing.unit_cost,
   unit_cost: ing.unit_cost,
+  category: ing.category || 'other',
+  date_added: ing.date_added,
   needsReorder: ing.stock < ing.min_stock,
 });
-// ── LEAVES ────────────────────────────────────────────────────────
-export const leavesAPI = {
-  getAll:       (params = '') => request(`/leaves${params}`),
-  apply:        (body)        => request('/leaves',              { method: 'POST',  body: JSON.stringify(body) }),
-  updateStatus: (id, body)    => request(`/leaves/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) }),
-  delete:       (id)          => request(`/leaves/${id}`,        { method: 'DELETE' }),
-};

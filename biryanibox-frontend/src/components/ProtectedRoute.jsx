@@ -5,16 +5,20 @@ import { useAuth } from '../context/useContextHooks';
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user } = useAuth();
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
+  // Not authenticated at all → login
+  if (!user) return <Navigate to="/login" replace />;
+
+  // Delivery role trying to reach staff dashboard → redirect to rider portal
+  if (user.role === 'delivery' && !allowedRoles?.includes('delivery')) {
+    return <Navigate to="/rider" replace />;
   }
 
+  // Role restriction check
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
-  // If user reaches /login while authenticated, redirect to Dashboard
-  if (window.location.pathname === '/login' || window.location.pathname === '/auth') {
+    // Non-delivery trying to reach rider portal
+    if (allowedRoles.includes('delivery')) {
+      return <Navigate to="/dashboard" replace />;
+    }
     return <Navigate to="/dashboard" replace />;
   }
 

@@ -8,18 +8,26 @@ const OrderSchema = new mongoose.Schema({
   station_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'KitchenStation' },
   table_number:   { type: String, maxlength: 10 },
   total:          { type: Number, required: true, min: 0 },
-  // 4-phase order lifecycle:
-  // pending → start_cooking (chef only) → completed_cooking (chef only) → served (captain/manager/owner) → paid (captain/manager/owner)
+
+  // pending → start_cooking → completed_cooking → served → paid | cancelled
   status: {
     type: String,
     enum: ['pending', 'start_cooking', 'completed_cooking', 'served', 'paid', 'cancelled'],
-    default: 'pending'
+    default: 'pending',
   },
   order_type:     { type: String, enum: ['dine-in', 'delivery', 'takeaway'], default: 'dine-in' },
   payment_method: { type: String, enum: ['upi', 'card', 'cash', 'gift_card'] },
   spiceness:      { type: String, enum: ['mild', 'medium', 'hot', 'extra_hot'], default: 'medium' },
   rating:         { type: Number, min: 1, max: 5 },
   feedback:       { type: String },
+
+  // Delivery fields — populated when order_type is 'delivery' or 'takeaway'
+  delivery_address:  { type: String },
+  delivery_notes:    { type: String },
+  distance_km:       { type: Number, min: 0 },
+  delivery_fee:      { type: Number, min: 0, default: 0 },
+
+  // Timestamps
   cooking_started_at:   { type: Date },
   cooking_completed_at: { type: Date },
   served_at:            { type: Date },

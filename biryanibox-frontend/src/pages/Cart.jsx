@@ -285,6 +285,11 @@ const Cart = () => {
 
   const TABLE_OPTIONS = ['Table 1', 'Table 2', 'VIP 1', 'VIP 2', 'Takeaway'];
 
+  // Read delivery address from cart items — entered on the menu page
+  const cartDeliveryAddress = cart.find(i => i.delivery_address)?.delivery_address || '';
+  const cartDeliveryNotes   = cart.find(i => i.delivery_notes)?.delivery_notes || '';
+  const cartDistanceKm      = cart.find(i => i.distance_km)?.distance_km || null;
+
   // Tracking state — persisted to localStorage so user can return to tracker anytime
   const [placedOrderId,    setPlacedOrderId]    = useState(() => { const s = loadActiveOrder(); return s?.orderId    || null; });
   const [placedOrderNum,   setPlacedOrderNum]   = useState(() => { const s = loadActiveOrder(); return s?.orderNum   || ''; });
@@ -386,6 +391,7 @@ const Cart = () => {
         table_number: selectedTable || 'Takeaway',
         customer_id: user?._id || user?.id,
         total: grandTotal,
+        ...(selectedTable === 'Takeaway' && cartDeliveryAddress ? { delivery_address: cartDeliveryAddress, delivery_notes: cartDeliveryNotes || undefined, distance_km: cartDistanceKm || undefined } : {}),
       };
       const res = await ordersAPI.create(payload);
       const orderId  = res.data?._id || res.data?.order?._id;
@@ -730,6 +736,30 @@ const Cart = () => {
                   ))}
                 </div>
                 {!selectedTable && <p className="text-[10px] text-red-400 font-bold">Please select a table to place order</p>}
+
+                {/* Show delivery address entered on menu page — read-only, no re-entry needed */}
+                {selectedTable === 'Takeaway' && (
+                  <div className="mt-1 pt-3 border-t border-white/10 space-y-2">
+                    {cartDeliveryAddress ? (
+                      <div className="flex items-start gap-2 bg-green-500/5 border border-green-500/20 rounded-xl px-3 py-2.5">
+                        <MapPin size={12} className="text-green-400 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-[9px] text-green-400 font-black uppercase tracking-widest mb-0.5">Delivery Address ✓</p>
+                          <p className="text-xs text-white/80 break-words">{cartDeliveryAddress}</p>
+                          {cartDeliveryNotes && <p className="text-[10px] text-text-muted mt-0.5">Note: {cartDeliveryNotes}</p>}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2.5">
+                        <MapPin size={12} className="text-red-400 shrink-0" />
+                        <div>
+                          <p className="text-[10px] text-red-400 font-bold">No delivery address found</p>
+                          <p className="text-[9px] text-text-muted mt-0.5">Go back to the menu page, select Takeaway and enter your address before adding items.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Active order quick-access when cart also has items */}
@@ -742,7 +772,7 @@ const Cart = () => {
                 </button>
               )}
               {/* Place Order button */}
-              <button onClick={handlePlaceOrder} disabled={placing || cart.length === 0 || !selectedTable}
+              <button onClick={handlePlaceOrder} disabled={placing || cart.length === 0 || !selectedTable || (selectedTable === 'Takeaway' && !cartDeliveryAddress)}
                 className="btn-primary w-full py-5 flex items-center justify-center gap-3 group disabled:opacity-60">
                 {placing
                   ? <><Loader size={20} className="animate-spin" /> Placing Order...</>

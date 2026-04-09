@@ -8,6 +8,7 @@ const Ingredient = require('../models/Ingredient');
 const User = require('../models/User');
 const LoyaltyTransaction = require('../models/LoyaltyTransaction');
 const Notification = require('../models/Notification');
+const Delivery = require('../models/Delivery');
 const { protect, authorize } = require('../middleware/auth');
 
 // Role-based status transition rules
@@ -231,8 +232,24 @@ router.get('/:id', protect, async (req, res, next) => {
 // POST /api/orders
 router.post('/', protect, async (req, res, next) => {
   try {
-    const { items, table_number, captain_id, order_type, payment_method, customer_id, spiceness } = req.body;
+    const {
+      items, table_number, captain_id, order_type, payment_method,
+      customer_id, spiceness, delivery_address, delivery_notes, distance_km,
+    } = req.body;
+
     if (!items || !items.length) return res.status(400).json({ success: false, message: 'No items in order' });
+
+    // ── Delivery/Takeaway validation ─────────────────────────────────────────
+    const isDeliveryOrder = order_type === 'delivery' || table_number === 'Takeaway';
+    if (isDeliveryOrder) {
+      if (!delivery_address || !delivery_address.trim()) {
+        return res.status(400).json({ success: false, message: 'Delivery address is required for takeaway/delivery orders.' });
+      }
+      // distance_km is optional — no hard block
+    }
+
+    const dist = parseFloat(distance_km) || 0;
+    const deliveryFee = isDeliveryOrder ? (dist > 0 ? Math.round(dist * 2) : 5) : 0; // $2/km or flat $5
 
     for (const item of items) {
       const menuItem = await MenuItem.findById(item.menu_item_id);
@@ -255,10 +272,16 @@ router.post('/', protect, async (req, res, next) => {
     }
 
     const order = await Order.create({
-      customer_id, captain_id, table_number, total,
-      order_type: order_type || 'dine-in',
+      customer_id, captain_id, table_number,
+      total: +(total + deliveryFee).toFixed(2),
+      order_type: isDeliveryOrder ? 'delivery' : (order_type || 'dine-in'),
       payment_method, status: 'pending',
       spiceness: spiceness || 'medium',
+      // Delivery fields stored on order
+      delivery_address: isDeliveryOrder ? delivery_address.trim() : undefined,
+      delivery_notes:   isDeliveryOrder ? (delivery_notes || '') : undefined,
+      distance_km:      isDeliveryOrder ? dist : undefined,
+      delivery_fee:     deliveryFee,
     });
 
     const createdItems = await OrderItem.insertMany(orderItems.map(i => ({ ...i, order_id: order._id })));
@@ -337,6 +360,29 @@ router.patch('/:id/status', protect, async (req, res, next) => {
         user_id: updated.customer_id, order_id: updated._id,
         type: 'earn', points, description: `Points earned for order #${updated.order_number}`
       });
+    }
+
+    // ── When owner marks as PAID and it is a delivery/takeaway order ──────────
+    // Create a Delivery record now → riders can see it in their queue
+    if (status === 'paid' && updated.delivery_address) {
+      const alreadyExists = await Delivery.findOne({ order_id: updated._id });
+      if (!alreadyExists) {
+        const customer = updated.customer_id
+          ? await User.findById(updated.customer_id).select('name phone')
+          : null;
+        await Delivery.create({
+          order_id:        updated._id,
+          customer_id:     updated.customer_id || null,
+          customer_name:   customer?.name || 'Walk-in',
+          phone:           customer?.phone || '',
+          delivery_address: updated.delivery_address,
+          delivery_notes:  updated.delivery_notes || '',
+          distance_km:     updated.distance_km || 0,
+          delivery_fee:    updated.delivery_fee || Math.round((updated.distance_km || 0) * 10),
+          status:          'pending',
+          order_placed_at: new Date(),
+        });
+      }
     }
 
     if (status === 'completed_cooking') {

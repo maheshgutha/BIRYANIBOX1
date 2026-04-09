@@ -4,10 +4,15 @@ const User = require('../models/User');
 const LoyaltyTransaction = require('../models/LoyaltyTransaction');
 const { protect, authorize } = require('../middleware/auth');
 
+// All non-customer, non-owner staff roles a manager/owner can create
+const SUPPORT_ROLES = ['servant', 'helper', 'cleaner', 'security'];
+const MANAGER_ROLES = ['captain', 'chef', ...SUPPORT_ROLES];
+const OWNER_ROLES   = ['manager', ...MANAGER_ROLES, 'delivery'];
+
 // Helper: check if requester can manage target role
 const canManage = (requesterRole, targetRole) => {
-  if (requesterRole === 'owner') return ['manager', 'captain', 'chef', 'delivery', 'customer'].includes(targetRole);
-  if (requesterRole === 'manager') return ['captain', 'chef'].includes(targetRole);
+  if (requesterRole === 'owner')   return OWNER_ROLES.includes(targetRole);
+  if (requesterRole === 'manager') return MANAGER_ROLES.includes(targetRole);
   return false;
 };
 
@@ -17,9 +22,9 @@ router.get('/', protect, authorize('owner', 'manager'), async (req, res, next) =
     const { role } = req.query;
     const filter = {};
     if (role) filter.role = role;
-    // Manager can only see captain and chef
+    // Manager can see all roles they can manage
     if (req.user.role === 'manager') {
-      filter.role = { $in: role ? [role].filter(r => ['captain', 'chef'].includes(r)) : ['captain', 'chef'] };
+      filter.role = { $in: role ? [role].filter(r => MANAGER_ROLES.includes(r)) : MANAGER_ROLES };
     }
     const users = await User.find(filter).select('-password_hash -reset_token -reset_expire');
     res.json({ success: true, count: users.length, data: users });

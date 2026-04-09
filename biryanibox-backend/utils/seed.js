@@ -30,7 +30,7 @@ const seed = async () => {
     { name: 'Priya Sharma',   email: 'manager@biryanibox.com',  password_hash: await bcrypt.hash('manager123',  salt), role: 'manager',  is_active: true },
     { name: 'Arjun Singh',    email: 'captain@biryanibox.com',  password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
     { name: 'Rabbani Basha',  email: 'chef@biryanibox.com',     password_hash: await bcrypt.hash('chef123',     salt), role: 'chef',     is_active: true },
-    { name: 'Vikram Patel',   email: 'delivery@biryanibox.com', password_hash: await bcrypt.hash('delivery123', salt), role: 'delivery', is_active: true, vehicle_type: 'Motorcycle', driver_rating: 4.8, delivery_count: 245 },
+    { name: 'Ravi Kumar',     email: 'rider@biryanibox.com',    password_hash: await bcrypt.hash('rider123',    salt), role: 'delivery', is_active: true, vehicle_type: 'Motorcycle', driver_rating: 4.8, delivery_count: 0   },
     { name: 'Anjali Verma',   email: 'customer@biryanibox.com', password_hash: await bcrypt.hash('customer123', salt), role: 'customer', is_active: true, loyalty_points: 850, order_count: 12 },
   ]);
   console.log('Users seeded (6 users including chef)');
@@ -139,7 +139,7 @@ const seed = async () => {
   console.log('  Manager:  manager@biryanibox.com  / manager123');
   console.log('  Captain:  captain@biryanibox.com  / captain123');
   console.log('  Chef:     chef@biryanibox.com     / chef123   ← NEW');
-  console.log('  Delivery: delivery@biryanibox.com / delivery123');
+  console.log('  Rider:    rider@biryanibox.com     / rider123   ← Updated');
   console.log('  Customer: customer@biryanibox.com / customer123');
   await mongoose.disconnect();
 };

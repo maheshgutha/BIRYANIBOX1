@@ -58,13 +58,8 @@ const Reservations = () => {
     if (!name && !phone) { setMyReservations([]); return; }
     setLoadingList(true);
     try {
-      const res = await reservationsAPI.getAll();
-      const all = res.data || [];
-      const mine = all.filter(r =>
-        (name && r.customer_name?.toLowerCase().includes(name.toLowerCase())) ||
-        (phone && r.phone?.includes(phone))
-      );
-      setMyReservations(mine);
+      const res = await reservationsAPI.publicSearch(name, phone);
+      setMyReservations(res.data || []);
     } catch { setMyReservations([]); }
     finally { setLoadingList(false); }
   }, [formData.customer_name, formData.phone]);

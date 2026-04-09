@@ -11,14 +11,14 @@ import {
   Search, LayoutDashboard, TrendingDown, Coffee, MapPin, Phone,
   Mail, User, Shield, AlertTriangle, Play, CheckSquare, Utensils,
   Timer, ToggleLeft, ToggleRight, Hash, Briefcase, CheckCircle, XCircle,
-  Activity, BarChart2, TrendingUp as Trend,
+  Activity, BarChart2, TrendingUp as Trend, Truck,
 } from 'lucide-react';
 import { useAuth, useOrders } from '../context/useContextHooks';
 import { useNavigate } from 'react-router-dom';
 import {
   usersAPI, ordersAPI, ingredientsAPI, reservationsAPI, tablesAPI,
   feedbackAPI, announcementsAPI, shiftsAPI, notificationsAPI, normalizeOrder,
-  menuAPI, cateringAPI, leavesAPI,
+  menuAPI, cateringAPI, leavesAPI, deliveryAPI,
 } from '../services/api';
 import POS from '../components/POS';
 
@@ -68,8 +68,9 @@ const Sidebar = ({ activeTab, setActiveTab, user, unreadAnnouncements }) => {
     { id: 'feedback',      label: 'Feedback Box',   icon: MessageSquare,   roles: ['owner', 'manager'] },
     { id: 'announcements', label: 'Announcements',  icon: Megaphone,       roles: ['owner', 'manager', 'chef', 'captain'] },
     { id: 'leaves',        label: 'Leave Module',   icon: Briefcase,       roles: ['owner', 'manager', 'chef', 'captain'] },
-    { id: 'shifts',        label: 'Shift Logs',     icon: UserCheck,       roles: ['owner', 'manager', 'chef', 'captain'] },
+    { id: 'shifts',        label: 'Shift Logs',     icon: UserCheck,       roles: ['owner', 'manager'] },
     { id: 'staffmgmt',     label: 'Staff Mgmt',     icon: Users,           roles: ['owner', 'manager'] },
+    { id: 'riders',        label: 'Riders Hub',     icon: Truck,           roles: ['owner', 'manager'] },
     { id: 'finance',       label: 'Finance Center', icon: DollarSign,      roles: ['owner', 'manager'] },
     { id: 'my_orders',     label: 'My Orders',      icon: ClipboardList,   roles: ['captain'] },
     { id: 'chef_orders',   label: 'Order History',  icon: ClipboardList,   roles: ['chef'] },
@@ -1004,6 +1005,10 @@ const ReservationsPanel = () => {
 // ─── FEEDBACK BOX ─────────────────────────────────────────────────────────────
 const FeedbackBox = () => {
   const [feedback, setFeedback] = useState([]);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const [replyMsg, setReplyMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
 
@@ -1019,6 +1024,19 @@ const FeedbackBox = () => {
 
   const markRead = async (id) => { await feedbackAPI.markRead(id); load(); };
   const markAllRead = async () => { await feedbackAPI.markAllRead(); load(); };
+
+  const handleReply = async (id) => {
+    if (!replyText.trim()) return;
+    setReplySending(true);
+    try {
+      await feedbackAPI.reply(id, replyText);
+      setReplyMsg('Reply sent via email ✓');
+      setReplyingTo(null); setReplyText('');
+      setTimeout(() => setReplyMsg(''), 4000);
+      load();
+    } catch(e) { setReplyMsg('Failed: '+(e.message||'Error')); setTimeout(()=>setReplyMsg(''),4000); }
+    finally { setReplySending(false); }
+  };
 
   const unread = feedback.filter(f => !f.is_read).length;
   const filtered = filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f.is_read) : feedback.filter(f => f.category === filter);
@@ -1047,6 +1065,7 @@ const FeedbackBox = () => {
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filter === f ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{f}</button>
         ))}
       </div>
+      {replyMsg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{replyMsg}</p>}
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="space-y-3">
           {filtered.map(f => (
@@ -1080,6 +1099,47 @@ const FeedbackBox = () => {
                 <div className="bg-primary/5 border border-primary/20 rounded-xl p-3">
                   <p className="text-[10px] text-primary font-black uppercase tracking-widest mb-1">Suggestion</p>
                   <p className="text-sm text-white/70">{f.suggestion}</p>
+                </div>
+              )}
+              {/* Email display */}
+              {(f.customer_email||f.customer_id?.email) && (
+                <p className="text-[10px] text-text-muted flex items-center gap-1 mt-2">
+                  <Mail size={9} className="text-primary" />{f.customer_email||f.customer_id?.email}
+                </p>
+              )}
+              {/* Owner reply */}
+              {f.owner_reply && (
+                <div className="mt-2 bg-green-500/5 border border-green-500/20 rounded-xl p-3">
+                  <p className="text-[9px] text-green-400 font-black uppercase tracking-widest mb-1">
+                    <Mail size={9} /> Owner Reply {f.reply_sent_email?'· Sent ✓':'· Draft'}
+                  </p>
+                  <p className="text-xs text-white/70">{f.owner_reply}</p>
+                </div>
+              )}
+              {/* Reply button */}
+              {(f.customer_email||f.customer_id?.email) && (
+                <div className="mt-3">
+                  {replyingTo===f._id ? (
+                    <div className="bg-white/5 rounded-xl p-3 space-y-2">
+                      <p className="text-[10px] text-text-muted font-bold">Reply to: {f.customer_email||f.customer_id?.email}</p>
+                      <textarea rows={3} value={replyText} onChange={e=>setReplyText(e.target.value)} autoFocus
+                        placeholder="Type your reply — will be emailed to the customer..."
+                        className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary resize-none" />
+                      <div className="flex gap-2">
+                        <button onClick={()=>handleReply(f._id)} disabled={replySending||!replyText.trim()}
+                          className="px-4 py-1.5 bg-primary text-white rounded-lg text-xs font-black uppercase flex items-center gap-1.5 disabled:opacity-60">
+                          <Mail size={11}/>{replySending?'Sending…':'Send Reply'}
+                        </button>
+                        <button onClick={()=>{setReplyingTo(null);setReplyText('');}}
+                          className="px-4 py-1.5 border border-white/20 rounded-lg text-xs font-black uppercase hover:bg-white/5">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={()=>{setReplyingTo(f._id);setReplyText(f.owner_reply||'');}}
+                      className="text-[10px] px-3 py-1.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg font-black uppercase hover:bg-blue-500 hover:text-white transition-all flex items-center gap-1.5">
+                      <Mail size={10}/>{f.owner_reply?'Edit Reply':'Reply via Email'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1510,18 +1570,20 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
         </div>
       )}
 
-      {/* Role filter buttons */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-[10px] text-text-muted font-black uppercase tracking-widest">Filter:</span>
-        {['all', 'captain', 'chef', 'manager', 'owner'].map(r => (
-          <button key={r} onClick={() => setRoleFilter(r)}
-            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${roleFilter === r
-              ? r === 'all' ? 'bg-primary text-white border-primary' : `border ${roleBadge[r] || 'bg-primary text-white border-primary'} opacity-100`
-              : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
-            {r}
-          </button>
-        ))}
-      </div>
+      {/* Role filter buttons — only shown to admins; captain/chef only see their own */}
+      {isAdmin && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-[10px] text-text-muted font-black uppercase tracking-widest">Filter:</span>
+          {['all', 'captain', 'chef', 'manager', 'owner'].map(r => (
+            <button key={r} onClick={() => setRoleFilter(r)}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${roleFilter === r
+                ? r === 'all' ? 'bg-primary text-white border-primary' : `border ${roleBadge[r] || 'bg-primary text-white border-primary'} opacity-100`
+                : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
+              {r}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Shifts table */}
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
@@ -1535,16 +1597,22 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
             <div className="w-[5%]">Status</div>
           </div>
           <div className="divide-y divide-white/5">
-            {filteredShifts.map(s => (
+            {filteredShifts.map(s => {
+              // user_id may be null if user was deleted/re-seeded (broken reference)
+              const staffName = s.user_id?.name || null;
+              const staffRole = s.user_id?.role || s.role || '—';
+              const displayName = staffName || `(${staffRole})`;
+              const canOpenProfile = s.user_id && s.user_id._id;
+              return (
               <div key={s._id}
-                onClick={() => onViewProfile && onViewProfile(s.user_id || { _id: s.user_id, name: '—', role: s.role })}
-                className="flex items-center px-6 py-4 hover:bg-white/5 cursor-pointer transition-all group">
+                onClick={() => canOpenProfile && onViewProfile && onViewProfile(s.user_id)}
+                className={`flex items-center px-6 py-4 transition-all group ${canOpenProfile ? 'hover:bg-white/5 cursor-pointer' : 'cursor-default opacity-70'}`}>
                 <div className="w-[28%] flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full overflow-hidden border border-primary/20 shrink-0">
-                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${s.user_id?.name || s._id}`} alt="" />
+                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${staffName || staffRole || s._id}`} alt="" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">{s.user_id?.name || '—'}</p>
+                    <p className={`text-sm font-bold ${canOpenProfile ? 'group-hover:text-primary' : ''} ${staffName ? 'text-white' : 'text-text-muted italic'} transition-colors`}>{displayName}</p>
                     <p className="text-[10px] text-text-muted">{s.date}</p>
                   </div>
                 </div>
@@ -1564,7 +1632,7 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
                   <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${s.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-text-muted'}`}>{s.status}</span>
                 </div>
               </div>
-            ))}
+            );})}
             {filteredShifts.length === 0 && (
               <div className="py-16 text-center text-text-muted">
                 <UserCheck size={36} className="mx-auto mb-3 opacity-20" />
@@ -1598,8 +1666,8 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
 
   const allowedRoles = currentUserRole === 'owner'
-    ? ['manager', 'captain', 'chef']
-    : ['captain', 'chef'];
+    ? ['manager', 'captain', 'chef', 'servant', 'helper', 'cleaner', 'security']
+    : ['captain', 'chef', 'servant', 'helper', 'cleaner', 'security'];
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1656,9 +1724,13 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
   };
 
   const roleColor = {
-    manager: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-    captain: 'text-green-400 bg-green-500/10 border-green-500/20',
-    chef:    'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    manager:  'text-blue-400 bg-blue-500/10 border-blue-500/20',
+    captain:  'text-green-400 bg-green-500/10 border-green-500/20',
+    chef:     'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    servant:  'text-purple-400 bg-purple-500/10 border-purple-500/20',
+    helper:   'text-pink-400 bg-pink-500/10 border-pink-500/20',
+    cleaner:  'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+    security: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
   };
 
   // Filter staff by role
@@ -1925,9 +1997,11 @@ const LeaveModule = ({ user }) => {
   };
 
   // Permission check: can this user approve THIS leave?
+  // leave.role is stored at creation time; fall back to leave.user_id?.role if populated
   const canApproveLeave = (leave) => {
-    if (isOwner) return true; // owner approves: captain, chef, manager
-    if (isManager) return ['captain', 'chef'].includes(leave.role || leave.user_id?.role); // manager approves: captain, chef only
+    const leaveRole = leave.role || leave.user_id?.role || '';
+    if (isOwner) return true;                                                   // owner approves all
+    if (isManager) return ['captain', 'chef'].includes(leaveRole);              // manager approves captain/chef only
     return false;
   };
 
@@ -2456,6 +2530,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                     <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Spice Level</label>
                     <select value={form.spice_level} onChange={sf('spice_level')}
                       className="w-full bg-[#252525] border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm">
+                      <option value={0}>🇺🇸 American Spice (No Heat)</option>
                       <option value={1}>🌶 Mild</option>
                       <option value={2}>🌶🌶 Medium</option>
                       <option value={3}>🌶🌶🌶 Hot</option>
@@ -2692,7 +2767,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
   const [localIngredients, setLocalIngredients] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState(null);
-  const [newIng, setNewIng] = useState({ name: '', unit: 'kg', stock: 0, min_stock: 0, unit_cost: 0 });
+  const [newIng, setNewIng] = useState({ name: '', unit: 'kg', stock: 0, min_stock: 0, unit_cost: 0, category: 'other' });
   const [editForm, setEditForm] = useState({ name: '', unit: 'kg', stock: 0, min_stock: 0, unit_cost: 0 });
   const [msg, setMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -2708,7 +2783,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
       await ingredientsAPI.create({ ...newIng, stock: Number(newIng.stock), min_stock: Number(newIng.min_stock), unit_cost: Number(newIng.unit_cost) });
       flash('Ingredient added!');
       setShowAdd(false);
-      setNewIng({ name: '', unit: 'kg', stock: 0, min_stock: 0, unit_cost: 0 });
+      setNewIng({ name: '', unit: 'kg', stock: 0, min_stock: 0, unit_cost: 0, category: 'other' });
       const res = await ingredientsAPI.getAll();
       setLocalIngredients(res.data || []);
     } catch (err) { flash(err.message); }
@@ -2743,7 +2818,25 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
     } catch (err) { flash(err.message); }
   };
 
-  const UNITS = ['kg', 'g', 'liters', 'ml', 'units', 'pieces'];
+  const UNITS = ['kg', 'g', 'liters', 'ml', 'units', 'pieces', 'pounds', 'gallons'];
+
+  const ING_GROUPS = [
+    { key:'all',        label:'All',               emoji:'📦' },
+    { key:'chicken',    label:'Chicken',            emoji:'🍗' },
+    { key:'mutton',     label:'Mutton & Beef',      emoji:'🥩' },
+    { key:'seafood',    label:'Seafood',            emoji:'🦐' },
+    { key:'dairy',      label:'Dairy',              emoji:'🥛' },
+    { key:'vegetables', label:'Vegetables',         emoji:'🥦' },
+    { key:'spices',     label:'Spices & Herbs',     emoji:'🌶' },
+    { key:'staples',    label:'Salt · Sugar · Oil', emoji:'🧂' },
+    { key:'rice',       label:'Rice & Grains',      emoji:'🌾' },
+    { key:'sauces',     label:'Sauces',             emoji:'🫗' },
+    { key:'beverages',  label:'Beverages',          emoji:'🥤' },
+    { key:'dry',        label:'Dry Goods',          emoji:'🧺' },
+    { key:'other',      label:'Other',              emoji:'📦' },
+  ];
+  const [ingGroup, setIngGroup] = useState('all');
+  const groupedIngs = ingGroup === 'all' ? localIngredients : localIngredients.filter(i => (i.category||'other') === ingGroup);
   const FORM_FIELDS = [
     { l: 'Name', f: 'name', t: 'text' },
     { l: 'Stock', f: 'stock', t: 'number' },
@@ -2837,9 +2930,23 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
         )}
       </AnimatePresence>
 
+      {/* Group filter pills */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {ING_GROUPS.map(g => {
+          const cnt = g.key==='all' ? localIngredients.length : localIngredients.filter(i=>(i.category||'other')===g.key).length;
+          if(g.key!=='all'&&cnt===0) return null;
+          return (
+            <button key={g.key} onClick={()=>setIngGroup(g.key)}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${ingGroup===g.key?'bg-primary border-primary text-white':'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
+              {g.emoji} {g.label} <span className="opacity-60">({cnt})</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Ingredient Cards */}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {localIngredients.map(ing => {
+        {groupedIngs.map(ing => {
           const id = ing._id || ing.id;
           const stock = typeof ing.stock === 'number' ? ing.stock : 0;
           const min = ing.min_stock || ing.minStock || 0;
@@ -2893,10 +3000,10 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
             </div>
           );
         })}
-        {localIngredients.length === 0 && (
+        {groupedIngs.length === 0 && (
           <div className="col-span-full py-16 text-center text-text-muted">
             <Package size={36} className="mx-auto mb-3 opacity-20" />
-            <p className="font-bold text-sm uppercase tracking-widest">No ingredients yet</p>
+            <p className="font-bold text-sm uppercase tracking-widest">{ingGroup==="all"?"No ingredients yet":"No items in this group"}</p>
           </div>
         )}
       </div>
@@ -3010,24 +3117,52 @@ const Overview = ({ orders, financial }) => {
               </div>
             )) : <p className="text-text-muted text-sm">No orders yet</p>}
           </div>
-          {financial && typeof financial.revenue === 'number' && typeof financial.costOfGoods === 'number' && typeof financial.profit === 'number' && typeof financial.profitMargin === 'number' && (
-            <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
-              <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><DollarSign size={18} className="text-primary" />Financial KPIs</h4>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'Revenue', value: `$${financial.revenue.toFixed(0)}`, color: 'text-green-400' },
-                  { label: 'COGS', value: `$${financial.costOfGoods.toFixed(0)}`, color: 'text-red-400' },
-                  { label: 'Gross Profit', value: `$${financial.profit.toFixed(0)}`, color: 'text-blue-400' },
-                  { label: 'Margin', value: `${financial.profitMargin.toFixed(1)}%`, color: 'text-primary' },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="bg-white/5 rounded-xl p-3">
-                    <p className="text-[10px] text-text-muted font-bold uppercase mb-1">{label}</p>
-                    <p className={`text-lg font-black ${color}`}>{value}</p>
+
+          {/* ── Most Ordered: Donut Pie Chart ── */}
+          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+            <h4 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
+              <PieChart size={18} className="text-primary" />Order Distribution
+            </h4>
+            {analytics.topItems.length === 0 ? (
+              <p className="text-text-muted text-sm">No orders yet</p>
+            ) : (() => {
+              const COLS=['#f97316','#3b82f6','#22c55e','#a855f7','#ec4899','#14b8a6'];
+              const tot=analytics.topItems.reduce((s,i)=>s+i.count,0);
+              let ang=0;
+              const segs=analytics.topItems.map((item,idx)=>{
+                const span=(item.count/tot)*360;
+                const seg={...item,span,start:ang,color:COLS[idx%COLS.length],pct:item.count/tot};
+                ang+=span; return seg;
+              });
+              const SZ=160,R=60,cx=80,cy=80;
+              const pt=(a,r)=>({x:cx+r*Math.cos((a-90)*Math.PI/180),y:cy+r*Math.sin((a-90)*Math.PI/180)});
+              return (
+                <div className="flex items-center gap-5 flex-wrap">
+                  <svg width={SZ} height={SZ} className="shrink-0">
+                    {segs.map((s,i)=>{ if(s.span<0.5) return null; const p1=pt(s.start,R),p2=pt(s.start+s.span,R);
+                      return <path key={i} d={`M${cx},${cy}L${p1.x},${p1.y}A${R},${R} 0 ${s.span>180?1:0} 1 ${p2.x},${p2.y}Z`} fill={s.color} opacity="0.85"><title>{s.name}: {s.count}× ({(s.pct*100).toFixed(0)}%)</title></path>;
+                    })}
+                    <circle cx={cx} cy={cy} r={R*0.43} fill="#111"/>
+                    <text x={cx} y={cy-4} textAnchor="middle" fill="white" fontSize="14" fontWeight="900">{tot}</text>
+                    <text x={cx} y={cy+11} textAnchor="middle" fill="#666" fontSize="8" fontWeight="700">ORDERS</text>
+                  </svg>
+                  <div className="flex-1 space-y-2 min-w-0">
+                    {segs.map((s,i)=>(
+                      <div key={i} className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:s.color}}/>
+                          <span className="text-xs text-white/80 truncate">{s.name}</span>
+                        </div>
+                        <span className="text-xs font-black text-white shrink-0">{s.count}× ({(s.pct*100).toFixed(0)}%)</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
+              );
+            })()}
+          </div>
+
+
         </div>
       </div>
     </div>
@@ -3199,7 +3334,7 @@ const FinanceCenter = ({ orders }) => {
 
       {/* Period filter */}
       <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5 w-fit">
-        {[['all', 'All Time'], ['today', 'Today'], ['week', 'This Week'], ['month', 'This Month']].map(([val, label]) => (
+        {[['all','All Time'],['today','Today'],['week','This Week'],['month','This Month'],['quarter','This Quarter'],['year','This Year']].map(([val, label]) => (
           <button key={val} onClick={() => setPeriod(val)}
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${period === val ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{label}</button>
         ))}
@@ -3212,7 +3347,7 @@ const FinanceCenter = ({ orders }) => {
         <div className="absolute inset-0 opacity-10"
           style={{ background: isProfit ? 'radial-gradient(circle at 80% 50%, #22c55e, transparent 60%)'  : 'radial-gradient(circle at 80% 50%, #ef4444, transparent 60%)' }} />
         <p className="text-[11px] text-text-muted font-black uppercase tracking-widest mb-3">
-          NET {isProfit ? 'PROFIT' : 'LOSS'} · {period === 'all' ? 'ALL TIME' : period === 'today' ? 'TODAY' : period === 'week' ? 'THIS WEEK' : 'THIS MONTH'}
+          NET {isProfit ? 'PROFIT' : 'LOSS'} · {period === 'all' ? 'ALL TIME' : period === 'today' ? 'TODAY' : period === 'week' ? 'THIS WEEK' : period === 'month' ? 'THIS MONTH' : period === 'quarter' ? 'THIS QUARTER' : 'THIS YEAR'}
         </p>
         <p className={`text-7xl font-black tracking-tight ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
           {isProfit ? '+' : ''}${Math.abs(netProfit).toFixed(0)}
@@ -3421,6 +3556,373 @@ const FinanceCenter = ({ orders }) => {
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  RIDERS HUB — Owner/Manager manage delivery riders
+// ════════════════════════════════════════════════════════════════════════════
+const RidersPanel = ({ currentUserRole }) => {
+  const [riders,       setRiders]      = useState([]);
+  const [deliveries,   setDeliveries]  = useState([]);
+  const [loading,      setLoading]     = useState(true);
+  const [showForm,     setShowForm]    = useState(false);
+  const [delConfirm,   setDelConfirm]  = useState(null);
+  const [msg,          setMsg]         = useState({ text: '', type: '' });
+  const [activeRider,  setActiveRider] = useState(null); // for detail drawer
+  const [riderDels,    setRiderDels]   = useState([]);
+  const [riderDelLoad, setRiderDelLoad] = useState(false);
+  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', vehicle_type: 'bike' });
+  const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [ridersRes, delRes] = await Promise.all([
+        usersAPI.getAll('?role=delivery'),
+        deliveryAPI.getAll(),
+      ]);
+      setRiders(ridersRes.data || []);
+      setDeliveries(delRes.data || []);
+    } catch { }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, []);
+  useAutoRefresh(load, 20000);
+
+  const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3500); };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    try {
+      await usersAPI.create({ ...form, role: 'delivery' });
+      flash('Rider account created successfully');
+      setShowForm(false);
+      setForm({ name: '', email: '', phone: '', password: '', vehicle_type: 'bike' });
+      load();
+    } catch (err) { flash(err.message, 'error'); }
+  };
+
+  const handleToggle = async (rider) => {
+    try {
+      await usersAPI.toggleStatus(rider._id, !rider.is_active, 'Disabled by manager');
+      flash(`${rider.name} ${rider.is_active ? 'disabled' : 'enabled'}`);
+      load();
+    } catch (err) { flash(err.message, 'error'); }
+  };
+
+  const handleDelete = async (id) => {
+    try { await usersAPI.delete(id); flash('Rider removed'); setDelConfirm(null); load(); }
+    catch (err) { flash(err.message, 'error'); }
+  };
+
+  const openRiderDrawer = async (rider) => {
+    setActiveRider(rider);
+    setRiderDelLoad(true);
+    try {
+      const res = await deliveryAPI.getAll(`?driver_id=${rider._id}`);
+      setRiderDels(res.data || []);
+    } catch { setRiderDels([]); }
+    finally { setRiderDelLoad(false); }
+  };
+
+  // Which deliveries are "active" for a given rider
+  const activeDelivery = (riderId) =>
+    deliveries.find(d => String(d.driver_id?._id || d.driver_id) === String(riderId) && ['assigned','picked_up','in_transit'].includes(d.status));
+
+  const totalForRider = (riderId) =>
+    deliveries.filter(d => String(d.driver_id?._id || d.driver_id) === String(riderId) && d.status === 'delivered').length;
+
+  const statusDot = {
+    assigned: 'bg-blue-400', picked_up: 'bg-orange-400', in_transit: 'bg-green-400',
+  };
+
+  const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
+  const activeDeliveries  = deliveries.filter(d => ['assigned','picked_up','in_transit'].includes(d.status));
+  const totalEarnings     = deliveries.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 0), 0);
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Truck size={28} className="text-primary" />Riders Hub</h2>
+          <p className="text-text-muted text-sm mt-1">Manage delivery riders, track live deliveries and performance</p>
+        </div>
+        {currentUserRole === 'owner' && (
+          <button onClick={() => setShowForm(s => !s)}
+            className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+            <Plus size={14} /> Add Rider
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Riders',   value: riders.length,           color: 'text-primary',    bg: 'bg-primary/10',    icon: Truck    },
+          { label: 'Active Now',     value: activeDeliveries.length, color: 'text-green-400',  bg: 'bg-green-500/10',  icon: Activity },
+          { label: 'Pending Orders', value: pendingDeliveries.length,color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: Package  },
+          { label: 'Total Paid Out', value: `₹${totalEarnings}`,     color: 'text-blue-400',   bg: 'bg-blue-500/10',   icon: DollarSign },
+        ].map(({ label, value, color, bg, icon: Icon }) => (
+          <div key={label} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 flex items-center gap-4">
+            <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shrink-0`}><Icon size={18} className={color} /></div>
+            <div>
+              <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest">{label}</p>
+              <p className={`text-2xl font-black ${color}`}>{value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Pending deliveries needing assignment */}
+      {pendingDeliveries.length > 0 && (
+        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-2xl p-5">
+          <h4 className="text-sm font-black text-yellow-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <AlertTriangle size={14} /> {pendingDeliveries.length} Order{pendingDeliveries.length !== 1 ? 's' : ''} Waiting for a Rider
+          </h4>
+          <div className="space-y-2">
+            {pendingDeliveries.slice(0, 5).map(d => (
+              <div key={d._id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-white">{d.order_id?.order_number || '—'}</p>
+                  <p className="text-xs text-text-muted truncate">{d.delivery_address}</p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-xs text-text-muted">{d.customer_name}</span>
+                  <span className="text-[10px] font-black px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/20 uppercase">Waiting</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add Rider form — Owner only */}
+      {currentUserRole === 'owner' && (
+        <AnimatePresence>
+          {showForm && (
+            <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
+              className="bg-secondary/40 rounded-3xl border border-primary/30 p-8">
+              <h3 className="text-lg font-bold mb-6 text-white flex items-center gap-2"><Truck size={18} className="text-primary" />Create Rider Account</h3>
+              <form onSubmit={handleCreate} className="grid md:grid-cols-2 gap-4">
+                {[
+                  { label: 'Full Name',    field: 'name',     type: 'text',     req: true },
+                  { label: 'Email',        field: 'email',    type: 'email',    req: true },
+                  { label: 'Phone',        field: 'phone',    type: 'tel',      req: false },
+                  { label: 'Password',     field: 'password', type: 'password', req: true },
+                ].map(({ label, field, type, req }) => (
+                  <div key={field}>
+                    <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">{label}{req && ' *'}</label>
+                    <input type={type} required={req} value={form[field]} onChange={sf(field)}
+                      className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                  </div>
+                ))}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Vehicle Type</label>
+                  <select value={form.vehicle_type} onChange={sf('vehicle_type')}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm">
+                    {['bike','bicycle','scooter','car'].map(v => (
+                      <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2 flex gap-3">
+                  <button type="submit" className="px-8 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover">Create Account</button>
+                  <button type="button" onClick={() => setShowForm(false)} className="px-8 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/5">Cancel</button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+
+      {/* Riders table */}
+      {loading ? <div className="flex justify-center py-16"><Loader size={24} className="animate-spin text-primary" /></div> : (
+        <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
+          {riders.length === 0 ? (
+            <div className="py-20 text-center text-text-muted">
+              <Truck size={40} className="mx-auto mb-3 opacity-20" />
+              <p className="font-bold text-sm uppercase tracking-widest">No riders yet</p>
+              <p className="text-xs mt-2">Add a rider account to get started</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/5">
+              {riders.map(r => {
+                const live    = activeDelivery(r._id);
+                const count   = totalForRider(r._id);
+                const statusCfg = live ? statusDot[live.status] : null;
+                return (
+                  <div key={r._id} className="flex items-center px-6 py-5 hover:bg-white/3 group gap-4">
+                    {/* Avatar + name */}
+                    <button onClick={() => openRiderDrawer(r)} className="flex items-center gap-4 flex-1 min-w-0 text-left">
+                      <div className="relative shrink-0">
+                        <div className="w-11 h-11 rounded-full overflow-hidden border border-primary/30">
+                          <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${r.name}`} alt="" />
+                        </div>
+                        {live && (
+                          <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-secondary ${statusCfg || 'bg-gray-400'} animate-pulse`} />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-white group-hover:text-primary transition-colors truncate">{r.name}</p>
+                        <p className="text-[10px] text-text-muted truncate">{r.email}</p>
+                        {r.phone && <p className="text-[10px] text-text-muted">{r.phone}</p>}
+                      </div>
+                    </button>
+
+                    {/* Vehicle */}
+                    <div className="hidden md:block w-[14%]">
+                      <span className="text-[10px] font-bold text-text-muted capitalize bg-white/5 px-2 py-1 rounded-lg">
+                        {r.vehicle_type || 'bike'}
+                      </span>
+                    </div>
+
+                    {/* Status */}
+                    <div className="w-[18%]">
+                      {live ? (
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase border ${live.status === 'in_transit' ? 'bg-green-500/10 text-green-400 border-green-500/20' : live.status === 'picked_up' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
+                          {live.status === 'in_transit' ? 'On Route' : live.status === 'picked_up' ? 'Picked Up' : 'Assigned'}
+                        </span>
+                      ) : (
+                        <span className={`text-[9px] font-bold px-2.5 py-1 rounded-full uppercase border ${r.is_active ? 'bg-white/5 text-text-muted border-white/10' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                          {r.is_active ? 'Idle' : 'Disabled'}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Total deliveries */}
+                    <div className="w-[12%] text-center hidden md:block">
+                      <p className="text-sm font-black text-white">{count}</p>
+                      <p className="text-[9px] text-text-muted">deliveries</p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                      <button onClick={() => openRiderDrawer(r)}
+                        className="p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary hover:text-white transition-all" title="View profile">
+                        <Eye size={13} />
+                      </button>
+                      <button onClick={() => handleToggle(r)}
+                        className={`p-2 rounded-lg transition-all ${r.is_active ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500 hover:text-white' : 'bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white'}`}>
+                        {r.is_active ? <ToggleLeft size={13} /> : <ToggleRight size={13} />}
+                      </button>
+                      {currentUserRole === 'owner' && (
+                        <button onClick={() => setDelConfirm(r)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      <AnimatePresence>
+        {delConfirm && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
+              className="bg-secondary rounded-3xl border border-red-500/30 p-10 max-w-md w-full text-center space-y-6">
+              <Truck size={32} className="text-red-400 mx-auto" />
+              <div>
+                <h3 className="text-2xl font-bold mb-2 text-white">Remove Rider?</h3>
+                <p className="text-text-muted text-sm">This permanently removes <span className="text-white font-bold">{delConfirm.name}</span>.</p>
+              </div>
+              <div className="flex gap-4">
+                <button onClick={() => setDelConfirm(null)} className="flex-1 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/5">Cancel</button>
+                <button onClick={() => handleDelete(delConfirm._id)} className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest">Remove</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Rider detail drawer */}
+      <AnimatePresence>
+        {activeRider && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-end"
+            onClick={e => { if (e.target === e.currentTarget) setActiveRider(null); }}>
+            <motion.div initial={{ x: 420 }} animate={{ x: 0 }} exit={{ x: 420 }} transition={{ type: 'spring', damping: 26 }}
+              className="w-full max-w-md h-full bg-[#141414] border-l border-white/10 flex flex-col overflow-hidden">
+              {/* Header */}
+              <div className="p-6 border-b border-white/10 flex items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-primary/30 shrink-0">
+                  <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${activeRider.name}`} alt="" className="w-full h-full" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-xl font-black text-white">{activeRider.name}</h3>
+                  <p className="text-xs text-text-muted mt-0.5">{activeRider.email}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 uppercase">Rider</span>
+                    <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-white/5 text-text-muted border border-white/10 capitalize">{activeRider.vehicle_type || 'bike'}</span>
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase border ${activeRider.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                      {activeRider.is_active ? 'Active' : 'Disabled'}
+                    </span>
+                  </div>
+                </div>
+                <button onClick={() => setActiveRider(null)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 shrink-0">
+                  <X size={14} />
+                </button>
+              </div>
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-3 p-6 border-b border-white/10">
+                {[
+                  { label: 'Total', value: riderDels.filter(d => d.status === 'delivered').length, color: 'text-primary' },
+                  { label: 'Earned', value: `₹${riderDels.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 40), 0)}`, color: 'text-green-400' },
+                  { label: 'Phone', value: activeRider.phone || '—', color: 'text-text-muted' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-white/5 rounded-xl p-3 text-center">
+                    <p className="text-[9px] text-text-muted uppercase font-bold mb-1">{label}</p>
+                    <p className={`text-base font-black ${color} truncate`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+              {/* Delivery history */}
+              <div className="flex-1 overflow-y-auto p-6">
+                <h4 className="text-xs font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Truck size={12} className="text-primary" /> Delivery History
+                </h4>
+                {riderDelLoad ? (
+                  <div className="flex justify-center py-10"><Loader size={20} className="animate-spin text-primary" /></div>
+                ) : riderDels.length === 0 ? (
+                  <div className="py-12 text-center text-text-muted">
+                    <Truck size={28} className="mx-auto mb-2 opacity-20" />
+                    <p className="text-xs font-bold uppercase">No deliveries yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {riderDels.slice(0, 30).map(d => (
+                      <div key={d._id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3">
+                        <div className="min-w-0 flex-1 mr-3">
+                          <p className="text-sm font-bold text-white truncate">{d.order_id?.order_number || `BOX-${(d._id || '').slice(-5).toUpperCase()}`}</p>
+                          <p className="text-[10px] text-text-muted truncate">{d.delivery_address}</p>
+                          {d.delivered_at && <p className="text-[10px] text-text-muted">{new Date(d.delivered_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-sm font-black ${d.status === 'delivered' ? 'text-green-400' : 'text-text-muted'}`}>
+                            {d.status === 'delivered' ? `+₹${d.delivery_fee || 40}` : d.status}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -3844,7 +4346,7 @@ const Dashboard = () => {
     kitchen: 'My Kitchen', menu: 'Menu Master', tables: 'Table Status',
     reservations: 'Reservations', catering: 'Catering Orders', feedback: 'Feedback Box',
     announcements: 'Announcements', leaves: 'Leave Module', shifts: 'Shift Logs',
-    staffmgmt: 'Staff Management', finance: 'Finance Center',
+    staffmgmt: 'Staff Management', finance: 'Finance Center', riders: 'Riders Hub',
     my_orders: 'My Orders', chef_orders: 'Order History', staff: 'My Profile',
   };
 
@@ -4000,6 +4502,13 @@ const Dashboard = () => {
             {activeTab === 'staffmgmt' && isAdmin && (
               <MotionDiv key="staffmgmt" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <StaffManagement currentUserRole={user.role} onViewProfile={setProfileViewUser} />
+              </MotionDiv>
+            )}
+
+            {/* RIDERS HUB */}
+            {activeTab === 'riders' && isAdmin && (
+              <MotionDiv key="riders" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <RidersPanel currentUserRole={user.role} />
               </MotionDiv>
             )}
 

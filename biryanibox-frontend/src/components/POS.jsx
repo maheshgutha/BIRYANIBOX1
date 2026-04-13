@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 const MotionDiv = motion.div;
 import { useOrders } from '../context/useContextHooks';
+import { tablesAPI } from '../services/api';
 import {
   ShoppingCart, Plus, Minus, CheckCircle, Bell, X,
   Package, User, Clock, DollarSign, MapPin, Truck,
@@ -63,7 +64,7 @@ const CustomerNotificationToast = ({ notification, onDismiss }) => {
                   <span className="w-5 h-5 bg-primary/20 text-primary text-[10px] font-black rounded-full flex items-center justify-center">{item.quantity}</span>
                   <span className="text-xs text-white/90 font-medium">{item.name}</span>
                 </div>
-                <span className="text-xs font-bold text-primary">${(item.price * item.quantity).toFixed(0)}</span>
+                <span className="text-xs font-bold text-primary">₹{(item.price * item.quantity).toFixed(0)}</span>
               </div>
             ))}
           </div>
@@ -72,7 +73,7 @@ const CustomerNotificationToast = ({ notification, onDismiss }) => {
               <DollarSign size={14} className="text-primary" />
               Total — {totalItems} item{totalItems > 1 ? 's' : ''}
             </div>
-            <span className="text-primary text-xl font-black">${notification.total.toFixed(0)}</span>
+            <span className="text-primary text-xl font-black">₹{notification.total.toFixed(0)}</span>
           </div>
           <p className="text-[10px] text-text-muted text-center mt-3 uppercase tracking-widest">Sent to Owner & Manager Dashboards</p>
         </div>
@@ -85,24 +86,45 @@ const CustomerNotificationToast = ({ notification, onDismiss }) => {
 const POS = ({ user }) => {
   const { menu, createOrder, customerNotification, dismissCustomerNotification } = useOrders();
 
-  const [cart,                 setCart]               = useState([]);
-  const [selectedTable,        setSelectedTable]       = useState('Table 1');
-  const [showSuccess,          setShowSuccess]         = useState(false);
-  const [showPlaceOrderConfirm,setShowPlaceOrderConfirm] = useState(false);
-  const [activeTab,            setActiveTab]           = useState('');
-  const [couponInput,          setCouponInput]         = useState('');
-  const [couponApplied,        setCouponApplied]       = useState(null);
+  const [cart,                  setCart]                = useState([]);
+  const [orderMode,             setOrderMode]           = useState('dinein'); // 'dinein' | 'pickup' | 'delivery'
+  const [selectedTable,         setSelectedTable]       = useState('');
+  const [availableTables,       setAvailableTables]     = useState([]);
+  const [loadingTables,         setLoadingTables]       = useState(false);
+  const [showSuccess,           setShowSuccess]         = useState(false);
+  const [showPlaceOrderConfirm, setShowPlaceOrderConfirm] = useState(false);
+  const [activeTab,             setActiveTab]           = useState('');
+  const [couponInput,           setCouponInput]         = useState('');
+  const [couponApplied,         setCouponApplied]       = useState(null);
 
-  // Delivery fields — only relevant when Takeaway is selected
+  // Delivery/Takeaway fields
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryNotes,   setDeliveryNotes]   = useState('');
   const [distanceKm,      setDistanceKm]      = useState('');
   const [deliveryError,   setDeliveryError]   = useState('');
 
-  const isDeliveryOrder = selectedTable === 'Takeaway';
-  const RATE_PER_KM     = 2; // $2 per km
+  const isDeliveryOrder = orderMode === 'delivery';
+  const isPickupOrder   = orderMode === 'pickup';
+  const RATE_PER_KM     = 2;
   const dist            = parseFloat(distanceKm) || 0;
   const deliveryFee     = isDeliveryOrder && dist > 0 ? Math.round(dist * RATE_PER_KM) : 0;
+
+  // Load available tables from API
+  const loadTables = async () => {
+    setLoadingTables(true);
+    try {
+      const res = await tablesAPI.getAvailable();
+      const tables = res.data || [];
+      setAvailableTables(tables);
+      // Auto-select first available table
+      if (tables.length > 0 && !selectedTable) {
+        setSelectedTable(tables[0].label);
+      }
+    } catch { setAvailableTables([]); }
+    finally { setLoadingTables(false); }
+  };
+
+  useEffect(() => { loadTables(); }, []);
 
   const categories = useMemo(() => {
     const cats = [...new Set(menu.map(i => i.category).filter(Boolean))];
@@ -121,7 +143,7 @@ const POS = ({ user }) => {
       setDistanceKm('');
       setDeliveryError('');
     }
-  }, [selectedTable]);
+  }, [orderMode]);
 
   const getCategoryImage = (item) => {
     if (item.image_url && item.image_url.startsWith('http')) return item.image_url;
@@ -166,7 +188,7 @@ const POS = ({ user }) => {
     // Validate delivery fields before opening confirm modal
     if (isDeliveryOrder) {
       if (!deliveryAddress.trim()) {
-        setDeliveryError('Delivery address is required for takeaway orders.');
+        setDeliveryError('Delivery address is required for delivery orders.');
         return;
       }
       const d = parseFloat(distanceKm);
@@ -187,11 +209,13 @@ const POS = ({ user }) => {
     const deliveryParams = isDeliveryOrder
       ? { delivery_address: deliveryAddress.trim(), delivery_notes: deliveryNotes.trim(), distance_km: parseFloat(distanceKm) }
       : {};
-    const result = await createOrder(cart, selectedTable, user.name, null, deliveryParams);
-    if (result && result.error) {
-      setDeliveryError(result.error);
+    const tableForOrder = (isPickupOrder || isDeliveryOrder) ? 'Takeaway' : selectedTable;
+    const result = await createOrder(cart, tableForOrder, user.name, null, deliveryParams, isDeliveryOrder ? 'delivery' : isPickupOrder ? 'pickup' : 'dine-in');
+    if (!result || result.error) {
+      setDeliveryError(result?.error || 'Failed to place order');
       return;
     }
+    // handled above
     setCart([]);
     setCouponApplied(null);
     setCouponInput('');
@@ -240,7 +264,7 @@ const POS = ({ user }) => {
                       <span className="w-6 h-6 bg-primary/20 text-primary text-xs font-black rounded-full flex items-center justify-center">{item.quantity}</span>
                       <span className="text-sm text-white font-medium">{item.name}</span>
                     </div>
-                    <span className="text-primary font-bold text-sm">${(item.price * item.quantity).toFixed(0)}</span>
+                    <span className="text-primary font-bold text-sm">₹{(item.price * item.quantity).toFixed(0)}</span>
                   </div>
                 ))}
               </div>
@@ -253,8 +277,8 @@ const POS = ({ user }) => {
                     <p className="text-xs text-white/80 leading-relaxed">{deliveryAddress}</p>
                   </div>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-text-muted flex items-center gap-1"><Navigation size={11} /> {dist} km · ${RATE_PER_KM}/km</span>
-                    <span className="text-primary font-black">Delivery fee: ${deliveryFee}</span>
+                    <span className="text-text-muted flex items-center gap-1"><Navigation size={11} /> {dist} km · ₹{RATE_PER_KM}/km</span>
+                    <span className="text-primary font-black">Delivery fee: ₹{deliveryFee}</span>
                   </div>
                   {deliveryNotes && <p className="text-[11px] text-yellow-400 flex items-start gap-1"><AlertCircle size={11} className="mt-0.5 shrink-0" />{deliveryNotes}</p>}
                 </div>
@@ -263,13 +287,13 @@ const POS = ({ user }) => {
               {couponApplied && (
                 <div className="flex justify-between items-center px-4 py-2 mb-2 bg-green-500/10 border border-green-500/20 rounded-xl text-sm">
                   <span className="text-green-400 font-bold">Coupon ({couponApplied.discount}% OFF)</span>
-                  <span className="text-green-400 font-bold">-${discount.toFixed(0)}</span>
+                  <span className="text-green-400 font-bold">-₹{discount.toFixed(0)}</span>
                 </div>
               )}
 
               <div className="flex justify-between items-center px-4 py-3 bg-primary/10 border border-primary/20 rounded-2xl mb-4">
                 <span className="text-text-muted font-bold uppercase tracking-widest text-xs">Total</span>
-                <span className="text-primary text-2xl font-black">${total.toFixed(0)}</span>
+                <span className="text-primary text-2xl font-black">₹{total.toFixed(0)}</span>
               </div>
 
               {isDeliveryOrder && (
@@ -311,23 +335,70 @@ const POS = ({ user }) => {
             </div>
           </div>
 
-          {/* Table selector */}
-          <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 overflow-x-auto scrollbar-hide">
-            <span className="text-xs font-bold uppercase tracking-widest text-text-muted shrink-0">Target Table:</span>
-            <div className="flex gap-2 font-bold shrink-0">
-              {['Table 1', 'Table 2', 'VIP 1', 'VIP 2', 'Takeaway'].map(t => (
-                <button key={t} onClick={() => setSelectedTable(t)}
-                  className={`px-4 py-2 rounded-xl text-xs uppercase tracking-widest transition-all border whitespace-nowrap ${
-                    selectedTable === t
-                      ? t === 'Takeaway'
-                        ? 'bg-primary text-black border-primary font-black'
-                        : 'bg-primary text-white border-primary'
-                      : 'bg-transparent text-text-muted border-white/10 hover:border-white/30'
-                  }`}>
-                  {t === 'Takeaway' ? <span className="flex items-center gap-1.5"><Truck size={12} />{t}</span> : t}
+          {/* Order Mode + Table selector */}
+          <div className="space-y-3">
+            {/* Dine-in / Takeaway toggle */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold uppercase tracking-widest text-text-muted shrink-0">Order Type:</span>
+              <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                <button onClick={() => { setOrderMode('dinein'); setDeliveryError(''); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${orderMode === 'dinein' ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
+                  <Package size={12} /> Dine-In
                 </button>
-              ))}
+                <button onClick={() => { setOrderMode('pickup'); setSelectedTable('Takeaway'); setDeliveryError(''); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${orderMode === 'pickup' ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
+                  <Package size={12} /> Pickup
+                </button>
+                <button onClick={() => { setOrderMode('delivery'); setSelectedTable('Takeaway'); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${orderMode === 'delivery' ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
+                  <Truck size={12} /> Delivery
+                </button>
+              </div>
+              {orderMode === 'dinein' && (
+                <button onClick={loadTables} className="text-white/30 hover:text-primary transition-colors" title="Refresh tables">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                </button>
+              )}
             </div>
+
+            {/* Pickup info banner */}
+            {isPickupOrder && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4 flex items-center gap-3">
+                <Package size={16} className="text-yellow-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-black text-yellow-400 uppercase tracking-widest">Pickup Order</p>
+                  <p className="text-[10px] text-text-muted mt-0.5">Customer will collect from restaurant counter. No address needed.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Table dropdown — only for Dine-In */}
+            {orderMode === 'dinein' && (
+              <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                <span className="text-xs font-bold uppercase tracking-widest text-text-muted shrink-0">Table:</span>
+                {loadingTables ? (
+                  <span className="text-xs text-text-muted">Loading tables…</span>
+                ) : availableTables.length === 0 ? (
+                  <span className="text-xs text-red-400 font-bold">No tables available</span>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {availableTables.map(t => (
+                      <button key={t._id} onClick={() => setSelectedTable(t.label)}
+                        className={`px-4 py-2 rounded-xl text-xs uppercase tracking-widest transition-all border whitespace-nowrap font-bold ${
+                          selectedTable === t.label
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-transparent text-text-muted border-white/10 hover:border-white/30'
+                        }`}>
+                        <span className={`inline-flex items-center gap-1.5 ${t.type === 'vip' ? 'text-yellow-400' : ''}`}>
+                          {t.type === 'vip' && '⭐'} {t.label}
+                          {t.captain_id && <span className="text-[9px] text-white/30 ml-1">({t.captain_id.name?.split(' ')[0]})</span>}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Delivery address panel — appears only for Takeaway ── */}
@@ -473,7 +544,7 @@ const POS = ({ user }) => {
                       </div>
                       <div className="flex justify-between items-start mb-2">
                         <h3 className={`text-lg font-bold leading-tight ${available ? 'text-white group-hover:text-primary transition-colors' : 'text-white/50'}`}>{item.name}</h3>
-                        <p className="text-lg font-bold text-white">${item.price}</p>
+                        <p className="text-lg font-bold text-white">₹{item.price}</p>
                       </div>
                       <p className="text-xs text-text-muted leading-relaxed line-clamp-2">Authentic recipe crafted with premium saffron and heritage spices.</p>
                     </div>
@@ -499,7 +570,7 @@ const POS = ({ user }) => {
             <div>
               <h3 className="text-xl font-bold font-heading text-white">Cart Summary</h3>
               <p className="text-[10px] text-text-muted font-bold tracking-widest uppercase mt-1">
-                {isDeliveryOrder ? '🚴 Delivery Order' : 'Status: Active Booking'}
+                {isDeliveryOrder ? '🚴 Delivery Order' : isPickupOrder ? '📦 Pickup Order' : 'Status: Active Booking'}
               </p>
             </div>
             <span className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner relative">
@@ -527,7 +598,7 @@ const POS = ({ user }) => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-xs font-bold text-white truncate">{item.name}</h4>
-                    <p className="text-[10px] text-primary font-bold">${(item.price * item.quantity).toFixed(0)}</p>
+                    <p className="text-[10px] text-primary font-bold">₹{(item.price * item.quantity).toFixed(0)}</p>
                   </div>
                   <div className="flex items-center gap-1.5 bg-bg-main/50 p-1 rounded-full border border-white/10">
                     <button onClick={e => { e.stopPropagation(); removeFromCart(item.id); }}
@@ -576,18 +647,18 @@ const POS = ({ user }) => {
               </div>
               {isDeliveryOrder && dist > 0 && dist <= 10 && (
                 <div className="flex justify-between items-center text-xs text-primary font-bold">
-                  <span className="flex items-center gap-1"><Truck size={10} /> Delivery ({dist}km × $5)</span>
-                  <span>+${deliveryFee}</span>
+                  <span className="flex items-center gap-1"><Truck size={10} /> Delivery ({dist}km × ₹10)</span>
+                  <span>+₹{deliveryFee}</span>
                 </div>
               )}
               {couponApplied && (
                 <div className="flex justify-between items-center text-xs text-green-400 font-bold">
-                  <span>Discount ({couponApplied.discount}%)</span><span>-${discount.toFixed(0)}</span>
+                  <span>Discount ({couponApplied.discount}%)</span><span>-₹{discount.toFixed(0)}</span>
                 </div>
               )}
               <div className="flex justify-between items-center text-xl font-bold text-white font-heading">
                 <span>Settlement</span>
-                <span className="text-primary">${total.toFixed(0)}</span>
+                <span className="text-primary">₹{total.toFixed(0)}</span>
               </div>
             </div>
 
@@ -600,7 +671,7 @@ const POS = ({ user }) => {
                   : 'bg-gradient-to-r from-primary to-yellow-500 text-white hover:shadow-primary/30 hover:scale-[1.02] active:scale-100'
               }`}>
               {isDeliveryOrder ? <Truck size={20} /> : <CheckCircle size={20} />}
-              {isDeliveryOrder ? 'PLACE DELIVERY ORDER' : 'PLACE AN ORDER'}
+              {isDeliveryOrder ? 'PLACE DELIVERY ORDER' : isPickupOrder ? 'PLACE PICKUP ORDER' : 'PLACE AN ORDER'}
             </button>
 
             {isDeliveryOrder && (
@@ -619,9 +690,9 @@ const POS = ({ user }) => {
                 <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-white/50 animate-pulse" />
                 <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center"><CheckCircle size={24} /></div>
                 <div className="flex-1">
-                  <p className="font-bold text-sm tracking-tight">{isDeliveryOrder ? 'Delivery Order Placed!' : 'Order Placed!'}</p>
+                  <p className="font-bold text-sm tracking-tight">{isDeliveryOrder ? 'Delivery Order Placed!' : isPickupOrder ? 'Pickup Order Placed!' : 'Order Placed!'}</p>
                   <p className="text-[10px] font-medium opacity-90 uppercase tracking-widest">
-                    {isDeliveryOrder ? 'Rider notified when owner marks Paid' : 'Sent to Owner & Manager Dashboards'}
+                    {isDeliveryOrder ? 'Rider notified when owner marks Paid' : isPickupOrder ? 'Ready at counter when prepared' : 'Sent to Owner & Manager Dashboards'}
                   </p>
                 </div>
               </MotionDiv>

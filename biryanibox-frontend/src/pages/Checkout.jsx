@@ -49,8 +49,8 @@ const Checkout = () => {
   // Stay in sync if user flips the navbar toggle while checkout is open
   useEffect(() => {
     const handler = (e) => setOrderType(e.detail);
-    window.addEventListener('bb_order_type_change', handler);
-    return () => window.removeEventListener('bb_order_type_change', handler);
+    window.addEventListener('bb_order_mode_change', handler);
+    return () => window.removeEventListener('bb_order_mode_change', handler);
   }, []);
 
   const applyCoupon = async (coupon) => {

@@ -22,10 +22,11 @@ router.get('/', protect, authorize('owner', 'manager'), async (req, res, next) =
     const { role } = req.query;
     const filter = {};
     if (role) filter.role = role;
-    // Manager can see all roles they can manage
+    // Manager can only see roles they manage (not customers)
     if (req.user.role === 'manager') {
       filter.role = { $in: role ? [role].filter(r => MANAGER_ROLES.includes(r)) : MANAGER_ROLES };
     }
+    // Owner can see everyone including customers
     const users = await User.find(filter).select('-password_hash -reset_token -reset_expire');
     res.json({ success: true, count: users.length, data: users });
   } catch (err) { next(err); }
@@ -114,14 +115,16 @@ router.patch('/:id/status', protect, authorize('owner', 'manager'), async (req, 
 // PATCH /api/users/:id/password
 router.patch('/:id/password', protect, async (req, res, next) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword, current_password, new_password } = req.body;
+    const curPass = currentPassword || current_password;
+    const newPass = newPassword || new_password;
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     if (req.user.role !== 'owner') {
-      const match = await user.matchPassword(currentPassword);
+      const match = await user.matchPassword(curPass);
       if (!match) return res.status(401).json({ success: false, message: 'Current password incorrect' });
     }
-    user.password_hash = newPassword;
+    user.password_hash = newPass;
     await user.save();
     res.json({ success: true, message: 'Password updated' });
   } catch (err) { next(err); }

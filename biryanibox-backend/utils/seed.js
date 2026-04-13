@@ -1,145 +1,151 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const dotenv = require('dotenv');
-dotenv.config();
-
-const User = require('../models/User');
-const MenuItem = require('../models/MenuItem');
-const Ingredient = require('../models/Ingredient');
-const LoyaltyTier = require('../models/LoyaltyTier');
-const KitchenStation = require('../models/KitchenStation');
-const RestaurantTable = require('../models/RestaurantTable');
-const ChefProfile = require('../models/ChefProfile');
+const mongoose  = require('mongoose');
+const bcrypt    = require('bcryptjs');
+const User             = require('../models/User');
+const MenuItem         = require('../models/MenuItem');
+const Ingredient       = require('../models/Ingredient');
+const KitchenStation   = require('../models/KitchenStation');
+const ChefProfile      = require('../models/ChefProfile');
+const LoyaltyTier      = require('../models/LoyaltyTier');
+const RestaurantTable  = require('../models/RestaurantTable');
 
 const seed = async () => {
   await mongoose.connect(process.env.MONGO_URI);
   console.log('Connected to MongoDB');
 
+  // Clear all collections
   await Promise.all([
     User.deleteMany({}), MenuItem.deleteMany({}), Ingredient.deleteMany({}),
-    LoyaltyTier.deleteMany({}), KitchenStation.deleteMany({}),
-    RestaurantTable.deleteMany({}), ChefProfile.deleteMany({}),
+    KitchenStation.deleteMany({}), ChefProfile.deleteMany({}),
+    LoyaltyTier.deleteMany({}), RestaurantTable.deleteMany({}),
   ]);
   console.log('Cleared existing data');
 
   const salt = await bcrypt.genSalt(10);
 
-  // ── Users (including chef) ─────────────────────────────────────────────────
+  // ── Users ──────────────────────────────────────────────────────────────────
   const users = await User.insertMany([
     { name: 'Rajesh Kumar',   email: 'owner@biryanibox.com',    password_hash: await bcrypt.hash('owner123',    salt), role: 'owner',    is_active: true },
-    { name: 'Priya Sharma',   email: 'manager@biryanibox.com',  password_hash: await bcrypt.hash('manager123',  salt), role: 'manager',  is_active: true },
-    { name: 'Arjun Singh',    email: 'captain@biryanibox.com',  password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
-    { name: 'Rabbani Basha',  email: 'chef@biryanibox.com',     password_hash: await bcrypt.hash('chef123',     salt), role: 'chef',     is_active: true },
-    { name: 'Ravi Kumar',     email: 'rider@biryanibox.com',    password_hash: await bcrypt.hash('rider123',    salt), role: 'delivery', is_active: true, vehicle_type: 'Motorcycle', driver_rating: 4.8, delivery_count: 0   },
+    { name: 'Priya Nair',     email: 'manager@biryanibox.com',  password_hash: await bcrypt.hash('manager123',  salt), role: 'manager',  is_active: true },
+    // 4 Captains — each has a unique zone
+    { name: 'Arjun Singh',    email: 'captain1@biryanibox.com', password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
+    { name: 'Priya Sharma',   email: 'captain2@biryanibox.com', password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
+    { name: 'Vikram Reddy',   email: 'captain3@biryanibox.com', password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
+    { name: 'Meena Patel',    email: 'captain4@biryanibox.com', password_hash: await bcrypt.hash('captain123',  salt), role: 'captain',  is_active: true },
+    // 3 Chefs
+    { name: 'Rabbani Basha',  email: 'chef1@biryanibox.com',    password_hash: await bcrypt.hash('chef123',     salt), role: 'chef',     is_active: true },
+    { name: 'Sanjay Kumar',   email: 'chef2@biryanibox.com',    password_hash: await bcrypt.hash('chef123',     salt), role: 'chef',     is_active: true },
+    { name: 'Divya Menon',    email: 'chef3@biryanibox.com',    password_hash: await bcrypt.hash('chef123',     salt), role: 'chef',     is_active: true },
+    // 3 Riders
+    { name: 'Ravi Kumar',     email: 'rider1@biryanibox.com',   password_hash: await bcrypt.hash('rider123',    salt), role: 'delivery', is_active: true, vehicle_type: 'Motorcycle', driver_rating: 4.8, delivery_count: 0 },
+    { name: 'Suresh Babu',    email: 'rider2@biryanibox.com',   password_hash: await bcrypt.hash('rider123',    salt), role: 'delivery', is_active: true, vehicle_type: 'Bicycle',    driver_rating: 4.6, delivery_count: 0 },
+    { name: 'Kiran Das',      email: 'rider3@biryanibox.com',   password_hash: await bcrypt.hash('rider123',    salt), role: 'delivery', is_active: true, vehicle_type: 'Scooter',    driver_rating: 4.7, delivery_count: 0 },
+    // Customer
     { name: 'Anjali Verma',   email: 'customer@biryanibox.com', password_hash: await bcrypt.hash('customer123', salt), role: 'customer', is_active: true, loyalty_points: 850, order_count: 12 },
   ]);
-  console.log('Users seeded (6 users including chef)');
+  console.log('Users seeded (13 users)');
 
   // ── Kitchen Stations ───────────────────────────────────────────────────────
   const stations = await KitchenStation.insertMany([
-    { name: 'Biryani Station',  handles_categories: ['Biryani'],     capacity: 10, is_active: true },
-    { name: 'Tandoor Station',  handles_categories: ['Appetizers'],  capacity: 8,  is_active: true },
-    { name: 'Bread Station',    handles_categories: ['Breads'],       capacity: 6,  is_active: true },
-    { name: 'Dessert Station',  handles_categories: ['Desserts'],     capacity: 5,  is_active: true },
-    { name: 'Beverage Station', handles_categories: ['Drinks'],       capacity: 8,  is_active: true },
+    { name: 'Biryani Station', capacity: 5, is_active: true },
+    { name: 'Grill Station',   capacity: 3, is_active: true },
+    { name: 'Dessert Station', capacity: 2, is_active: true },
   ]);
   console.log('Kitchen stations seeded');
 
-  // ── Chef Profile (link chef user to Biryani Station) ───────────────────────
-  const chefUser = users.find(u => u.email === 'chef@biryanibox.com');
-  const biryaniStation = stations.find(s => s.name === 'Biryani Station');
-  await ChefProfile.create({
-    user_id:          chefUser._id,
-    specialization:   'Hyderabadi Dum Biryani',
-    station_id:       biryaniStation._id,
-    experience_years: 8,
-    status:           'active',
-    orders_completed: 0,
-    avg_prep_time_mins: 22,
-    rating: 4.9,
-  });
-  console.log('Chef profile seeded');
+  // ── Chef Profiles (all 3 chefs) ────────────────────────────────────────────
+  const chef1 = users.find(u => u.email === 'chef1@biryanibox.com');
+  const chef2 = users.find(u => u.email === 'chef2@biryanibox.com');
+  const chef3 = users.find(u => u.email === 'chef3@biryanibox.com');
+  await ChefProfile.insertMany([
+    { user_id: chef1._id, specialization: 'Biryani', experience_years: 8,  station_id: stations[0]._id, status: 'active' },
+    { user_id: chef2._id, specialization: 'Grill',   experience_years: 5,  station_id: stations[1]._id, status: 'active' },
+    { user_id: chef3._id, specialization: 'Desserts',experience_years: 3,  station_id: stations[2]._id, status: 'active' },
+  ]);
+  console.log('Chef profiles seeded');
 
   // ── Menu Items ─────────────────────────────────────────────────────────────
   await MenuItem.insertMany([
-    { name: 'Chicken Dum Biryani',   price: 18.99, category: 'Biryani',    prep_time: 25, rating: 4.8, spice_level: 3, is_veg: false, is_halal: true, stock: 100, min_stock: 10, is_available: true, image_url: 'https://images.unsplash.com/photo-1563379091339-03246963d96c?w=600&q=80', description: 'Traditional Hyderabadi dum biryani with succulent chicken and aromatic basmati rice.' },
-    { name: 'Mutton Dum Biryani',    price: 22.99, category: 'Biryani',    prep_time: 30, rating: 4.9, spice_level: 3, is_veg: false, is_halal: true, stock: 80,  min_stock: 8,  is_available: true, image_url: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&q=80', description: 'Slow-cooked mutton layered with saffron-infused rice and premium heritage spices.' },
-    { name: 'Shrimp Biryani',        price: 24.99, category: 'Biryani',    prep_time: 20, rating: 4.7, spice_level: 2, is_veg: false, is_halal: true, stock: 60,  min_stock: 6,  is_available: true, image_url: 'https://images.unsplash.com/photo-1633945274405-b6c8069047b0?w=600&q=80', description: 'Succulent gulf shrimp marinated in a zesty masala and layered with fragrant rice.' },
-    { name: 'Vegetable Dum Biryani', price: 16.99, category: 'Biryani',    prep_time: 22, rating: 4.6, spice_level: 2, is_veg: true,  is_halal: true, stock: 100, min_stock: 10, is_available: true, image_url: 'https://images.unsplash.com/photo-1645177628172-a94c1f96e6db?w=600&q=80', description: 'Garden-fresh seasonal vegetables cooked with aromatic long-grain basmati.' },
-    { name: 'Egg Biryani',           price: 17.99, category: 'Biryani',    prep_time: 20, rating: 4.5, spice_level: 2, is_veg: false, is_halal: true, stock: 90,  min_stock: 9,  is_available: true, image_url: 'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=600&q=80', description: 'Hard-boiled eggs tossed in spicy masala and layered with saffron-flavored rice.' },
-    { name: 'Chicken Tikka',         price: 14.99, category: 'Appetizers', prep_time: 15, rating: 4.7, spice_level: 2, is_veg: false, is_halal: true, stock: 80,  min_stock: 8,  is_available: true, image_url: 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=600&q=80', description: 'Boneless chicken marinated in yogurt and spices, grilled to smoky perfection.' },
-    { name: 'Paneer 65',             price: 12.99, category: 'Appetizers', prep_time: 12, rating: 4.6, spice_level: 3, is_veg: true,  is_halal: true, stock: 70,  min_stock: 7,  is_available: true, image_url: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=600&q=80', description: 'Crispy fried paneer tossed in a spicy, tangy South Indian tempered sauce.' },
-    { name: 'Lamb Seekh Kabab',      price: 15.99, category: 'Appetizers', prep_time: 15, rating: 4.8, spice_level: 2, is_veg: false, is_halal: true, stock: 60,  min_stock: 6,  is_available: true, image_url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&q=80', description: 'Minced lamb with herbs and specialty spices, skewered and tandoor-roasted.' },
-    { name: 'Chicken Lollipop',      price: 13.99, category: 'Appetizers', prep_time: 12, rating: 4.5, spice_level: 2, is_veg: false, is_halal: true, stock: 60,  min_stock: 6,  is_available: true, image_url: 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=600&q=80' },
-    { name: 'Samosa (3pc)',          price:  8.99, category: 'Appetizers', prep_time:  8, rating: 4.4, spice_level: 1, is_veg: true,  is_halal: true, stock: 120, min_stock: 12, is_available: true, image_url: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&q=80' },
-    { name: 'Garlic Naan',           price:  4.99, category: 'Breads',     prep_time:  5, rating: 4.7, spice_level: 1, is_veg: true,  is_halal: true, stock: 200, min_stock: 20, is_available: true, image_url: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=600&q=80' },
-    { name: 'Butter Naan',           price:  3.99, category: 'Breads',     prep_time:  5, rating: 4.6, spice_level: 1, is_veg: true,  is_halal: true, stock: 200, min_stock: 20, is_available: true, image_url: 'https://images.unsplash.com/photo-1584717781292-ab7e0dc74f3c?w=600&q=80' },
-    { name: 'Paratha',               price:  4.49, category: 'Breads',     prep_time:  6, rating: 4.5, spice_level: 1, is_veg: true,  is_halal: true, stock: 150, min_stock: 15, is_available: true, image_url: 'https://images.unsplash.com/photo-1548365328-8c6db3220e4d?w=600&q=80' },
-    { name: 'Gulab Jamun (3pc)',     price:  6.99, category: 'Desserts',   prep_time:  5, rating: 4.8, spice_level: 1, is_veg: true,  is_halal: true, stock: 100, min_stock: 10, is_available: true, image_url: 'https://images.unsplash.com/photo-1652969893464-6d5e26e71370?w=600&q=80' },
-    { name: 'Rasmalai',              price:  7.99, category: 'Desserts',   prep_time:  5, rating: 4.9, spice_level: 1, is_veg: true,  is_halal: true, stock: 80,  min_stock: 8,  is_available: true, image_url: 'https://images.unsplash.com/photo-1571101421849-ee5b29c00c02?w=600&q=80' },
-    { name: 'Kheer',                 price:  5.99, category: 'Desserts',   prep_time:  5, rating: 4.6, spice_level: 1, is_veg: true,  is_halal: true, stock: 80,  min_stock: 8,  is_available: true, image_url: 'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=600&q=80' },
-    { name: 'Family Combo (4)',      price: 49.99, category: 'Combos',     prep_time: 35, rating: 4.8, spice_level: 2, is_veg: false, is_halal: true, stock: 50,  min_stock: 5,  is_available: true, image_url: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=600&q=80', description: 'Chicken Dum Biryani x2, Mutton x1, Garlic Naan x4, Raita, Gulab Jamun.' },
-    { name: 'Couple Combo',          price: 34.99, category: 'Combos',     prep_time: 30, rating: 4.7, spice_level: 2, is_veg: false, is_halal: true, stock: 60,  min_stock: 6,  is_available: true, image_url: 'https://images.unsplash.com/photo-1563379091339-03246963d96c?w=600&q=80' },
-    { name: 'Veg Combo',             price: 27.99, category: 'Combos',     prep_time: 25, rating: 4.5, spice_level: 2, is_veg: true,  is_halal: true, stock: 60,  min_stock: 6,  is_available: true, image_url: 'https://images.unsplash.com/photo-1645177628172-a94c1f96e6db?w=600&q=80' },
-    { name: 'Mango Lassi',           price:  4.99, category: 'Drinks',     prep_time:  3, rating: 4.8, spice_level: 1, is_veg: true,  is_halal: true, stock: 150, min_stock: 15, is_available: true, image_url: 'https://images.unsplash.com/photo-1527661591475-527312dd65f5?w=600&q=80' },
-    { name: 'Sweet Lassi',           price:  3.99, category: 'Drinks',     prep_time:  3, rating: 4.7, spice_level: 1, is_veg: true,  is_halal: true, stock: 150, min_stock: 15, is_available: true, image_url: 'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=600&q=80' },
-    { name: 'Masala Chai',           price:  2.99, category: 'Drinks',     prep_time:  5, rating: 4.6, spice_level: 1, is_veg: true,  is_halal: true, stock: 200, min_stock: 20, is_available: true, image_url: 'https://images.unsplash.com/photo-1561336313-0bd5e0b27ec8?w=600&q=80' },
-    { name: 'Rose Sharbat',          price:  3.49, category: 'Drinks',     prep_time:  2, rating: 4.5, spice_level: 1, is_veg: true,  is_halal: true, stock: 150, min_stock: 15, is_available: true, image_url: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=600&q=80' },
-    { name: 'Paneer Tikka Masala',   price: 15.99, category: 'Appetizers', prep_time: 15, rating: 4.7, spice_level: 2, is_veg: true,  is_halal: true, stock: 70,  min_stock: 7,  is_available: true, image_url: 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=600&q=80' },
-    { name: 'Dal Makhani',           price: 13.99, category: 'Appetizers', prep_time: 15, rating: 4.6, spice_level: 1, is_veg: true,  is_halal: true, stock: 80,  min_stock: 8,  is_available: true, image_url: 'https://images.unsplash.com/photo-1546833998-877b37c2e5c6?w=600&q=80' },
+    { name: 'Chicken Biryani',        price: 18.99, category: 'Biryani',    prep_time: 25, rating: 4.8, spice_level: 3, is_veg: false, is_halal: true, stock: 100, min_stock: 10, is_available: true, image_url: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=600&q=80', description: 'Aromatic basmati rice layered with tender chicken.' },
+    { name: 'Mutton Biryani',         price: 22.99, category: 'Biryani',    prep_time: 35, rating: 4.9, spice_level: 3, is_veg: false, is_halal: true, stock: 80,  min_stock: 8,  is_available: true, image_url: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&q=80', description: 'Slow-cooked mutton with fragrant spices.' },
+    { name: 'Veg Biryani',            price: 14.99, category: 'Biryani',    prep_time: 20, rating: 4.5, spice_level: 2, is_veg: true,  is_halal: true, stock: 100, min_stock: 10, is_available: true, image_url: 'https://images.unsplash.com/photo-1645177628172-a94c1f96e6db?w=600&q=80', description: 'Garden vegetables cooked with aromatic rice.' },
+    { name: 'Chicken Tikka',          price: 14.99, category: 'Appetizers', prep_time: 15, rating: 4.7, spice_level: 2, is_veg: false, is_halal: true, stock: 80,  min_stock: 8,  is_available: true, image_url: 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=600&q=80', description: 'Grilled chicken marinated in yogurt and spices.' },
+    { name: 'Paneer 65',              price: 12.99, category: 'Appetizers', prep_time: 12, rating: 4.6, spice_level: 3, is_veg: true,  is_halal: true, stock: 70,  min_stock: 7,  is_available: true, image_url: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=600&q=80', description: 'Crispy fried paneer in spicy sauce.' },
+    { name: 'Dal Makhani',            price: 11.99, category: 'Combos',    prep_time: 20, rating: 4.6, spice_level: 1, is_veg: true,  is_halal: true, stock: 90,  min_stock: 9,  is_available: true, image_url: 'https://images.unsplash.com/photo-1546833998-877b37c2e5c6?w=600&q=80', description: 'Slow cooked black lentils in rich tomato gravy.' },
+    { name: 'Butter Chicken',         price: 16.99, category: 'Combos',    prep_time: 20, rating: 4.8, spice_level: 2, is_veg: false, is_halal: true, stock: 90,  min_stock: 9,  is_available: true, image_url: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=600&q=80', description: 'Tender chicken in creamy tomato sauce.' },
+    { name: 'Garlic Naan',            price: 3.99,  category: 'Breads',     prep_time: 8,  rating: 4.5, spice_level: 1, is_veg: true,  is_halal: true, stock: 200, min_stock: 20, is_available: true, image_url: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&q=80', description: 'Freshly baked naan with garlic butter.' },
+    { name: 'Mango Lassi',            price: 5.99,  category: 'Drinks',  prep_time: 5,  rating: 4.7, spice_level: 1, is_veg: true,  is_halal: true, stock: 150, min_stock: 15, is_available: true, image_url: 'https://images.unsplash.com/photo-1527661591475-527312dd65f5?w=600&q=80', description: 'Chilled mango yogurt drink.' },
+    { name: 'Gulab Jamun',            price: 6.99,  category: 'Desserts',   prep_time: 10, rating: 4.8, spice_level: 1, is_veg: true,  is_halal: true, stock: 100, min_stock: 10, is_available: true, image_url: 'https://images.unsplash.com/photo-1601303516900-b5e0d6f64b14?w=600&q=80', description: 'Soft milk dumplings in rose sugar syrup.' },
   ]);
-  console.log('Menu items seeded (25 items)');
+  console.log('Menu items seeded');
 
   // ── Ingredients ────────────────────────────────────────────────────────────
   await Ingredient.insertMany([
-    { name: 'Basmati Rice',  unit: 'kg',     stock: 100, min_stock: 10, reorder_lead_days: 3, unit_cost: 2.50 },
-    { name: 'Chicken',       unit: 'kg',     stock: 60,  min_stock: 8,  reorder_lead_days: 2, unit_cost: 5.20 },
-    { name: 'Mutton',        unit: 'kg',     stock: 40,  min_stock: 6,  reorder_lead_days: 3, unit_cost: 8.50 },
-    { name: 'Shrimp',        unit: 'kg',     stock: 25,  min_stock: 5,  reorder_lead_days: 4, unit_cost: 9.00 },
-    { name: 'Paneer',        unit: 'kg',     stock: 30,  min_stock: 5,  reorder_lead_days: 3, unit_cost: 4.50 },
-    { name: 'Vegetables',    unit: 'kg',     stock: 80,  min_stock: 12, reorder_lead_days: 2, unit_cost: 3.20 },
-    { name: 'Eggs',          unit: 'units',  stock: 120, min_stock: 20, reorder_lead_days: 2, unit_cost: 0.20 },
-    { name: 'Flour',         unit: 'kg',     stock: 60,  min_stock: 8,  reorder_lead_days: 2, unit_cost: 1.10 },
-    { name: 'Dairy',         unit: 'kg',     stock: 70,  min_stock: 10, reorder_lead_days: 2, unit_cost: 3.80 },
-    { name: 'Spices',        unit: 'kg',     stock: 40,  min_stock: 5,  reorder_lead_days: 2, unit_cost: 10.00 },
-    { name: 'Lamb Mince',    unit: 'kg',     stock: 25,  min_stock: 4,  reorder_lead_days: 2, unit_cost: 9.50 },
-    { name: 'Potatoes',      unit: 'kg',     stock: 50,  min_stock: 8,  reorder_lead_days: 2, unit_cost: 1.50 },
-    { name: 'Saffron',       unit: 'g',      stock: 500, min_stock: 50, reorder_lead_days: 7, unit_cost: 0.10 },
-    { name: 'Ghee',          unit: 'kg',     stock: 20,  min_stock: 3,  reorder_lead_days: 5, unit_cost: 12.00 },
-    { name: 'Rose Water',    unit: 'liters', stock: 10,  min_stock: 2,  reorder_lead_days: 7, unit_cost: 5.00 },
+    { name: 'Basmati Rice',  unit: 'kg',    stock: 50,  min_stock: 10, unit_cost: 4.50 },
+    { name: 'Chicken',       unit: 'kg',    stock: 40,  min_stock: 8,  unit_cost: 8.00 },
+    { name: 'Mutton',        unit: 'kg',    stock: 25,  min_stock: 5,  unit_cost: 12.00 },
+    { name: 'Onions',        unit: 'kg',    stock: 30,  min_stock: 6,  unit_cost: 1.50 },
+    { name: 'Tomatoes',      unit: 'kg',    stock: 20,  min_stock: 4,  unit_cost: 2.00 },
+    { name: 'Spice Mix',     unit: 'kg',    stock: 10,  min_stock: 2,  unit_cost: 15.00 },
+    { name: 'Dairy/Cream',   unit: 'liters', stock: 15,  min_stock: 3,  unit_cost: 3.50 },
+    { name: 'Paneer',        unit: 'kg',    stock: 10,  min_stock: 2,  unit_cost: 9.00 },
   ]);
   console.log('Ingredients seeded');
 
   // ── Loyalty Tiers ──────────────────────────────────────────────────────────
   await LoyaltyTier.insertMany([
-    { name: 'Bronze',   min_points: 0,    max_points: 499,  discount_percent: 0,  perks: ['Birthday bonus points'] },
-    { name: 'Silver',   min_points: 500,  max_points: 1499, discount_percent: 5,  perks: ['5% off orders', 'Free delivery on orders over $30'] },
-    { name: 'Gold',     min_points: 1500, max_points: 2999, discount_percent: 10, perks: ['10% off orders', 'Free delivery always', 'Priority queue'] },
-    { name: 'Platinum', min_points: 3000, max_points: null, discount_percent: 15, perks: ['15% off orders', 'Free delivery always', 'VIP table reservations', 'Exclusive menu items'] },
+    { name: 'Bronze',   min_points: 0,    max_points: 999,  discount_percent: 5,  perks: ['5% off orders', 'Birthday bonus'] },
+    { name: 'Silver',   min_points: 1000, max_points: 2999, discount_percent: 10, perks: ['10% off orders', 'Priority seating'] },
+    { name: 'Gold',     min_points: 3000, max_points: null, discount_percent: 15, perks: ['15% off orders', 'Free delivery', 'VIP table'] },
   ]);
   console.log('Loyalty tiers seeded');
 
-  // ── Restaurant Tables ──────────────────────────────────────────────────────
-  await RestaurantTable.insertMany([
-    { label: 'Table 1', capacity: 4,  type: 'regular',  status: 'available', is_active: true },
-    { label: 'Table 2', capacity: 4,  type: 'regular',  status: 'available', is_active: true },
-    { label: 'Table 3', capacity: 6,  type: 'regular',  status: 'available', is_active: true },
-    { label: 'Table 4', capacity: 6,  type: 'regular',  status: 'available', is_active: true },
-    { label: 'Table 5', capacity: 8,  type: 'outdoor',  status: 'available', is_active: true },
-    { label: 'Table 6', capacity: 8,  type: 'outdoor',  status: 'available', is_active: true },
-    { label: 'VIP 1',   capacity: 10, type: 'vip',      status: 'available', is_active: true },
-    { label: 'VIP 2',   capacity: 12, type: 'vip',      status: 'available', is_active: true },
-    { label: 'Takeaway',capacity: 1,  type: 'takeaway', status: 'available', is_active: true },
+  // ── Restaurant Tables (9 tables) ───────────────────────────────────────────
+  const tables = await RestaurantTable.insertMany([
+    { table_number: 1, label: 'Table 1', capacity: 4,  type: 'regular', status: 'available', is_active: true },
+    { table_number: 2, label: 'Table 2', capacity: 4,  type: 'regular', status: 'available', is_active: true },
+    { table_number: 3, label: 'Table 3', capacity: 6,  type: 'regular', status: 'available', is_active: true },
+    { table_number: 4, label: 'Table 4', capacity: 6,  type: 'regular', status: 'available', is_active: true },
+    { table_number: 5, label: 'Table 5', capacity: 8,  type: 'regular', status: 'available', is_active: true },
+    { table_number: 6, label: 'Table 6', capacity: 8,  type: 'regular', status: 'available', is_active: true },
+    { table_number: 7, label: 'VIP 1',   capacity: 10, type: 'vip',     status: 'available', is_active: true },
+    { table_number: 8, label: 'VIP 2',   capacity: 12, type: 'vip',     status: 'available', is_active: true },
+    { table_number: 9, label: 'VIP 3',   capacity: 8,  type: 'vip',     status: 'available', is_active: true },
   ]);
   console.log('Restaurant tables seeded');
+
+  // ── AUTO-ASSIGN Captains to their Table Zones ──────────────────────────────
+  // Captain 1 → Tables 1, 2, 3
+  // Captain 2 → Tables 4, 5, 6
+  // Captain 3 → Tables 7, 8, 9  (VIP 1, 2, 3)
+  // Captain 4 → No tables       (Delivery & Pickup only)
+  const cap1 = users.find(u => u.email === 'captain1@biryanibox.com');
+  const cap2 = users.find(u => u.email === 'captain2@biryanibox.com');
+  const cap3 = users.find(u => u.email === 'captain3@biryanibox.com');
+  // captain4 intentionally gets no tables — they handle delivery/pickup
+
+  await RestaurantTable.updateMany({ table_number: { $in: [1, 2, 3] } }, { captain_id: cap1._id });
+  await RestaurantTable.updateMany({ table_number: { $in: [4, 5, 6] } }, { captain_id: cap2._id });
+  await RestaurantTable.updateMany({ table_number: { $in: [7, 8, 9] } }, { captain_id: cap3._id });
+  console.log('Captain zones assigned:');
+  console.log(`  Captain1 (${cap1._id}) → Tables 1, 2, 3`);
+  console.log(`  Captain2 (${cap2._id}) → Tables 4, 5, 6`);
+  console.log(`  Captain3 (${cap3._id}) → Tables 7, 8, 9 (VIP 1-3)`);
+  console.log(`  Captain4 → Delivery & Pickup (no tables)`);
 
   console.log('\n✅ Seed complete!\n');
   console.log('Login credentials:');
   console.log('  Owner:    owner@biryanibox.com    / owner123');
   console.log('  Manager:  manager@biryanibox.com  / manager123');
-  console.log('  Captain:  captain@biryanibox.com  / captain123');
-  console.log('  Chef:     chef@biryanibox.com     / chef123   ← NEW');
-  console.log('  Rider:    rider@biryanibox.com     / rider123   ← Updated');
+  console.log('  Captain1: captain1@biryanibox.com / captain123  (Tables 1-3)');
+  console.log('  Captain2: captain2@biryanibox.com / captain123  (Tables 4-6)');
+  console.log('  Captain3: captain3@biryanibox.com / captain123  (VIP 1-3)');
+  console.log('  Captain4: captain4@biryanibox.com / captain123  (Delivery/Pickup)');
+  console.log('  Chef1:    chef1@biryanibox.com    / chef123');
+  console.log('  Chef2:    chef2@biryanibox.com    / chef123');
+  console.log('  Chef3:    chef3@biryanibox.com    / chef123');
+  console.log('  Rider1:   rider1@biryanibox.com   / rider123');
+  console.log('  Rider2:   rider2@biryanibox.com   / rider123');
+  console.log('  Rider3:   rider3@biryanibox.com   / rider123');
   console.log('  Customer: customer@biryanibox.com / customer123');
   await mongoose.disconnect();
 };

@@ -12,6 +12,7 @@ import GiftCards         from './pages/GiftCards';
 import Catering          from './pages/Catering';
 import Reservations      from './pages/Reservations';
 import Contact           from './pages/Contact';
+import ProfileHub        from './pages/ProfileHub';
 import ProtectedRoute    from './components/ProtectedRoute';
 
 function App() {
@@ -28,11 +29,12 @@ function App() {
         <Route path="/catering"     element={<Catering />} />
         <Route path="/reservations" element={<Reservations />} />
         <Route path="/contact"      element={<Contact />} />
+        <Route path="/profile"      element={<ProfileHub />} />
 
-        {/* ── Staff login (handles all roles incl. rider) ── */}
-        <Route path="/login"        element={<Login />} />
+        {/* ── Staff login ── */}
+        <Route path="/login" element={<Login />} />
 
-        {/* ── Rider portal — only 'delivery' role ── */}
+        {/* ── Rider portal ── */}
         <Route
           path="/rider"
           element={
@@ -41,11 +43,9 @@ function App() {
             </ProtectedRoute>
           }
         />
-
-        {/* ── Legacy delivery URL redirect ── */}
         <Route path="/delivery/hub" element={<Navigate to="/rider" replace />} />
 
-        {/* ── Management dashboard — all staff except delivery ── */}
+        {/* ── Staff dashboard ── */}
         <Route
           path="/dashboard"
           element={

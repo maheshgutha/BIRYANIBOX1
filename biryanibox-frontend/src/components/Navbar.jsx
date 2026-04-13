@@ -3,51 +3,61 @@ import { motion, AnimatePresence } from 'framer-motion';
 const MotionDiv = motion.div;
 import {
   ShoppingBag, X, Menu as MenuIcon, ShieldCheck, ChevronDown,
-  LogOut, ListOrdered, Clock, MapPin, Truck, User, Star,
+  LogOut, ListOrdered, Clock, User, Star, UtensilsCrossed, Truck,
+  Bell, LayoutDashboard,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCart, useAuth } from '../context/useContextHooks';
 
-// Shared helper so Checkout can also read the current order type
-export const getOrderType  = () => localStorage.getItem('bb_order_type') || 'pickup';
-export const setOrderTypeLS = (type) => {
-  localStorage.setItem('bb_order_type', type);
-  window.dispatchEvent(new CustomEvent('bb_order_type_change', { detail: type }));
+// ── Order type helpers ────────────────────────────────────────────────────────
+// 'dinein' | 'delivery'
+export const getOrderMode   = () => localStorage.getItem('bb_order_mode')  || 'dinein';
+export const setOrderModeLS = (mode) => {
+  localStorage.setItem('bb_order_mode', mode);
+  window.dispatchEvent(new CustomEvent('bb_order_mode_change', { detail: mode }));
+};
+
+// Sub-type for delivery: 'pickup' | 'home_delivery'
+export const getDeliveryType   = () => localStorage.getItem('bb_delivery_type') || 'pickup';
+export const setDeliveryTypeLS = (t) => {
+  localStorage.setItem('bb_delivery_type', t);
+  window.dispatchEvent(new CustomEvent('bb_delivery_type_change', { detail: t }));
 };
 
 const Navbar = () => {
   const [isScrolled,       setIsScrolled]       = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileOpen,    setIsProfileOpen]    = useState(false);
-  const [orderType,        setOrderType]        = useState(getOrderType);
+  const [orderMode,        setOrderMode]        = useState(getOrderMode);
   const { user, logout } = useAuth();
   const { cart }         = useCart();
   const navigate         = useNavigate();
 
-  // Sync scroll
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', onScroll);
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Sync external changes (e.g. Checkout resets to pickup after order)
   useEffect(() => {
-    const handler = (e) => setOrderType(e.detail);
-    window.addEventListener('bb_order_type_change', handler);
-    return () => window.removeEventListener('bb_order_type_change', handler);
+    const h = (e) => setOrderMode(e.detail);
+    window.addEventListener('bb_order_mode_change', h);
+    return () => window.removeEventListener('bb_order_mode_change', h);
   }, []);
 
-  const handleTypeChange = (type) => {
-    setOrderType(type);
-    setOrderTypeLS(type);
+  const handleModeChange = (mode) => {
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+    setOrderMode(mode);
+    setOrderModeLS(mode);
   };
 
   const navLinks = [
     { name: 'Home',         href: '/'                    },
     { name: 'Menu',         href: '/#menu'               },
     { name: 'Reservations', href: '/reservations'        },
-    { name: 'Rewards',      href: '/history?tab=rewards' },
     { name: 'Gift Cards',   href: '/gift-cards'          },
     { name: 'Catering',     href: '/catering'            },
   ];
@@ -58,6 +68,13 @@ const Navbar = () => {
     } else {
       navigate(href);
     }
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleLogout = () => {
+    logout();
+    setIsProfileOpen(false);
+    navigate('/');
   };
 
   return (
@@ -73,17 +90,17 @@ const Navbar = () => {
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-8">
 
-          {/* ── Pickup / Delivery toggle ── */}
+          {/* ── Dine-In / Delivery toggle ── */}
           <div className="flex bg-white/5 p-1 rounded-full border border-white/10 mr-2">
             <button
-              onClick={() => handleTypeChange('pickup')}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${orderType === 'pickup' ? 'bg-primary text-white shadow-xl' : 'text-white/40 hover:text-white'}`}
+              onClick={() => handleModeChange('dinein')}
+              className={`flex items-center gap-2 px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${orderMode === 'dinein' ? 'bg-primary text-white shadow-xl' : 'text-white/40 hover:text-white'}`}
             >
-              <MapPin size={13} /> Pickup
+              <UtensilsCrossed size={13} /> Dine-In
             </button>
             <button
-              onClick={() => handleTypeChange('delivery')}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${orderType === 'delivery' ? 'bg-primary text-white shadow-xl' : 'text-white/40 hover:text-white'}`}
+              onClick={() => handleModeChange('delivery')}
+              className={`flex items-center gap-2 px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${orderMode === 'delivery' ? 'bg-primary text-white shadow-xl' : 'text-white/40 hover:text-white'}`}
             >
               <Truck size={13} /> Delivery
             </button>
@@ -103,13 +120,6 @@ const Navbar = () => {
               <Clock size={12} /> Open Now
             </div>
 
-            {/* Delivery type badge — subtle reminder */}
-            {orderType === 'delivery' && (
-              <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-white/50 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
-                <Truck size={11} className="text-primary" /> +$40 fee
-              </div>
-            )}
-
             {/* Cart */}
             <button onClick={() => navigate('/cart')} className="relative p-2 text-white hover:text-primary transition-colors">
               <ShoppingBag size={20} />
@@ -120,48 +130,42 @@ const Navbar = () => {
               )}
             </button>
 
-            {/* Profile */}
+            {/* Profile / Auth */}
             {user ? (
               <div className="relative">
                 <button onClick={() => setIsProfileOpen(!isProfileOpen)}
                   className="flex items-center gap-3 bg-white/5 border border-white/10 p-1.5 pr-4 rounded-full hover:border-primary/50 transition-all group">
                   <div className="w-8 h-8 rounded-full border border-primary/20 overflow-hidden shadow-inner">
-                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.role}`} className="w-full h-full" alt="User" />
+                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.name}`} className="w-full h-full" alt="User" />
                   </div>
                   <span className="text-[10px] font-black uppercase tracking-widest text-white/80 group-hover:text-primary">
-                    {user.name.split(' ')[0]} Hub
+                    {user.name?.split(' ')[0]}
                   </span>
                   <ChevronDown size={14} className={`text-white/30 transition-transform ${isProfileOpen ? 'rotate-180' : ''}`} />
                 </button>
+
                 <AnimatePresence>
                   {isProfileOpen && (
                     <MotionDiv initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 top-full mt-4 w-60 bg-secondary border border-white/10 rounded-2xl shadow-3xl p-2 z-50">
-                      <button onClick={() => { navigate('/history'); setIsProfileOpen(false); }}
-                        className="w-full flex items-center gap-4 p-4 hover:bg-white/5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white border-b border-white/5 mb-1">
-                        <ListOrdered size={16} className="text-primary" /> My Orders
-                      </button>
-                      <button onClick={() => { navigate('/history?tab=rewards'); setIsProfileOpen(false); }}
-                        className="w-full flex items-center gap-4 p-4 hover:bg-white/5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white mb-1">
-                        <Star size={16} className="text-primary" /> My Rewards
-                      </button>
-                      <button onClick={() => { navigate('/history?tab=addresses'); setIsProfileOpen(false); }}
-                        className="w-full flex items-center gap-4 p-4 hover:bg-white/5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white">
+                      className="absolute right-0 top-full mt-4 w-64 bg-secondary border border-white/10 rounded-2xl shadow-3xl p-2 z-50">
+
+                      {/* Profile Hub */}
+                      <button onClick={() => { navigate('/profile'); setIsProfileOpen(false); }}
+                        className="w-full flex items-center gap-4 p-4 hover:bg-white/5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white border-b border-white/5 mb-1">
                         <User size={16} className="text-primary" /> Profile Hub
                       </button>
-                      {/* Rider shortcut */}
-                      {user.role === 'delivery' && (
-                        <>
-                          <div className="h-px bg-white/5 my-2" />
-                          <button onClick={() => { navigate('/rider'); setIsProfileOpen(false); }}
-                            className="w-full flex items-center gap-4 p-4 hover:bg-primary/10 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-primary">
-                            <Truck size={16} /> Rider Dashboard
-                          </button>
-                        </>
+
+                      {/* Staff dashboard link */}
+                      {user.role && user.role !== 'customer' && (
+                        <button onClick={() => { navigate('/dashboard'); setIsProfileOpen(false); }}
+                          className="w-full flex items-center gap-4 p-4 hover:bg-white/5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white border-b border-white/5 mb-1">
+                          <LayoutDashboard size={16} className="text-primary" /> Dashboard
+                        </button>
                       )}
-                      <div className="h-px bg-white/5 my-2" />
-                      <button onClick={() => { logout(); setIsProfileOpen(false); }}
-                        className="w-full flex items-center gap-4 p-4 hover:bg-red-500/10 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-red-500">
+
+                      {/* Logout */}
+                      <button onClick={handleLogout}
+                        className="w-full flex items-center gap-4 p-4 hover:bg-red-500/10 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest text-red-400/70 hover:text-red-400 mt-1">
                         <LogOut size={16} /> Sign Out
                       </button>
                     </MotionDiv>
@@ -170,55 +174,50 @@ const Navbar = () => {
               </div>
             ) : (
               <button onClick={() => navigate('/auth')}
-                className="text-[10px] font-black text-white uppercase tracking-[0.2em] hover:text-primary transition-colors border border-white/10 px-8 py-3 rounded-full hover:border-primary shadow-xl">
-                Sign In
+                className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary hover:text-white transition-all">
+                <User size={13} /> Sign In
               </button>
             )}
-
-            <button onClick={() => navigate('/login')}
-              className="w-10 h-10 flex items-center justify-center text-text-muted hover:text-primary transition-all group opacity-20 hover:opacity-100">
-              <ShieldCheck size={18} />
-            </button>
           </div>
         </div>
 
         {/* Mobile hamburger */}
         <button className="md:hidden text-white p-2" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-          {isMobileMenuOpen ? <X size={32} /> : <MenuIcon size={32} />}
+          {isMobileMenuOpen ? <X size={24} /> : <MenuIcon size={24} />}
         </button>
       </div>
 
       {/* Mobile menu */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <MotionDiv initial={{ opacity: 0, x: '100%' }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: '100%' }}
-            className="fixed inset-0 bg-bg-main z-50 p-10 flex flex-col">
-            <div className="flex justify-between items-center mb-16">
-              <span className="text-2xl font-black">NAV HUB</span>
-              <button onClick={() => setIsMobileMenuOpen(false)}><X size={40} /></button>
-            </div>
-            <div className="space-y-6">
+          <MotionDiv initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+            className="md:hidden bg-bg-main/95 backdrop-blur-xl border-t border-white/10 overflow-hidden">
+            <div className="container py-6 flex flex-col gap-4">
+              {/* Mode toggle mobile */}
+              <div className="flex bg-white/5 p-1 rounded-full border border-white/10 self-start">
+                <button onClick={() => handleModeChange('dinein')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${orderMode === 'dinein' ? 'bg-primary text-white' : 'text-white/40'}`}>
+                  <UtensilsCrossed size={12} /> Dine-In
+                </button>
+                <button onClick={() => handleModeChange('delivery')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${orderMode === 'delivery' ? 'bg-primary text-white' : 'text-white/40'}`}>
+                  <Truck size={12} /> Delivery
+                </button>
+              </div>
               {navLinks.map(link => (
-                <button key={link.name} className="block text-4xl font-black uppercase text-white/40 hover:text-primary text-left"
-                  onClick={() => { setIsMobileMenuOpen(false); navigate(link.href); }}>
+                <button key={link.name} onClick={() => handleNavClick(link.href)}
+                  className="text-left text-sm font-black uppercase tracking-widest text-white/60 hover:text-primary py-2 border-b border-white/5">
                   {link.name}
                 </button>
               ))}
-            </div>
-            <div className="mt-auto py-10 border-t border-white/5 space-y-4">
-              <button onClick={() => navigate('/auth')} className="btn-primary w-full py-5 text-xl">Sign In Portal</button>
-              <div className="flex gap-4">
-                <button
-                  onClick={() => handleTypeChange('delivery')}
-                  className={`flex-1 py-4 rounded-2xl border text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${orderType === 'delivery' ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-white/60'}`}>
-                  <Truck size={16} /> Delivery
-                </button>
-                <button
-                  onClick={() => handleTypeChange('pickup')}
-                  className={`flex-1 py-4 rounded-2xl border text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${orderType === 'pickup' ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-white/60'}`}>
-                  <MapPin size={16} /> Pickup
-                </button>
-              </div>
+              {user ? (
+                <>
+                  <button onClick={() => { navigate('/profile'); setIsMobileMenuOpen(false); }} className="text-left text-sm font-black uppercase tracking-widest text-white/60 hover:text-primary py-2 border-b border-white/5">Profile Hub</button>
+                  <button onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }} className="text-left text-sm font-black uppercase tracking-widest text-red-400 py-2">Sign Out</button>
+                </>
+              ) : (
+                <button onClick={() => { navigate('/auth'); setIsMobileMenuOpen(false); }} className="text-left text-sm font-black uppercase tracking-widest text-primary py-2">Sign In</button>
+              )}
             </div>
           </MotionDiv>
         )}
@@ -228,3 +227,7 @@ const Navbar = () => {
 };
 
 export default Navbar;
+
+// ── Backward-compatible aliases (Checkout.jsx and Cart.jsx use old names) ──
+export const getOrderType   = getOrderMode;
+export const setOrderTypeLS = setOrderModeLS;

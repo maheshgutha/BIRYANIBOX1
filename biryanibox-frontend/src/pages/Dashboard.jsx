@@ -57,30 +57,33 @@ const Sidebar = ({ activeTab, setActiveTab, user, unreadAnnouncements }) => {
   const navigate = useNavigate();
 
   const allItems = [
-    { id: 'overview',      label: 'Command Hub',    icon: PieChart,        roles: ['owner', 'manager'] },
-    { id: 'pos',           label: 'Order Booking',  icon: OrderIcon,       roles: ['owner', 'manager', 'captain'] },
-    { id: 'orders',        label: 'Live Orders',    icon: Monitor,         roles: ['owner', 'manager', 'captain', 'chef'] },
-    { id: 'kitchen',       label: 'My Kitchen',     icon: ChefHat,         roles: ['chef'] },
-    { id: 'menu',          label: 'Menu Master',    icon: FileText,        roles: ['owner', 'manager'] },
-    { id: 'tables',        label: 'Table Status',   icon: LayoutDashboard, roles: ['owner', 'manager', 'captain'] },
-    { id: 'reservations',  label: 'Reservations',   icon: Calendar,        roles: ['owner', 'manager', 'captain'] },
-    { id: 'catering',      label: 'Catering Orders',icon: Utensils,        roles: ['owner', 'manager'] },
-    { id: 'feedback',      label: 'Feedback Box',   icon: MessageSquare,   roles: ['owner', 'manager'] },
-    { id: 'announcements', label: 'Announcements',  icon: Megaphone,       roles: ['owner', 'manager', 'chef', 'captain'] },
-    { id: 'leaves',        label: 'Leave Module',   icon: Briefcase,       roles: ['owner', 'manager', 'chef', 'captain'] },
-    { id: 'shifts',        label: 'Shift Logs',     icon: UserCheck,       roles: ['owner', 'manager'] },
-    { id: 'staffmgmt',     label: 'Staff Mgmt',     icon: Users,           roles: ['owner', 'manager'] },
-    { id: 'riders',        label: 'Riders Hub',     icon: Truck,           roles: ['owner', 'manager'] },
-    { id: 'finance',       label: 'Finance Center', icon: DollarSign,      roles: ['owner', 'manager'] },
-    { id: 'my_orders',     label: 'My Orders',      icon: ClipboardList,   roles: ['captain'] },
-    { id: 'chef_orders',   label: 'Order History',  icon: ClipboardList,   roles: ['chef'] },
-    { id: 'staff',         label: 'My Profile',     icon: User,            roles: ['owner', 'manager', 'captain', 'chef'] },
+    { id: 'overview',      label: 'Command Hub',      icon: PieChart,        roles: ['owner', 'manager'] },
+    { id: 'pos',           label: 'Order Booking',    icon: OrderIcon,       roles: ['owner', 'manager', 'captain'] },
+    { id: 'orders',        label: 'Live Orders',      icon: Monitor,         roles: ['owner', 'manager', 'captain', 'chef'] },
+    { id: 'kitchen',       label: 'My Kitchen',       icon: ChefHat,         roles: ['chef'] },
+    { id: 'menu',          label: 'Menu Master',      icon: FileText,        roles: ['owner', 'manager'] },
+    { id: 'tables',        label: 'Table Status',     icon: LayoutDashboard, roles: ['owner', 'manager', 'captain'] },
+    { id: 'reservations',  label: 'Reservations',     icon: Calendar,        roles: ['owner', 'manager', 'captain'] },
+    { id: 'catering',      label: 'Catering Orders',  icon: Utensils,        roles: ['owner', 'manager'] },
+    { id: 'feedback',      label: 'Feedback Box',     icon: MessageSquare,   roles: ['owner', 'manager'] },
+    { id: 'announcements', label: 'Announcements',    icon: Megaphone,       roles: ['owner', 'manager', 'chef', 'captain'] },
+    { id: 'leaves',        label: 'Leave Module',     icon: Briefcase,       roles: ['owner', 'manager', 'chef', 'captain'] },
+    { id: 'shifts',        label: 'Shift Logs',       icon: UserCheck,       roles: ['owner', 'manager'] },
+    { id: 'staffmgmt',     label: 'Staff Mgmt',       icon: Users,           roles: ['owner', 'manager'] },
+    { id: 'riders',        label: 'Riders Hub',       icon: Truck,           roles: ['owner', 'manager'] },
+    { id: 'customers',     label: 'Customers',        icon: Users,           roles: ['owner'] },
+    { id: 'finance',       label: 'Finance Center',   icon: DollarSign,      roles: ['owner', 'manager'] },
+    { id: 'my_orders',     label: 'My Orders',        icon: ClipboardList,   roles: ['captain'] },
+    { id: 'chef_orders',   label: 'Order History',    icon: ClipboardList,   roles: ['chef'] },
+    { id: 'staff',         label: 'My Profile',       icon: User,            roles: ['owner', 'manager', 'captain', 'chef'] },
   ];
 
+  // Captain zone detection: captains with no assigned tables are captain 4 (delivery)
+  // We hide Table Status sidebar item for delivery-only captain at render time via TableStatus logic
   const items = allItems.filter(i => i.roles.includes(user.role));
 
   return (
-    <div className="w-64 bg-bg-main border-r border-white/5 h-screen fixed left-0 top-0 flex flex-col z-50 overflow-y-auto">
+    <div className="w-64 bg-bg-main border-r border-white/5 h-screen fixed left-0 top-0 flex flex-col z-50 overflow-y-auto shrink-0">
       <div className="p-5 border-b border-white/5">
         <div className="flex items-center gap-3 bg-primary/10 p-3 rounded-xl border border-primary/20">
           <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center">
@@ -121,13 +124,95 @@ const Sidebar = ({ activeTab, setActiveTab, user, unreadAnnouncements }) => {
 };
 
 // ─── Header ──────────────────────────────────────────────────────────────────
+// ─── Notification Bell ──────────────────────────────────────────────────────
+const NotificationBell = ({ userId }) => {
+  const [open, setOpen] = useState(false);
+  const [notifs, setNotifs] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const bellRef = useRef(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await notificationsAPI.getAll();
+      setNotifs(r.data || []);
+      setUnread(r.unreadCount || 0);
+    } catch {}
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load, 15000);
+
+  useEffect(() => {
+    const handler = (e) => { if (bellRef.current && !bellRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const markAllRead = async () => {
+    try { await notificationsAPI.markAllRead(); setUnread(0); setNotifs(prev => prev.map(n => ({ ...n, is_read: true }))); } catch {}
+  };
+
+  const markOne = async (id) => {
+    try { await notificationsAPI.markRead(id); setNotifs(prev => prev.map(n => n._id === id ? { ...n, is_read: true } : n)); setUnread(p => Math.max(0, p - 1)); } catch {}
+  };
+
+  const NOTIF_ICON = { new_order: '🛒', order_ready: '✅', cooking: '🔥', delivery: '🚴', reservation: '📅', catering: '🍽️', info: '🔔' };
+  const NOTIF_COLOR = { new_order: 'border-primary/40 bg-primary/5', order_ready: 'border-green-500/30 bg-green-500/5', cooking: 'border-orange-500/30 bg-orange-500/5', delivery: 'border-blue-500/30 bg-blue-500/5', reservation: 'border-purple-500/30 bg-purple-500/5', catering: 'border-yellow-500/30 bg-yellow-500/5', info: 'border-white/10 bg-white/5' };
+
+  return (
+    <div className="relative" ref={bellRef}>
+      <button onClick={() => { setOpen(o => !o); if (!open) load(); }}
+        className="relative w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-text-muted hover:text-primary transition-all">
+        <Bell size={16} />
+        {unread > 0 && (
+          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-bg-main">
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <MotionDiv initial={{ opacity: 0, y: 8, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.97 }}
+            className="absolute right-0 top-full mt-3 w-80 bg-secondary border border-white/10 rounded-2xl shadow-2xl z-[9999] overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <span className="text-xs font-black uppercase tracking-widest text-white/60">Notifications</span>
+              {unread > 0 && (
+                <button onClick={markAllRead} className="text-[10px] text-primary hover:underline font-bold">Mark all read</button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {notifs.length === 0 ? (
+                <div className="py-10 text-center text-text-muted text-xs font-bold">No notifications</div>
+              ) : (
+                notifs.slice(0, 20).map(n => (
+                  <div key={n._id} onClick={() => markOne(n._id)}
+                    className={`flex items-start gap-3 px-4 py-3 border-b border-white/5 cursor-pointer hover:bg-white/5 transition-all ${!n.is_read ? 'bg-primary/3' : ''}`}>
+                    <span className="text-base mt-0.5 flex-shrink-0">{NOTIF_ICON[n.type] || '🔔'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-black ${!n.is_read ? 'text-white' : 'text-white/60'}`}>{n.title}</p>
+                      <p className="text-[10px] text-text-muted mt-0.5 leading-relaxed">{n.message}</p>
+                      <p className="text-[9px] text-white/20 mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                    </div>
+                    {!n.is_read && <span className="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-1" />}
+                  </div>
+                ))
+              )}
+            </div>
+          </MotionDiv>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 const Header = ({ title, onRefresh, loading }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   return (
-    <div className="h-16 flex items-center justify-between px-8 border-b border-white/5 bg-bg-main/80 backdrop-blur-xl sticky top-0 z-40">
+    <div className="h-16 flex items-center justify-between px-8 border-b border-white/5 bg-bg-main/95 backdrop-blur-xl sticky top-0 z-40 shrink-0">
       <h2 className="text-lg font-bold text-white">{title}</h2>
       <div className="flex items-center gap-3">
+        <NotificationBell userId={user?.id} />
         <button onClick={onRefresh}
           className={`w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-text-muted hover:text-primary transition-all ${loading ? 'animate-spin' : ''}`}>
           <RefreshCw size={14} />
@@ -280,11 +365,19 @@ const CookDurationCell = ({ order }) => {
   return <span className="text-text-muted text-[11px]">—</span>;
 };
 
-const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors }) => {
+const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors, captainTableNumbers }) => {
   // Which statuses can this role trigger?
   const chefStatuses     = ['start_cooking', 'completed_cooking'];
   const captainStatuses  = ['served', 'paid'];
   const managerStatuses  = ['served', 'paid', 'cancelled'];
+
+  // For captain: check if an order belongs to their zone tables
+  const isCaptainOrderInZone = (order) => {
+    if (user.role !== 'captain') return true; // non-captains always in zone
+    if (!captainTableNumbers || captainTableNumbers.length === 0) return false; // delivery captain — no dine-in zone
+    const tNum = parseInt(order.table_number);
+    return captainTableNumbers.includes(tNum);
+  };
 
   const TRANSITIONS = {
     pending:           'start_cooking',
@@ -357,12 +450,45 @@ const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors }) =>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                    {canAdvance(ord) && (
+                    {canAdvance(ord) && isCaptainOrderInZone(ord) && (
                       <button onClick={() => onStatusUpdate(id, TRANSITIONS[ord.status])}
                         className="px-3 py-1.5 bg-primary text-white rounded-lg text-[10px] font-black uppercase hover:bg-primary-hover transition-all">
                         {nextLabel[TRANSITIONS[ord.status]]}
                       </button>
                     )}
+                    {user.role === 'captain' && !isCaptainOrderInZone(ord) && (() => {
+                      // Captain 4 (delivery captain, no tables): gets dispatch buttons for delivery/pickup orders
+                      const isDeliveryCap = !captainTableNumbers || captainTableNumbers.length === 0;
+                      const isDeliveryOrder = ['delivery', 'pickup', 'takeaway'].includes(ord.order_type);
+                      if (isDeliveryCap && isDeliveryOrder) {
+                        // Show dispatch actions based on status
+                        if (ord.status === 'completed_cooking') {
+                          return (
+                            <button onClick={() => onStatusUpdate(ord._id || ord.id, 'served')}
+                              className="px-3 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-blue-500 hover:text-white transition-all">
+                              🚗 Dispatch
+                            </button>
+                          );
+                        }
+                        if (ord.status === 'served') {
+                          return (
+                            <button onClick={() => onStatusUpdate(ord._id || ord.id, 'paid')}
+                              className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-green-500 hover:text-white transition-all">
+                              ✓ Mark Paid
+                            </button>
+                          );
+                        }
+                      }
+                      // Other captains see View Only for other zones
+                      if (canAdvance(ord)) {
+                        return (
+                          <span className="text-[9px] text-text-muted px-2 py-1 bg-white/5 rounded-lg border border-white/10 uppercase tracking-widest">
+                            👁 View Only
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                     {user.role === 'owner' && (
                       <button onClick={() => onDelete(id)} className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-all">
                         <Trash2 size={13} />
@@ -411,20 +537,39 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
     setReducingId(null);
     setReduceQty('');
   };
-  const activeOrders = orders.filter(o => ['pending', 'start_cooking'].includes(o.status));
+  // Chef exclusivity: show pending (available to all) + start_cooking owned by THIS chef only
+  // Orders cooking by another chef are hidden — only their chef_id is visible to them
+  const chefId = user?._id;
+  const activeOrders = orders.filter(o => {
+    if (o.status === 'pending') return true; // all chefs can see and claim pending orders
+    if (o.status === 'start_cooking') {
+      // Only show this cooking order if it belongs to the current chef
+      const ordChefId = o.chef_id?._id || o.chef_id;
+      return ordChefId && ordChefId.toString() === chefId?.toString();
+    }
+    return false;
+  });
   const filtered = statusFilter === 'active' ? activeOrders
     : statusFilter === 'pending' ? orders.filter(o => o.status === 'pending')
-    : statusFilter === 'cooking' ? orders.filter(o => o.status === 'start_cooking')
+    : statusFilter === 'cooking' ? orders.filter(o => {
+        if (o.status !== 'start_cooking') return false;
+        const ordChefId = o.chef_id?._id || o.chef_id;
+        return ordChefId && ordChefId.toString() === chefId?.toString();
+      })
     : activeOrders;
 
   const lowStockIngredients = localIngredients.filter(i => i.stock < i.min_stock);
 
   return (
     <div className="space-y-8">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-4xl font-black text-white flex items-center gap-3"><ChefHat size={32} className="text-primary" />My Kitchen</h2>
           <p className="text-text-muted mt-1 text-sm">Your active cooking queue</p>
+          <div className="flex items-center gap-2 mt-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-xl w-fit">
+            <ChefHat size={11} className="text-orange-400" />
+            <span className="text-[10px] text-orange-400 font-black uppercase tracking-widest">Chef ID: CHF-{chefId?.slice(-6).toUpperCase()}</span>
+          </div>
         </div>
         <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-5 py-3 rounded-xl">
           <span className="w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />
@@ -496,12 +641,22 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
                   {ord.cooking_started_at && <span>Started: {new Date(ord.cooking_started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                 </div>
                 <div className="pt-2 border-t border-white/10">
-                  {isPending && (
-                    <button onClick={() => updateOrderStatus(id, 'start_cooking')}
-                      className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2">
-                      <Play size={14} /> Start Cooking
-                    </button>
-                  )}
+                  {isPending && (() => {
+                    // If another chef has already claimed this order (race condition guard)
+                    const ordChefId = ord.chef_id?._id || ord.chef_id;
+                    const isClaimedByOther = ordChefId && ordChefId.toString() !== chefId?.toString();
+                    if (isClaimedByOther) return (
+                      <div className="w-full py-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-xs font-black uppercase tracking-widest text-center">
+                        🔒 Claimed by Another Chef
+                      </div>
+                    );
+                    return (
+                      <button onClick={() => updateOrderStatus(id, 'start_cooking')}
+                        className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2">
+                        <Play size={14} /> Start Cooking
+                      </button>
+                    );
+                  })()}
                   {isCooking && (
                     <button onClick={() => updateOrderStatus(id, 'completed_cooking')}
                       className="w-full py-3 bg-green-500 hover:bg-green-600 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2">
@@ -675,7 +830,7 @@ const ChefOrderHistory = ({ user, allOrders }) => {
 };
 
 // ─── CAPTAIN MY ORDERS ────────────────────────────────────────────────────────
-const CaptainMyOrders = ({ user, allOrders }) => {
+const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
   const [period, setPeriod] = useState('today');
   const [expandedOrder, setExpandedOrder] = useState(null);
 
@@ -688,8 +843,19 @@ const CaptainMyOrders = ({ user, allOrders }) => {
     const weekAgo  = new Date(now); weekAgo.setDate(now.getDate() - 7);
     const monthAgo = new Date(now); monthAgo.setMonth(now.getMonth() - 1);
 
+    // Captain zone: tables 1-3 → captain1, 4-6 → captain2, VIP(7-9) → captain3, no tables → captain4
+    const myTables = captainTableNumbers || [];
+    const isDeliveryCaptain = myTables.length === 0;
+
     return (allOrders || []).filter(o => {
       if (!['served', 'paid'].includes(o.status)) return false;
+      // Zone filter
+      if (isDeliveryCaptain) {
+        if (!['delivery', 'pickup', 'takeaway'].includes(o.order_type)) return false;
+      } else {
+        const tNum = parseInt(o.table_number) || 0;
+        if (!myTables.includes(tNum)) return false;
+      }
       const ts = new Date(o.created_at || o.timestamp);
       if (period === 'today')   return ts >= todayStart;
       if (period === 'weekly')  return ts >= weekAgo;
@@ -808,22 +974,41 @@ const CaptainMyOrders = ({ user, allOrders }) => {
 };
 
 // ─── TABLE STATUS ─────────────────────────────────────────────────────────────
-const TableStatus = () => {
+const TableStatus = ({ user }) => {
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(null);
   const [msg, setMsg] = useState({ text: '', type: '' });
+  const [isDeliveryCaptain, setIsDeliveryCaptain] = useState(false);
+
+  const isCaptain = user?.role === 'captain';
+
+  const [reservations, setReservations] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await tablesAPI.getAll();
-      setTables(res.data || []);
+      // Load tables (captain sees own, others see all)
+      if (isCaptain) {
+        const res = await tablesAPI.getMyTables();
+        const myTables = res.data || [];
+        setTables(myTables);
+        setIsDeliveryCaptain(myTables.length === 0);
+      } else {
+        const res = await tablesAPI.getAll();
+        setTables(res.data || []);
+        setIsDeliveryCaptain(false);
+      }
+      // Also load upcoming confirmed reservations to show on table cards
+      try {
+        const rRes = await reservationsAPI.getAll('?status=confirmed');
+        setReservations(rRes.data || []);
+      } catch { setReservations([]); }
     } catch { setTables([]); }
     finally { setLoading(false); }
-  }, []);
+  }, [isCaptain]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
   useAutoRefresh(load, 20000);
 
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
@@ -840,19 +1025,55 @@ const TableStatus = () => {
 
   const tableConfig = {
     available:     { bg: 'bg-green-500/10 border-green-500/30', badge: 'bg-green-500/20 text-green-400', dot: 'bg-green-400' },
-    occupied:      { bg: 'bg-red-500/10 border-red-500/30',   badge: 'bg-red-500/20 text-red-400',   dot: 'bg-red-400'   },
+    occupied:      { bg: 'bg-red-500/10 border-red-500/30',     badge: 'bg-red-500/20 text-red-400',     dot: 'bg-red-400'   },
     reserved:      { bg: 'bg-yellow-500/10 border-yellow-500/30', badge: 'bg-yellow-500/20 text-yellow-400', dot: 'bg-yellow-400' },
-    not_available: { bg: 'bg-white/5 border-white/10',        badge: 'bg-white/10 text-text-muted', dot: 'bg-gray-500'  },
+    not_available: { bg: 'bg-white/5 border-white/10',          badge: 'bg-white/10 text-text-muted',   dot: 'bg-gray-500'  },
   };
 
   const allStatuses = ['available', 'occupied', 'reserved', 'not_available'];
+
+  // Captain 4 (delivery captain) — no tables, show info panel
+  if (isDeliveryCaptain) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Truck size={28} className="text-primary" />Your Zone: Delivery & Pickup</h2>
+          <p className="text-text-muted text-sm mt-1">You are assigned to manage delivery and pickup orders — no dine-in tables in your zone.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+          {[
+            { icon: Truck, label: 'Delivery Orders', desc: 'Manage and dispatch incoming delivery orders to riders', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30' },
+            { icon: Package, label: 'Pickup Orders', desc: 'Coordinate takeaway and counter pickup orders', color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30' },
+            { icon: Activity, label: 'Live Tracking', desc: 'Track active deliveries and rider assignments', color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/30' },
+          ].map(({ icon: Icon, label, desc, color, bg }) => (
+            <div key={label} className={`rounded-2xl border p-6 ${bg}`}>
+              <Icon size={28} className={`${color} mb-3`} />
+              <h3 className={`text-lg font-black ${color}`}>{label}</h3>
+              <p className="text-text-muted text-sm mt-2">{desc}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 bg-secondary/40 rounded-2xl border border-white/10 p-5">
+          <p className="text-xs text-text-muted font-bold uppercase tracking-widest mb-2">Your Captain ID</p>
+          <p className="text-white font-mono text-sm">CAP4-{user?._id?.slice(-8).toUpperCase()}</p>
+          <p className="text-text-muted text-xs mt-1">Notifications for delivery/pickup orders are routed to you exclusively.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><LayoutDashboard size={28} className="text-primary" />Table Status</h2>
-          <p className="text-text-muted text-sm mt-1">Click a table to change its status manually</p>
+          <h2 className="text-3xl font-black text-white flex items-center gap-3">
+            <LayoutDashboard size={28} className="text-primary" />Table Status
+          </h2>
+          <p className="text-text-muted text-sm mt-1">
+            {isCaptain
+              ? `Your zone: ${tables.length} table${tables.length !== 1 ? 's' : ''} assigned`
+              : 'Click a table to change its status manually'}
+          </p>
         </div>
         <div className="flex gap-4 text-xs font-bold text-text-muted flex-wrap">
           {allStatuses.map(s => (
@@ -863,29 +1084,50 @@ const TableStatus = () => {
           ))}
         </div>
       </div>
+      {isCaptain && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 rounded-xl text-xs text-primary font-bold w-fit">
+          <Shield size={12} />
+          Captain Zone — ID: CAP-{user?._id?.slice(-6).toUpperCase()}
+        </div>
+      )}
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {tables.map(t => {
             const cfg = tableConfig[t.status] || tableConfig.available;
             const isUpdating = updating === t._id;
+            // Find upcoming reservation for this table
+            const tableRes = reservations.find(r =>
+              String(r.table_assigned) === String(t.table_number) ||
+              String(r.table_assigned) === t.label
+            );
             return (
               <div key={t._id} className={`rounded-2xl border p-4 ${cfg.bg} relative overflow-hidden`}>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xl font-black text-white">T{t.table_number || t.label}</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xl font-black text-white">T{t.label || t.table_number}</p>
                   {isUpdating && <Loader size={14} className="animate-spin text-primary" />}
                 </div>
-                {t.capacity && <p className="text-[10px] text-text-muted mb-3">{t.capacity} seats</p>}
-                {/* Status badge */}
-                <span className={`text-[9px] font-black px-2 py-1 rounded-full uppercase mb-3 inline-block ${cfg.badge}`}>
+                {t.capacity && <p className="text-[10px] text-text-muted mb-2">{t.capacity} seats</p>}
+                <span className={`text-[9px] font-black px-2 py-1 rounded-full uppercase mb-2 inline-block ${cfg.badge}`}>
                   {t.status.replace('_', ' ')}
                 </span>
-                {/* Manual status selector */}
+                {/* Reservation info on reserved tables */}
+                {tableRes && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-2 mb-2">
+                    <p className="text-[9px] font-black text-yellow-400 uppercase tracking-widest mb-0.5">📅 Reserved</p>
+                    <p className="text-[9px] text-yellow-300 font-bold truncate">{tableRes.customer_name}</p>
+                    <p className="text-[9px] text-yellow-300/70">
+                      {tableRes.date ? new Date(tableRes.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : ''}
+                      {tableRes.time ? ` @ ${tableRes.time}` : ''}
+                    </p>
+                    <p className="text-[9px] text-yellow-300/60">{tableRes.guests} guests</p>
+                  </div>
+                )}
                 <select
                   value={t.status}
                   onChange={e => handleStatusChange(t._id, e.target.value)}
                   disabled={isUpdating}
-                  className="w-full mt-2 bg-black/40 border border-white/10 text-white text-[10px] font-bold rounded-lg px-2 py-1.5 outline-none focus:border-primary cursor-pointer uppercase tracking-widest"
+                  className="w-full mt-1 bg-black/40 border border-white/10 text-white text-[10px] font-bold rounded-lg px-2 py-1.5 outline-none focus:border-primary cursor-pointer uppercase tracking-widest"
                 >
                   {allStatuses.map(s => (
                     <option key={s} value={s}>{s.replace('_', ' ').toUpperCase()}</option>
@@ -911,6 +1153,7 @@ const ReservationsPanel = () => {
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const RESERVATION_TIMES = ['11:00 AM','11:30 AM','12:00 PM','12:30 PM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','7:00 PM','7:30 PM','8:00 PM','8:30 PM','9:00 PM','9:30 PM'];
   const [form, setForm] = useState({ guest_name: '', guest_phone: '', party_size: 2, date: '', time: '', notes: '', table_number: '' });
   const [msg, setMsg] = useState({ text: '', type: '' });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
@@ -947,9 +1190,32 @@ const ReservationsPanel = () => {
     } catch (err) { flash(err.message, 'error'); }
   };
 
+  const [confirmingId,   setConfirmingId]   = useState(null);
+  const [quotationMsg,   setQuotationMsg]   = useState('');
+  const [tableAssign,    setTableAssign]    = useState('');
+
   const updateStatus = async (id, status) => {
-    try { await reservationsAPI.patch(id, { status }); load(); }
+    try { await reservationsAPI.patch(id, { status }); flash(`Status changed to ${status}`); load(); }
     catch (err) { flash(err.message, 'error'); }
+  };
+
+  const handleConfirmReservation = async (id) => {
+    try {
+      const body = {};
+      if (quotationMsg.trim()) body.quotation_message = quotationMsg.trim();
+      if (tableAssign.trim())  body.table_assigned    = tableAssign.trim();
+      await reservationsAPI.confirm(id, body);
+      flash('Reservation confirmed — email sent to customer!');
+      setConfirmingId(null); setQuotationMsg(''); setTableAssign('');
+      load();
+    } catch (err) {
+      const msg = err?.message || '';
+      if (msg.includes('403') || msg.toLowerCase().includes('not authorized') || msg.toLowerCase().includes('forbidden')) {
+        flash('Permission denied. Only Owner or Manager can confirm reservations.', 'error');
+      } else {
+        flash(msg || 'Failed to confirm reservation. Please try again.', 'error');
+      }
+    }
   };
 
   const statusColor = { confirmed: 'text-green-400', pending: 'text-yellow-400', cancelled: 'text-red-400', completed: 'text-text-muted' };
@@ -973,27 +1239,63 @@ const ReservationsPanel = () => {
             className="bg-secondary/40 rounded-3xl border border-primary/30 p-8">
             <h3 className="text-lg font-bold mb-6 text-white">New Reservation</h3>
             <form onSubmit={handleSubmit} className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[
-                { label: 'Guest Name', field: 'guest_name', type: 'text' },
-                { label: 'Phone', field: 'guest_phone', type: 'tel' },
-                { label: 'Party Size', field: 'party_size', type: 'number' },
-                { label: 'Date', field: 'date', type: 'date' },
-                { label: 'Time', field: 'time', type: 'time' },
-                { label: 'Table #', field: 'table_number', type: 'text' },
-              ].map(({ label, field, type }) => (
-                <div key={field}>
-                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">{label}</label>
-                  <input type={type} required value={form[field]} onChange={sf(field)}
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
-                </div>
-              ))}
-              <div className="md:col-span-full">
-                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Notes</label>
-                <textarea value={form.notes} onChange={sf('notes')} rows={2}
+              {/* Guest Name */}
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Guest Name *</label>
+                <input required value={form.guest_name} onChange={sf('guest_name')} placeholder="Full name"
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
+              {/* Email */}
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Email</label>
+                <input type="email" value={form.email || ''} onChange={sf('email')} placeholder="customer@email.com"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+              </div>
+              {/* Phone */}
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Phone</label>
+                <input type="tel" value={form.guest_phone} onChange={sf('guest_phone')} placeholder="+91 98765 43210"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+              </div>
+              {/* Date */}
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Date *</label>
+                <input type="date" required value={form.date} onChange={sf('date')}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+              </div>
+              {/* Time dropdown */}
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Time *</label>
+                <select required value={form.time} onChange={sf('time')}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm">
+                  <option value="">Select time</option>
+                  {RESERVATION_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              {/* Guests dropdown */}
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Guests *</label>
+                <select required value={form.party_size} onChange={sf('party_size')}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm">
+                  {[1,2,3,4,5,6,7,8,9,10,12,15,20].map(n => <option key={n} value={n}>{n} {n === 1 ? 'Guest' : 'Guests'}</option>)}
+                </select>
+              </div>
+              {/* Table # */}
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Table # (optional)</label>
+                <input value={form.table_number} onChange={sf('table_number')} placeholder="e.g. 3 or VIP 1"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+              </div>
+              {/* Notes */}
+              <div className="md:col-span-2">
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Special Requests</label>
+                <textarea value={form.notes} onChange={sf('notes')} rows={2}
+                  placeholder="Dietary preferences, occasion, seating preference..."
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
+              </div>
               <div className="md:col-span-full flex gap-3">
-                <button type="submit" className="px-8 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover">Save</button>
+                <button type="submit" className="px-8 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover">Save Reservation</button>
                 <button type="button" onClick={() => setShowForm(false)} className="px-8 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/5">Cancel</button>
               </div>
             </form>
@@ -1004,26 +1306,58 @@ const ReservationsPanel = () => {
         <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
           <div className="divide-y divide-white/5">
             {reservations.map(r => (
-              <div key={r._id} className="flex items-center px-6 py-4 hover:bg-white/3 group">
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-white">{r.customer_name}</p>
-                  <p className="text-xs text-text-muted">{r.phone} · {r.guests} guests · Table {r.table_assigned || '—'}</p>
+              <React.Fragment key={r._id}>
+                <div className="border-b border-white/5 flex items-center px-6 py-4 hover:bg-white/3 group">
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-white">{r.customer_name}</p>
+                    <p className="text-xs text-text-muted">{r.phone} · {r.guests} guests · Table {r.table_assigned || '—'}</p>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-text-muted">
+                    <span>{r.date ? new Date(r.date).toLocaleDateString() : '—'} {r.time}</span>
+                    <span className={`font-bold uppercase ${statusColor[r.status] || ''}`}>{r.status}</span>
+                  </div>
+                  <div className="flex items-center gap-2 ml-4 opacity-0 group-hover:opacity-100 transition-all">
+                    {r.status === 'pending' && (
+                      <button onClick={() => setConfirmingId(confirmingId === r._id ? null : r._id)}
+                        className="px-3 py-1.5 bg-green-500/20 text-green-400 text-[10px] font-black rounded-lg hover:bg-green-500 hover:text-white transition-all">
+                        ✉ Confirm & Email
+                      </button>
+                    )}
+                    {r.status !== 'cancelled' && (
+                      <button onClick={() => updateStatus(r._id, 'cancelled')}
+                        className="px-3 py-1.5 bg-red-500/10 text-red-400 text-[10px] font-black rounded-lg hover:bg-red-500 hover:text-white transition-all">Cancel</button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-xs text-text-muted">
-                  <span>{r.date ? new Date(r.date).toLocaleDateString() : '—'} {r.time}</span>
-                  <span className={`font-bold uppercase ${statusColor[r.status] || ''}`}>{r.status}</span>
-                </div>
-                <div className="flex items-center gap-2 ml-4 opacity-0 group-hover:opacity-100 transition-all">
-                  {r.status === 'pending' && (
-                    <button onClick={() => updateStatus(r._id, 'confirmed')}
-                      className="px-3 py-1.5 bg-green-500/20 text-green-400 text-[10px] font-black rounded-lg hover:bg-green-500 hover:text-white transition-all">Confirm</button>
-                  )}
-                  {r.status !== 'cancelled' && (
-                    <button onClick={() => updateStatus(r._id, 'cancelled')}
-                      className="px-3 py-1.5 bg-red-500/10 text-red-400 text-[10px] font-black rounded-lg hover:bg-red-500 hover:text-white transition-all">Cancel</button>
-                  )}
-                </div>
-              </div>
+                {confirmingId === r._id && (
+                  <div className="border-b border-primary/20 bg-primary/5 px-6 py-4 space-y-3">
+                    <p className="text-xs font-black uppercase tracking-widest text-primary">✉ Confirm Reservation & Send Email to Customer</p>
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Assign Table</label>
+                        <input value={tableAssign} onChange={e => setTableAssign(e.target.value)} placeholder="e.g. Table 3 or VIP Table 7"
+                          className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Message to Customer (optional)</label>
+                        <textarea value={quotationMsg} onChange={e => setQuotationMsg(e.target.value)} rows={2}
+                          placeholder="Add a personal note for the customer's confirmation email…"
+                          className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleConfirmReservation(r._id)}
+                        className="px-5 py-2 bg-green-500 text-white text-xs font-black rounded-xl hover:bg-green-600 transition-all">
+                        ✓ Confirm & Send Email
+                      </button>
+                      <button onClick={() => { setConfirmingId(null); setQuotationMsg(''); setTableAssign(''); }}
+                        className="px-5 py-2 border border-white/20 text-text-muted text-xs font-black rounded-xl hover:bg-white/5 transition-all">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
             ))}
             {reservations.length === 0 && (
               <div className="py-20 text-center text-text-muted">
@@ -1546,20 +1880,18 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
-      {/* Personal check-in/out */}
-      <div className={`p-6 rounded-2xl border ${activeShift ? 'bg-green-500/10 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-white">{activeShift ? 'Currently on shift' : 'Not checked in'}</p>
-            {activeShift && <p className="text-xs text-green-400 mt-1">Started: {new Date(activeShift.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
-          </div>
-          {activeShift ? (
+      {/* Personal shift status — Check In button removed, only Check Out when active */}
+      {activeShift && (
+        <div className="p-6 rounded-2xl border bg-green-500/10 border-green-500/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-white">Currently on shift</p>
+              <p className="text-xs text-green-400 mt-1">Started: {new Date(activeShift.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+            </div>
             <button onClick={handleCheckOut} className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">Check Out</button>
-          ) : (
-            <button onClick={handleCheckIn} className="px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">Check In</button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Analytics cards */}
       <div className="grid grid-cols-3 gap-4">
@@ -1862,7 +2194,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                         { label: 'Date of Birth', field: 'dob', type: 'date' },
                         { label: 'Joining Date', field: 'joining_date', type: 'date' },
                         { label: 'City', field: 'city', type: 'text' },
-                        { label: 'Salary (USD)', field: 'salary', type: 'number' },
+                        { label: 'Salary ($)', field: 'salary', type: 'number' },
                       ].map(({ label, field, type }) => (
                         <div key={field}>
                           <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{label}</label>
@@ -2056,10 +2388,12 @@ const LeaveModule = ({ user }) => {
             {isStaff ? 'Apply and track your leave requests' : 'Manage and approve leave applications'}
           </p>
         </div>
-        <button onClick={() => setShowForm(s => !s)}
-          className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
-          <Plus size={14} /> Apply Leave
-        </button>
+        {!isOwner && (
+          <button onClick={() => setShowForm(s => !s)}
+            className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+            <Plus size={14} /> Apply Leave
+          </button>
+        )}
       </div>
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
@@ -2205,8 +2539,10 @@ const CateringPanel = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState({ text: '', type: '' });
-  const [selected, setSelected] = useState(null);
-  const [priceForm, setPriceForm] = useState('');
+  const [selected,       setSelected]       = useState(null);
+  const [priceForm,      setPriceForm]      = useState('');
+  const [quotationMsg,   setQuotationMsg]   = useState('');
+  const [sendingQuote,   setSendingQuote]   = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2220,21 +2556,26 @@ const CateringPanel = () => {
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
 
   const updateStatus = async (id, status) => {
+    try { await cateringAPI.update(id, { status }); flash(`Status updated to ${status}`); load(); }
+    catch (err) { flash(err.message, 'error'); }
+  };
+
+  const handleSendQuotation = async (id) => {
+    const price = parseFloat(priceForm);
+    if (!price || price <= 0) { flash('Enter a valid price', 'error'); return; }
+    setSendingQuote(true);
     try {
-      await cateringAPI.update(id, { status });
-      flash(`Status updated to ${status}`);
+      await cateringAPI.sendQuotation(id, { total_price: price, quotation_message: quotationMsg, status: 'confirmed' });
+      flash('Quotation sent to customer email!');
+      setPriceForm(''); setQuotationMsg(''); setSelected(null);
       load();
-    } catch (err) { flash(err.message, 'error'); }
+    } catch (err) { flash(err.message || 'Failed to send quotation', 'error'); }
+    finally { setSendingQuote(false); }
   };
 
   const setPrice = async (id) => {
-    try {
-      await cateringAPI.update(id, { total_price: parseFloat(priceForm) });
-      flash('Price set!');
-      setPriceForm('');
-      setSelected(null);
-      load();
-    } catch (err) { flash(err.message, 'error'); }
+    try { await cateringAPI.update(id, { total_price: parseFloat(priceForm) }); flash('Price set!'); setPriceForm(''); setSelected(null); load(); }
+    catch (err) { flash(err.message, 'error'); }
   };
 
   const deleteOrder = async (id) => {
@@ -2257,7 +2598,7 @@ const CateringPanel = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><Utensils size={28} className="text-primary" />Catering Orders</h2>
-          <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ${totalRevenue.toLocaleString()} confirmed revenue</p>
+          <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ₹{totalRevenue.toLocaleString()} confirmed revenue</p>
         </div>
       </div>
 
@@ -2292,9 +2633,9 @@ const CateringPanel = () => {
                     <div><span className="text-[9px] uppercase font-bold block mb-0.5">Event Type</span><span className="text-white font-bold">{o.event_type || '—'}</span></div>
                     <div><span className="text-[9px] uppercase font-bold block mb-0.5">Event Date</span><span className="text-white font-bold">{o.event_date ? new Date(o.event_date).toLocaleDateString() : '—'}</span></div>
                     <div><span className="text-[9px] uppercase font-bold block mb-0.5">Guests</span><span className="text-white font-bold">{o.guest_count}</span></div>
-                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Price</span><span className="text-primary font-black">{o.total_price ? `$${o.total_price.toLocaleString()}` : 'Quote pending'}</span></div>
+                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Price</span><span className="text-primary font-black">{o.total_price ? `${o.total_price.toFixed(0)}` : 'Quote pending'}</span></div>
                     {o.quote_value > 0 && (
-                      <div><span className="text-[9px] uppercase font-bold block mb-0.5">Customer Est.</span><span className="text-yellow-400 font-black">${o.quote_value.toLocaleString()}</span></div>
+                      <div><span className="text-[9px] uppercase font-bold block mb-0.5">Customer Est.</span><span className="text-yellow-400 font-black">₹{o.quote_value.toLocaleString()}</span></div>
                     )}
                   </div>
                   {o.email && <p className="text-xs text-text-muted mt-2">{o.email} {o.phone && `· ${o.phone}`}</p>}
@@ -2322,7 +2663,7 @@ const CateringPanel = () => {
                   )}
                   <button onClick={() => setSelected(selected === o._id ? null : o._id)}
                     className="px-3 py-1.5 bg-primary/20 text-primary text-[10px] font-black rounded-lg hover:bg-primary hover:text-white transition-all">
-                    Set Price
+                    ✉ Send Quotation
                   </button>
                   <button onClick={() => deleteOrder(o._id)}
                     className="px-3 py-1.5 bg-white/5 text-text-muted text-[10px] font-black rounded-lg hover:bg-red-500/20 hover:text-red-400 transition-all">
@@ -2331,11 +2672,29 @@ const CateringPanel = () => {
                 </div>
               </div>
               {selected === o._id && (
-                <div className="px-5 pb-4 flex gap-3 border-t border-white/5 pt-4">
-                  <input type="number" value={priceForm} onChange={e => setPriceForm(e.target.value)}
-                    placeholder="Enter price (USD)" className="flex-1 bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
-                  <button onClick={() => setPrice(o._id)} className="px-5 py-2 bg-primary text-white rounded-xl text-xs font-black">Save</button>
-                  <button onClick={() => setSelected(null)} className="px-4 py-2 border border-white/20 rounded-xl text-xs font-black text-text-muted">Cancel</button>
+                <div className="px-5 pb-5 border-t border-primary/20 pt-4 bg-primary/5 space-y-3">
+                  <p className="text-xs font-black uppercase tracking-widest text-primary">✉ Send Quotation to Customer</p>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Total Price (₹) *</label>
+                      <input type="number" value={priceForm} onChange={e => setPriceForm(e.target.value)}
+                        placeholder="e.g. 25000" className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Personal Message (optional)</label>
+                      <textarea value={quotationMsg} onChange={e => setQuotationMsg(e.target.value)} rows={2}
+                        placeholder="Add a warm note for the customer…"
+                        className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleSendQuotation(o._id)} disabled={sendingQuote}
+                      className="px-5 py-2 bg-primary text-white text-xs font-black rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-all">
+                      {sendingQuote ? 'Sending…' : '✓ Send Quotation Email'}
+                    </button>
+                    <button onClick={() => { setSelected(null); setPriceForm(''); setQuotationMsg(''); }}
+                      className="px-4 py-2 border border-white/20 text-text-muted text-xs font-black rounded-xl hover:bg-white/5 transition-all">Cancel</button>
+                  </div>
                 </div>
               )}
             </div>
@@ -2779,7 +3138,7 @@ const WasteManagement = ({ ingredients }) => {
               <tbody>
                 {entries.slice(0, 20).map(e => (
                   <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
-                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short' })}</td>
+                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}</td>
                     <td className="p-3 text-white font-bold">{e.ingredient_name}</td>
                     <td className="p-3 text-white">{e.quantity} {e.unit}</td>
                     <td className="p-3"><span className="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-300 capitalize">{e.reason.replace('_',' ')}</span></td>
@@ -3052,7 +3411,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
 };
 
 // ─── ORDER BOOKING (live orders panel + POS) ─────────────────────────────────
-const OrderBookingPanel = ({ orders, user, updateOrderStatus, deleteOrder }) => {
+const OrderBookingPanel = ({ orders, user, updateOrderStatus, deleteOrder, captainTableNumbers }) => {
   const [filterStatus, setFilterStatus] = useState('all');
   const filtered = filterStatus === 'all' ? orders : orders.filter(o => o.status === filterStatus);
 
@@ -3073,7 +3432,7 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, deleteOrder }) => 
         </div>
       </div>
       <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
-        <OrderTable orders={filtered} user={user} onStatusUpdate={updateOrderStatus} onDelete={deleteOrder} statusColors={STATUS_COLORS} />
+        <OrderTable orders={filtered} user={user} onStatusUpdate={updateOrderStatus} onDelete={deleteOrder} statusColors={STATUS_COLORS} captainTableNumbers={captainTableNumbers} />
       </div>
     </div>
   );
@@ -3282,7 +3641,7 @@ const FinanceCenter = ({ orders }) => {
     const next = new Date(d); next.setDate(next.getDate() + 1);
     const rev = orders.filter(o => o.status === 'paid' && new Date(o.created_at || o.timestamp) >= d && new Date(o.created_at || o.timestamp) < next)
       .reduce((s, o) => s + (o.total || 0), 0);
-    return { day: d.toLocaleDateString('en-US', { weekday: 'short' }), rev };
+    return { day: d.toLocaleDateString(undefined, { weekday: 'short' }), rev };
   });
   const maxRev = Math.max(...last7.map(d => d.rev), 1);
 
@@ -3539,7 +3898,7 @@ const FinanceCenter = ({ orders }) => {
               <tbody>
                 {filteredBudget.map(e => (
                   <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
-                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                     <td className="p-3 text-white font-bold">{e.label}</td>
                     <td className="p-3">
                       <span className={`text-[10px] px-2 py-1 rounded-full font-black uppercase ${e.type === 'expense' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{e.type}</span>
@@ -3561,6 +3920,107 @@ const FinanceCenter = ({ orders }) => {
           </div>
         )}
       </div>
+
+      {/* Break-Even Analysis Chart */}
+      {(() => {
+        const fixedCosts = totalExpenses + wasteLoss;
+        const variableCostRate = revenue > 0 ? (totalExpenses * 0.3) / Math.max(paidOrders.length, 1) : 0;
+        const avgPrice = avgOrderValue;
+        const contributionMargin = avgPrice - variableCostRate;
+        const breakevenUnits = contributionMargin > 0 ? Math.ceil(fixedCosts / contributionMargin) : 0;
+        const breakevenRevenue = breakevenUnits * avgPrice;
+        const achieved = revenue >= breakevenRevenue;
+        const progressPct = breakevenRevenue > 0 ? Math.min(100, (revenue / breakevenRevenue) * 100) : 100;
+
+        // Chart points: revenue line vs fixed cost line
+        const chartPoints = Array.from({ length: 11 }, (_, i) => {
+          const units = i * Math.max(breakevenUnits * 1.5, paidOrders.length * 1.5) / 10;
+          return {
+            units: Math.round(units),
+            revenueVal: units * avgPrice,
+            costVal: fixedCosts + units * variableCostRate,
+          };
+        });
+        const maxVal = Math.max(...chartPoints.map(p => Math.max(p.revenueVal, p.costVal)), 1);
+        const chartH = 160;
+        const chartW = 100; // percent units for SVG viewBox
+
+        return (
+          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <div>
+                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                  <BarChart2 size={18} className="text-primary" />Break-Even Analysis
+                </h4>
+                <p className="text-xs text-text-muted mt-0.5">Based on current revenue, expenses &amp; order data</p>
+              </div>
+              <span className={`px-4 py-2 rounded-xl text-xs font-black uppercase border ${achieved ? 'bg-green-500/20 border-green-500/40 text-green-400' : 'bg-yellow-500/20 border-yellow-500/40 text-yellow-400'}`}>
+                {achieved ? '✅ Break-Even Achieved' : `⚠ ${breakevenUnits - paidOrders.length} orders to break-even`}
+              </span>
+            </div>
+
+            {/* Progress bar */}
+            <div className="mb-5">
+              <div className="flex justify-between text-[10px] text-text-muted font-bold mb-1">
+                <span>Revenue Progress to Break-Even</span>
+                <span>{progressPct.toFixed(0)}%</span>
+              </div>
+              <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-700 ${achieved ? 'bg-green-500' : 'bg-primary'}`}
+                  style={{ width: `${progressPct}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
+                <span>${revenue.toFixed(0)} earned</span>
+                <span>Target: ${breakevenRevenue.toFixed(0)}</span>
+              </div>
+            </div>
+
+            {/* SVG Line Chart */}
+            <div className="relative" style={{ height: chartH + 30 }}>
+              <svg viewBox={`0 0 100 ${chartH}`} preserveAspectRatio="none" className="w-full" style={{ height: chartH }}>
+                {/* Grid lines */}
+                {[0.25, 0.5, 0.75, 1].map(f => (
+                  <line key={f} x1="0" y1={chartH * (1 - f)} x2="100" y2={chartH * (1 - f)}
+                    stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
+                ))}
+                {/* Revenue line (green) */}
+                <polyline
+                  points={chartPoints.map((p, i) => `${(i / 10) * 100},${chartH - (p.revenueVal / maxVal) * chartH}`).join(' ')}
+                  fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinejoin="round" />
+                {/* Cost line (red) */}
+                <polyline
+                  points={chartPoints.map((p, i) => `${(i / 10) * 100},${chartH - (p.costVal / maxVal) * chartH}`).join(' ')}
+                  fill="none" stroke="#ef4444" strokeWidth="1.5" strokeLinejoin="round" strokeDasharray="3,2" />
+                {/* Break-even vertical line */}
+                {breakevenUnits > 0 && (() => {
+                  const beX = Math.min(100, (breakevenUnits / (chartPoints[10]?.units || 1)) * 100);
+                  return <line x1={beX} y1="0" x2={beX} y2={chartH} stroke="#e8890c" strokeWidth="1" strokeDasharray="2,2" />;
+                })()}
+              </svg>
+              {/* Legend */}
+              <div className="flex items-center gap-4 mt-2 text-[10px] font-bold">
+                <div className="flex items-center gap-1.5"><div className="w-4 h-0.5 bg-green-500" />Revenue</div>
+                <div className="flex items-center gap-1.5"><div className="w-4 h-0.5 bg-red-500" style={{ borderTop: '1px dashed' }} />Total Cost</div>
+                <div className="flex items-center gap-1.5"><div className="w-0.5 h-3 bg-primary" />Break-Even</div>
+              </div>
+            </div>
+
+            {/* KPI row */}
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              {[
+                { label: 'Fixed Costs', val: `$${fixedCosts.toFixed(0)}`, color: 'text-red-400' },
+                { label: 'Break-Even Orders', val: breakevenUnits, color: 'text-primary' },
+                { label: 'Break-Even Revenue', val: `$${breakevenRevenue.toFixed(0)}`, color: 'text-yellow-400' },
+              ].map(({ label, val, color }) => (
+                <div key={label} className="bg-white/5 rounded-xl p-3 text-center border border-white/5">
+                  <p className={`text-xl font-black ${color}`}>{val}</p>
+                  <p className="text-[9px] text-text-muted uppercase tracking-widest mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Revenue from Paid Orders */}
       <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
@@ -3919,7 +4379,7 @@ const RidersPanel = ({ currentUserRole }) => {
               <div className="grid grid-cols-3 gap-3 p-6 border-b border-white/10">
                 {[
                   { label: 'Total', value: riderDels.filter(d => d.status === 'delivered').length, color: 'text-primary' },
-                  { label: 'Earned', value: `$${riderDels.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 5), 0)}`, color: 'text-green-400' },
+                  { label: 'Earned', value: `$${riderDels.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 40), 0)}`, color: 'text-green-400' },
                   { label: 'Phone', value: activeRider.phone || '—', color: 'text-text-muted' },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="bg-white/5 rounded-xl p-3 text-center">
@@ -3947,11 +4407,11 @@ const RidersPanel = ({ currentUserRole }) => {
                         <div className="min-w-0 flex-1 mr-3">
                           <p className="text-sm font-bold text-white truncate">{d.order_id?.order_number || `BOX-${(d._id || '').slice(-5).toUpperCase()}`}</p>
                           <p className="text-[10px] text-text-muted truncate">{d.delivery_address}</p>
-                          {d.delivered_at && <p className="text-[10px] text-text-muted">{new Date(d.delivered_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
+                          {d.delivered_at && <p className="text-[10px] text-text-muted">{new Date(d.delivered_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
                         </div>
                         <div className="text-right shrink-0">
                           <p className={`text-sm font-black ${d.status === 'delivered' ? 'text-green-400' : 'text-text-muted'}`}>
-                            {d.status === 'delivered' ? `+$${d.delivery_fee || 5}` : d.status}
+                            {d.status === 'delivered' ? `+$${d.delivery_fee || 40}` : d.status}
                           </p>
                         </div>
                       </div>
@@ -3972,11 +4432,12 @@ const RidersPanel = ({ currentUserRole }) => {
 //  STAFF PROFILE VIEW — Full page shown when clicking any staff member
 // ════════════════════════════════════════════════════════════════════════════
 const StaffProfileView = ({ staffUser, onBack }) => {
-  const [allShifts, setAllShifts] = useState([]);
-  const [leaves,    setLeaves]    = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [period,    setPeriod]    = useState('monthly');
+  const [allShifts,   setAllShifts]   = useState([]);
+  const [leaves,      setLeaves]      = useState([]);
+  const [staffOrders, setStaffOrders] = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [activeTab,   setActiveTab]   = useState('overview');
+  const [period,      setPeriod]      = useState('monthly');
 
   const formatDuration = (mins) => {
     if (!mins) return '\u2014';
@@ -3989,13 +4450,30 @@ const StaffProfileView = ({ staffUser, onBack }) => {
     const load = async () => {
       setLoading(true);
       try {
-        const [shiftsRes, leavesRes] = await Promise.all([
+        const [shiftsRes, leavesRes, ordersRes] = await Promise.all([
           shiftsAPI.getAll(`?user_id=${staffUser._id}`),   // ← fixed: user_id not userId; no period so all shifts returned
           leavesAPI.getAll(),
+          ordersAPI.getAll(`?captain_id=${staffUser._id}&chef_id=${staffUser._id}`).catch(() =>
+            ordersAPI.getAll(`?captain_id=${staffUser._id}`).catch(() => ({ data: [] }))
+          ),
         ]);
         setAllShifts(shiftsRes.data || []);
         const all = leavesRes.data || [];
         setLeaves(all.filter(l => String(l.user_id?._id || l.user_id) === String(staffUser._id)));
+        // fetch orders where this staff is captain OR chef
+        const [capRes, chefRes] = await Promise.allSettled([
+          ordersAPI.getAll(`?captain_id=${staffUser._id}`),
+          ordersAPI.getAll(`?chef_id=${staffUser._id}`),
+        ]);
+        const capOrders  = capRes.status  === 'fulfilled' ? (capRes.value.data  || []) : [];
+        const chefOrders = chefRes.status === 'fulfilled' ? (chefRes.value.data || []) : [];
+        // merge unique
+        const seen = new Set();
+        const merged = [...capOrders, ...chefOrders].filter(o => {
+          if (seen.has(o._id)) return false;
+          seen.add(o._id); return true;
+        });
+        setStaffOrders(merged.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
       } catch { }
       finally { setLoading(false); }
     };
@@ -4048,9 +4526,9 @@ const StaffProfileView = ({ staffUser, onBack }) => {
         const ds = allShifts.filter(s => s.check_in && new Date(s.check_in) >= d && new Date(s.check_in) < next);
         const hours = ds.reduce((a, s) => a + shiftMinutes(s), 0) / 60;
         return {
-          label: d.toLocaleDateString('en-US', { weekday: 'short' }),
+          label: d.toLocaleDateString(undefined, { weekday: 'short' }),
           hours,
-          tip: `${d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h (${ds.length} shifts)`,
+          tip: `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h (${ds.length} shifts)`,
         };
       });
     }
@@ -4065,7 +4543,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
         return {
           label: String(i + 1),
           hours,
-          tip: `${d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h`,
+          tip: `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}: ${hours.toFixed(1)}h`,
         };
       });
     }
@@ -4078,7 +4556,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
         return sd.getMonth() === d.getMonth() && sd.getFullYear() === d.getFullYear();
       });
       const hours = ms.reduce((a, s) => a + shiftMinutes(s), 0) / 60;
-      const lbl = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      const lbl = d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
       return {
         label: lbl, hours,
         tip: `${lbl}: ${hours.toFixed(1)}h · ${new Set(ms.map(s => new Date(s.check_in).toDateString())).size}d · ${ms.length} shifts`,
@@ -4129,7 +4607,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
               {staffUser.email        && <span className="flex items-center gap-1.5"><Mail size={11} className="text-primary" />{staffUser.email}</span>}
               {staffUser.phone        && <span className="flex items-center gap-1.5"><Phone size={11} className="text-primary" />{staffUser.phone}</span>}
               {staffUser.city         && <span className="flex items-center gap-1.5"><MapPin size={11} className="text-primary" />{staffUser.city}</span>}
-              {staffUser.joining_date && <span className="flex items-center gap-1.5"><Calendar size={11} className="text-primary" />Joined {new Date(staffUser.joining_date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
+              {staffUser.joining_date && <span className="flex items-center gap-1.5"><Calendar size={11} className="text-primary" />Joined {new Date(staffUser.joining_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
               {staffUser.salary       && <span className="flex items-center gap-1.5"><DollarSign size={11} className="text-primary" />\u20b9{Number(staffUser.salary).toLocaleString()}/mo</span>}
             </div>
           </div>
@@ -4155,7 +4633,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
               ))}
             </div>
             <div className="flex gap-1.5 bg-white/5 p-1.5 rounded-xl border border-white/5">
-              {[{ id:'overview',label:'Overview' },{ id:'shifts',label:'Shifts' },{ id:'leaves',label:'Leaves' }].map(t => (
+              {[{ id:'overview',label:'Overview' },{ id:'shifts',label:'Shifts' },{ id:'leaves',label:'Leaves' },{ id:'orders',label:'Order History' }].map(t => (
                 <button key={t.id} onClick={() => setActiveTab(t.id)}
                   className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === t.id ? 'bg-white/10 text-white' : 'text-text-muted hover:text-white'}`}>
                   {t.label}
@@ -4299,7 +4777,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
                     return (
                       <div key={s._id} className="flex items-center px-6 py-3.5 hover:bg-white/3 transition-all">
                         <div className="w-[20%] text-sm text-white font-bold">{s.date}</div>
-                        <div className="w-[10%] text-[10px] text-text-muted font-bold">{ci?ci.toLocaleDateString('en-US',{weekday:'short'}):'—'}</div>
+                        <div className="w-[10%] text-[10px] text-text-muted font-bold">{ci?ci.toLocaleDateString('en-IN',{weekday:'short'}):'—'}</div>
                         <div className="w-[22%] text-sm text-white/80 font-mono">{ci?ci.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—'}</div>
                         <div className="w-[22%] text-sm text-white/80 font-mono">{co?co.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):<span className="text-green-400 animate-pulse text-xs font-bold">Active</span>}</div>
                         <div className="w-[16%] text-sm font-black text-primary">{formatDuration(realMins)}</div>
@@ -4335,7 +4813,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
                         <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${leaveStatusColors[l.status]}`}>{l.status}</span>
                       </div>
                       <p className="text-xs text-text-muted">
-                        {new Date(l.from_date).toLocaleDateString('en-US',{day:'numeric',month:'short',year:'numeric'})} to {new Date(l.to_date).toLocaleDateString('en-US',{day:'numeric',month:'short',year:'numeric'})}
+                        {new Date(l.from_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})} to {new Date(l.to_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
                         <span className="ml-2 text-primary font-bold">({l.days} day{l.days!==1?'s':''})</span>
                       </p>
                     </div>
@@ -4356,7 +4834,241 @@ const StaffProfileView = ({ staffUser, onBack }) => {
               ))}
             </div>
           )}
+
+          {/* ORDERS TAB */}
+          {activeTab === 'orders' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                  <ClipboardList size={16} className="text-primary" /> Order History
+                </h3>
+                <span className="text-[10px] text-text-muted font-bold bg-white/5 px-3 py-1.5 rounded-lg">{staffOrders.length} total orders</span>
+              </div>
+              {staffOrders.length === 0 ? (
+                <div className="py-20 text-center text-text-muted bg-secondary/40 rounded-3xl border border-white/5">
+                  <ClipboardList size={40} className="mx-auto mb-3 opacity-20" />
+                  <p className="font-bold text-sm uppercase tracking-widest">No orders found for this staff</p>
+                </div>
+              ) : (
+                <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
+                  <div className="flex px-6 py-3 bg-white/5 text-[10px] font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
+                    <div className="w-[14%]">Order #</div>
+                    <div className="w-[18%]">Date</div>
+                    <div className="w-[13%]">Type</div>
+                    <div className="w-[12%]">Table</div>
+                    <div className="w-[13%]">Total</div>
+                    <div className="w-[15%]">Role</div>
+                    <div className="w-[15%]">Status</div>
+                  </div>
+                  <div className="divide-y divide-white/5 max-h-[520px] overflow-y-auto">
+                    {staffOrders.map(o => {
+                      const isChef    = String(o.chef_id?._id    || o.chef_id)    === String(staffUser._id);
+                      const isCaptain = String(o.captain_id?._id || o.captain_id) === String(staffUser._id);
+                      const roleLabel = isChef && isCaptain ? 'Chef+Cap' : isChef ? 'Chef' : 'Captain';
+                      return (
+                        <div key={o._id} className="flex items-center px-6 py-3.5 hover:bg-white/3 transition-all">
+                          <div className="w-[14%] text-sm font-black text-primary">#{o.order_number}</div>
+                          <div className="w-[18%] text-xs text-white/60">{new Date(o.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'})}</div>
+                          <div className="w-[13%]">
+                            <span className="text-[9px] font-bold px-2 py-1 rounded-lg bg-white/5 text-white/50 uppercase">{(o.order_type||'dine-in').replace('_','-')}</span>
+                          </div>
+                          <div className="w-[12%] text-sm text-white/60">{o.table_number || '—'}</div>
+                          <div className="w-[13%] text-sm font-black text-white">₹{o.total}</div>
+                          <div className="w-[15%]">
+                            <span className="text-[9px] font-bold px-2 py-1 rounded-lg bg-primary/10 text-primary uppercase">{roleLabel}</span>
+                          </div>
+                          <div className="w-[15%]">
+                            <span className={`text-[9px] font-bold px-2 py-1 rounded-lg uppercase border ${STATUS_COLORS[o.status] || 'bg-white/5 text-white/40 border-white/10'}`}>{STATUS_LABELS[o.status] || o.status}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="px-6 py-3 bg-white/3 border-t border-white/5 flex justify-between text-xs font-bold text-text-muted">
+                    <span>{staffOrders.length} orders total</span>
+                    <span className="text-primary">₹{staffOrders.reduce((s,o) => s+(o.total||0),0).toFixed(2)} handled</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </>
+      )}
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  CUSTOMERS PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const CustomersPanel = () => {
+  const [customers,   setCustomers]   = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [search,      setSearch]      = useState('');
+  const [selected,    setSelected]    = useState(null);
+  const [custOrders,  setCustOrders]  = useState([]);
+  const [ordLoading,  setOrdLoading]  = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    usersAPI.getCustomers()
+      .then(r => setCustomers(r.data || []))
+      .catch(() => setCustomers([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const openCustomer = async (c) => {
+    setSelected(c);
+    setOrdLoading(true);
+    try {
+      const r = await ordersAPI.getAll(`?customer_id=${c._id}`);
+      setCustOrders(r.data || []);
+    } catch { setCustOrders([]); }
+    setOrdLoading(false);
+  };
+
+  const filtered = customers.filter(c =>
+    !search || c.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c.email?.toLowerCase().includes(search.toLowerCase()) ||
+    c.phone?.includes(search)
+  );
+
+  if (selected) {
+    const totalSpent = custOrders.filter(o => o.status === 'paid').reduce((s,o) => s+(o.total||0), 0);
+    return (
+      <div className="space-y-6">
+        <button onClick={() => setSelected(null)}
+          className="flex items-center gap-2 text-text-muted hover:text-primary transition-colors text-xs font-black uppercase tracking-widest group">
+          <ChevronRight size={14} className="rotate-180 group-hover:-translate-x-0.5 transition-transform" /> Back to Customers
+        </button>
+
+        {/* Customer header */}
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8 flex items-center gap-8 flex-wrap">
+          <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-primary/40 shrink-0">
+            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selected.name || selected._id}`} alt="" className="w-full h-full" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-3xl font-black text-white">{selected.name || 'Unknown'}</h2>
+            <div className="flex gap-4 mt-2 flex-wrap text-xs text-text-muted">
+              {selected.email && <span className="flex items-center gap-1.5"><Mail size={11} className="text-primary" />{selected.email}</span>}
+              {selected.phone && <span className="flex items-center gap-1.5"><Phone size={11} className="text-primary" />{selected.phone}</span>}
+              <span className="flex items-center gap-1.5"><Calendar size={11} className="text-primary" />Joined {new Date(selected.created_at || Date.now()).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span>
+            </div>
+          </div>
+          <div className="flex gap-4 flex-wrap">
+            {[
+              { label: 'Total Orders', value: custOrders.length, color: 'text-primary' },
+              { label: 'Paid Orders', value: custOrders.filter(o=>o.status==='paid').length, color: 'text-green-400' },
+              { label: 'Total Spent', value: `₹${totalSpent.toFixed(0)}`, color: 'text-yellow-400' },
+              { label: 'Loyalty Pts', value: selected.loyalty_points || 0, color: 'text-blue-400' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-white/5 rounded-2xl px-5 py-3 text-center border border-white/5">
+                <p className={`text-xl font-black ${color}`}>{value}</p>
+                <p className="text-[9px] text-text-muted uppercase font-bold mt-1">{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Orders */}
+        <div>
+          <h3 className="text-sm font-black text-white uppercase tracking-widest mb-3 flex items-center gap-2">
+            <ClipboardList size={15} className="text-primary" /> Order History
+          </h3>
+          {ordLoading ? (
+            <div className="flex justify-center py-10"><Loader size={24} className="animate-spin text-primary" /></div>
+          ) : custOrders.length === 0 ? (
+            <div className="py-14 text-center bg-secondary/40 rounded-3xl border border-white/5 text-text-muted">
+              <ClipboardList size={36} className="mx-auto mb-3 opacity-20" />
+              <p className="font-bold text-sm uppercase">No orders yet</p>
+            </div>
+          ) : (
+            <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
+              <div className="flex px-6 py-3 bg-white/5 text-[10px] font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
+                <div className="w-[14%]">Order #</div><div className="w-[20%]">Date</div><div className="w-[15%]">Type</div>
+                <div className="w-[12%]">Table</div><div className="w-[14%]">Total</div><div className="w-[15%]">Status</div><div className="w-[10%]">Rating</div>
+              </div>
+              <div className="divide-y divide-white/5 max-h-[480px] overflow-y-auto">
+                {custOrders.map(o => (
+                  <div key={o._id} className="flex items-center px-6 py-3.5 hover:bg-white/3 transition-all">
+                    <div className="w-[14%] text-sm font-black text-primary">#{o.order_number}</div>
+                    <div className="w-[20%] text-xs text-white/60">{new Date(o.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'})}</div>
+                    <div className="w-[15%]"><span className="text-[9px] font-bold px-2 py-1 rounded-lg bg-white/5 text-white/50 uppercase">{(o.order_type||'dine-in').replace('_','-')}</span></div>
+                    <div className="w-[12%] text-sm text-white/60">{o.table_number||'—'}</div>
+                    <div className="w-[14%] text-sm font-black text-white">₹{o.total}</div>
+                    <div className="w-[15%]"><span className={`text-[9px] font-bold px-2 py-1 rounded-lg uppercase border ${STATUS_COLORS[o.status]||'bg-white/5 text-white/40 border-white/10'}`}>{STATUS_LABELS[o.status]||o.status}</span></div>
+                    <div className="w-[10%] text-sm text-yellow-400 font-bold">{o.rating ? `★ ${o.rating}` : '—'}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="px-6 py-3 bg-white/3 border-t border-white/5 flex justify-between text-xs font-bold text-text-muted">
+                <span>{custOrders.length} orders</span>
+                <span className="text-primary">₹{totalSpent.toFixed(2)} paid</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-2xl font-black text-white">All Customers</h2>
+          <p className="text-xs text-text-muted mt-1">{customers.length} registered customers</p>
+        </div>
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name, email or phone…"
+            className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/40 w-72"
+          />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="py-20 text-center bg-secondary/40 rounded-3xl border border-white/5 text-text-muted">
+          <Users size={40} className="mx-auto mb-3 opacity-20" />
+          <p className="font-bold text-sm uppercase tracking-widest">No customers found</p>
+        </div>
+      ) : (
+        <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
+          <div className="flex px-6 py-3 bg-white/5 text-[10px] font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
+            <div className="w-[30%]">Customer</div>
+            <div className="w-[25%]">Email</div>
+            <div className="w-[15%]">Phone</div>
+            <div className="w-[12%]">Orders</div>
+            <div className="w-[10%]">Points</div>
+            <div className="w-[8%]">Status</div>
+          </div>
+          <div className="divide-y divide-white/5">
+            {filtered.map(c => (
+              <div key={c._id} onClick={() => openCustomer(c)}
+                className="flex items-center px-6 py-4 hover:bg-white/5 cursor-pointer transition-all group">
+                <div className="w-[30%] flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full overflow-hidden border border-primary/20 shrink-0">
+                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${c.name||c._id}`} alt="" />
+                  </div>
+                  <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">{c.name || '—'}</p>
+                </div>
+                <div className="w-[25%] text-xs text-white/50 truncate">{c.email || '—'}</div>
+                <div className="w-[15%] text-xs text-white/50">{c.phone || '—'}</div>
+                <div className="w-[12%] text-sm font-black text-primary">{c.order_count || 0}</div>
+                <div className="w-[10%] text-sm font-bold text-yellow-400">{c.loyalty_points || 0}</div>
+                <div className="w-[8%]">
+                  <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase ${c.is_active !== false ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                    {c.is_active !== false ? 'Active' : 'Off'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -4374,12 +5086,44 @@ const Dashboard = () => {
     getFinancialMetrics,
   } = useOrders();
 
-  const defaultTab = user.role === 'chef' ? 'kitchen' : user.role === 'captain' ? 'orders' : 'overview';
+  const defaultTab = user.role === 'chef' ? 'kitchen' : user.role === 'captain' ? 'tables' : 'overview';
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [financial, setFinancial] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [unreadAnnouncements, setUnreadAnnouncements] = useState(0);
   const [profileViewUser, setProfileViewUser] = useState(null);
+  const [captainTableNumbers, setCaptainTableNumbers] = useState([]);
+  // Check-in gate for non-owner staff
+  const [checkedIn, setCheckedIn] = useState(
+    user.role === 'owner' || user.role === 'customer'
+  );
+
+  // Load check-in status for staff roles
+  useEffect(() => {
+    if (['manager','captain','chef','delivery'].includes(user.role)) {
+      shiftsAPI.getMyActive()
+        .then(r => setCheckedIn(!!(r.data)))
+        .catch(() => setCheckedIn(false));
+    }
+  }, [user.role]);
+
+  // Poll check-in status every 30s so it auto-unlocks when they check in
+  useAutoRefresh(() => {
+    if (['manager','captain','chef','delivery'].includes(user.role)) {
+      shiftsAPI.getMyActive()
+        .then(r => setCheckedIn(!!(r.data)))
+        .catch(() => {});
+    }
+  }, 15000);
+
+  // Load captain's assigned tables for zone-aware filtering
+  useEffect(() => {
+    if (user.role === 'captain') {
+      tablesAPI.getMyTables()
+        .then(res => setCaptainTableNumbers((res.data || []).map(t => t.table_number)))
+        .catch(() => setCaptainTableNumbers([]));
+    }
+  }, [user.role]);
 
   const TITLE_MAP = {
     overview: 'Command Hub', pos: 'Order Booking', orders: 'Live Orders',
@@ -4387,6 +5131,7 @@ const Dashboard = () => {
     reservations: 'Reservations', catering: 'Catering Orders', feedback: 'Feedback Box',
     announcements: 'Announcements', leaves: 'Leave Module', shifts: 'Shift Logs',
     staffmgmt: 'Staff Management', finance: 'Finance Center', riders: 'Riders Hub',
+    customers: 'Customers',
     my_orders: 'My Orders', chef_orders: 'Order History', staff: 'My Profile',
   };
 
@@ -4421,15 +5166,36 @@ const Dashboard = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-bg-main pl-64">
+    <div className="min-h-screen bg-bg-main flex">
       <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} />
-      <div className="flex-1">
+      <div className="flex-1 ml-64 flex flex-col min-h-screen overflow-hidden">
         <Header title={profileViewUser ? `${profileViewUser.name || 'Staff'} — Profile` : (TITLE_MAP[activeTab] || '')} onRefresh={handleRefresh} loading={refreshing} />
-        <main className="px-8 py-8">
-          {/* ── Global Shift Badge (top of every page) ─────────────────── */}
-          <div className="flex justify-end mb-5">
-            <ShiftCheckinBadge />
-          </div>
+        <main className="flex-1 overflow-y-auto px-8 py-6">
+          {/* ── Shift Badge — hidden for owner ───────────────────────────── */}
+          {user.role !== 'owner' && (
+            <div className="flex justify-end mb-4">
+              <ShiftCheckinBadge />
+            </div>
+          )}
+
+          {/* ── CHECK-IN GATE: staff must check in to access dashboard ──── */}
+          {['manager','captain','chef','delivery'].includes(user.role) && !checkedIn ? (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+              <div className="w-20 h-20 bg-primary/10 border border-primary/20 rounded-3xl flex items-center justify-center mb-6">
+                <Shield size={36} className="text-primary" />
+              </div>
+              <h2 className="text-3xl font-black text-white mb-3">Check In Required</h2>
+              <p className="text-text-muted text-sm max-w-md mb-8">
+                You must check in to access the dashboard. Use the <strong className="text-primary">Check In</strong> button above to start your shift.
+              </p>
+              <div className="bg-secondary/40 border border-white/10 rounded-2xl p-6 text-left max-w-sm w-full">
+                <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-2">Logged in as</p>
+                <p className="text-white font-black text-lg">{user.name}</p>
+                <p className="text-primary text-xs font-bold uppercase mt-1">{user.role}</p>
+              </div>
+            </div>
+          ) : (
+          <>
 
           {/* ── Staff Profile Full Page View ─────────────────────────────── */}
           {profileViewUser ? (
@@ -4445,15 +5211,11 @@ const Dashboard = () => {
               </MotionDiv>
             )}
 
-            {/* ORDER BOOKING */}
+            {/* ORDER BOOKING — POS only, no live orders table */}
             {activeTab === 'pos' && (
               <MotionDiv key="pos" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <div className="mb-8">
-                  <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} deleteOrder={deleteOrder} />
-                  <div className="my-8 border-t border-white/10" />
-                  <h3 className="text-lg font-black text-white mb-4 flex items-center gap-2"><Plus size={18} className="text-primary" />Place New Order</h3>
-                </div>
+                <h3 className="text-lg font-black text-white mb-4 flex items-center gap-2"><Plus size={18} className="text-primary" />Place New Order</h3>
                 <POS user={user} />
               </MotionDiv>
             )}
@@ -4462,7 +5224,7 @@ const Dashboard = () => {
             {activeTab === 'orders' && (
               <MotionDiv key="orders" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} deleteOrder={deleteOrder} />
+                <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} deleteOrder={deleteOrder} captainTableNumbers={captainTableNumbers} />
               </MotionDiv>
             )}
 
@@ -4491,7 +5253,7 @@ const Dashboard = () => {
             {activeTab === 'tables' && (
               <MotionDiv key="tables" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <TableStatus />
+                <TableStatus user={user} />
               </MotionDiv>
             )}
 
@@ -4552,6 +5314,13 @@ const Dashboard = () => {
               </MotionDiv>
             )}
 
+            {/* CUSTOMERS */}
+            {activeTab === 'customers' && user.role === 'owner' && (
+              <MotionDiv key="customers" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CustomersPanel />
+              </MotionDiv>
+            )}
+
             {/* FINANCE CENTER */}
             {activeTab === 'finance' && isAdmin && (
               <MotionDiv key="finance" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -4563,7 +5332,7 @@ const Dashboard = () => {
             {activeTab === 'my_orders' && user.role === 'captain' && (
               <MotionDiv key="my_orders" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <CaptainMyOrders user={user} allOrders={orders} />
+                <CaptainMyOrders user={user} allOrders={orders} captainTableNumbers={captainTableNumbers} />
               </MotionDiv>
             )}
 
@@ -4606,6 +5375,8 @@ const Dashboard = () => {
 
           </AnimatePresence>
           )} {/* end profileViewUser conditional */}
+          </> /* end checkedIn gate */
+          )}
         </main>
       </div>
     </div>

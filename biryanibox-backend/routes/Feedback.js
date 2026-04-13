@@ -31,8 +31,7 @@ router.get('/', protect, authorize('owner', 'manager'), async (req, res, next) =
 // POST /api/feedback — customer submits feedback (email mandatory)
 router.post('/', async (req, res, next) => {
   try {
-    const { customer_email, rating } = req.body;
-    if (!customer_email) return res.status(400).json({ success: false, message: 'Email is required for feedback' });
+    const { rating } = req.body;
     if (!rating) return res.status(400).json({ success: false, message: 'Rating is required' });
     const feedback = await Feedback.create(req.body);
     res.status(201).json({ success: true, data: feedback });

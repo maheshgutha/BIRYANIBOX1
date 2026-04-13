@@ -1,267 +1,273 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/useContextHooks';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Phone, Lock, ChevronRight, UserPlus, LogIn, ShieldCheck, User, KeyRound, RefreshCw } from 'lucide-react';
+import { Mail, Phone, Lock, ChevronRight, UserPlus, LogIn, KeyRound, RefreshCw, Eye, EyeOff, Clock } from 'lucide-react';
 import { authAPI } from '../services/api';
 
+const OTP_DURATION = 60;
+
+// Input styles as a constant — outside component so no re-creation
+const inputCls = "w-full bg-white/5 border border-white/10 rounded-2xl py-3.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50 transition-all";
+
 const CustomerAuth = () => {
-  const { login, register, loading } = useAuth();
-  const navigate = useNavigate();
-  const [mode, setMode] = useState('login'); // 'login' | 'register' | 'otp'
-  const [error, setError] = useState('');
-  const [info,  setInfo]  = useState('');
-  const [busy,  setBusy]  = useState(false);
+  const { login } = useAuth();
+  const navigate  = useNavigate();
+  const [mode,     setMode]     = useState('login');
+  const [error,    setError]    = useState('');
+  const [info,     setInfo]     = useState('');
+  const [busy,     setBusy]     = useState(false);
+  const [showPass, setShowPass] = useState(false);
+  const [otpTimer, setOtpTimer] = useState(0);
+  const [canResend,setCanResend]= useState(false);
+  const timerRef = useRef(null);
 
-  const [form, setForm] = useState({
-    first_name: '', last_name: '', email: '', phone: '', password: '', otp: '',
-  });
-  const set = (field) => (e) => setForm(prev => ({ ...prev, [field]: e.target.value }));
+  // Use separate state per field to avoid full-form re-render on each keystroke
+  const [firstName,  setFirstName]  = useState('');
+  const [lastName,   setLastName]   = useState('');
+  const [email,      setEmail]      = useState('');
+  const [phone,      setPhone]      = useState('');
+  const [password,   setPassword]   = useState('');
+  const [otp,        setOtp]        = useState('');
 
-  // ── Login ──────────────────────────────────────────────────────
+  const startTimer = useCallback(() => {
+    setOtpTimer(OTP_DURATION);
+    setCanResend(false);
+    clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setOtpTimer(prev => {
+        if (prev <= 1) { clearInterval(timerRef.current); setCanResend(true); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  useEffect(() => () => clearInterval(timerRef.current), []);
+
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (!email.trim())    { setError('Email is required'); return; }
+    if (!password.trim()) { setError('Password is required'); return; }
     setError('');
-    const result = await login(form.email, form.password);
+    const result = await login(email, password);
     if (result.success) navigate('/');
     else setError(result.error || 'Invalid credentials');
   };
 
-  // ── Send OTP for registration ──────────────────────────────────
   const handleSendOTP = async (e) => {
     e.preventDefault();
     setError('');
-    if (!form.first_name.trim()) { setError('First name is required'); return; }
-    if (!form.email.trim())       { setError('Email is required'); return; }
+    if (!firstName.trim()) { setError('First name is required'); return; }
+    if (!email.trim())     { setError('Email is required'); return; }
+    if (!password.trim())  { setError('Password is required'); return; }
     setBusy(true);
     try {
-      const fullName = `${form.first_name} ${form.last_name}`.trim();
-      await authAPI.sendOTP(form.email, fullName);
-      setInfo(`OTP sent to ${form.email}. Check your inbox.`);
+      const fullName = `${firstName} ${lastName}`.trim();
+      await authAPI.sendOTP(email, fullName);
+      setInfo(`OTP sent to ${email}. Check your inbox.`);
       setMode('otp');
-    } catch (err) {
-      setError(err.message || 'Failed to send OTP');
-    } finally { setBusy(false); }
+      startTimer();
+    } catch (err) { setError(err.message || 'Failed to send OTP'); }
+    finally { setBusy(false); }
   };
 
-  // ── Verify OTP and complete registration ───────────────────────
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     setError('');
-    if (!form.otp.trim()) { setError('Enter the OTP from your email'); return; }
+    if (!otp.trim()) { setError('Enter the OTP from your email'); return; }
     setBusy(true);
     try {
-      const fullName = `${form.first_name} ${form.last_name}`.trim();
-      const res = await authAPI.verifyOTP({
-        email:    form.email,
-        otp:      form.otp,
-        name:     fullName,
-        phone:    form.phone,
-        password: form.password,
-      });
+      const fullName = `${firstName} ${lastName}`.trim();
+      const res = await authAPI.verifyOTP({ email, otp, name: fullName, phone, password });
       if (res.success && res.token) {
         localStorage.setItem('bb_token', res.token);
         navigate('/');
       }
-    } catch (err) {
-      setError(err.message || 'Invalid or expired OTP');
-    } finally { setBusy(false); }
+    } catch (err) { setError(err.message || 'Invalid or expired OTP'); }
+    finally { setBusy(false); }
   };
 
   const resendOTP = async () => {
-    setError('');
-    setBusy(true);
+    if (!canResend) return;
+    setError(''); setBusy(true);
     try {
-      const fullName = `${form.first_name} ${form.last_name}`.trim();
-      await authAPI.sendOTP(form.email, fullName);
+      const fullName = `${firstName} ${lastName}`.trim();
+      await authAPI.sendOTP(email, fullName);
       setInfo('New OTP sent to your email.');
-    } catch (err) { setError('Failed to resend OTP'); }
+      startTimer();
+    } catch { setError('Failed to resend OTP'); }
     finally { setBusy(false); }
   };
 
   return (
-    <div className="min-h-screen bg-bg-main text-white flex items-center justify-center p-6 relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-primary/10 blur-[150px] rounded-full -translate-x-1/2 -translate-y-1/2" />
+    <div className="min-h-screen flex items-center justify-center bg-bg-main relative p-6 overflow-hidden">
+      <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-primary/8 blur-[150px] rounded-full -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-primary/5 blur-[120px] rounded-full translate-x-1/2 translate-y-1/2 pointer-events-none" />
 
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md relative z-10">
-        <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold font-heading mb-3">
-            <span className="text-primary">BIRYANI</span> BOX
+      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md relative z-10">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-black tracking-tight mb-2">
+            <span className="text-primary">BIRYANI</span><span className="text-white">BOX</span>
           </h1>
-          <p className="text-text-muted font-medium">Artisanal Taste, Securely Delivered</p>
+          <p className="text-text-muted text-sm font-medium">
+            {mode === 'login' ? 'Welcome back!' : mode === 'otp' ? 'Verify your email' : 'Create your account'}
+          </p>
         </div>
 
-        <div className="glass p-8 rounded-3xl border border-white/5 shadow-2xl">
-          {/* Tab bar */}
+        <div className="bg-secondary/40 border border-white/10 rounded-3xl p-8">
           {mode !== 'otp' && (
-            <div className="flex bg-white/5 p-1 rounded-2xl mb-8">
-              <button onClick={() => { setMode('login'); setError(''); }}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl transition-all text-sm font-bold tracking-wide ${mode === 'login' ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
-                <LogIn size={18} /> Login
-              </button>
-              <button onClick={() => { setMode('register'); setError(''); }}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl transition-all text-sm font-bold tracking-wide ${mode === 'register' ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
-                <UserPlus size={18} /> Join Us
-              </button>
+            <div className="flex bg-white/5 p-1 rounded-2xl mb-8 border border-white/10">
+              {[['login', LogIn, 'Sign In'], ['register', UserPlus, 'Register']].map(([m, Icon, label]) => (
+                <button key={m} onClick={() => { setMode(m); setError(''); setInfo(''); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mode === m ? 'bg-primary text-white shadow-lg' : 'text-white/40 hover:text-white'}`}>
+                  <Icon size={13} />{label}
+                </button>
+              ))}
             </div>
           )}
 
-          {/* Error / info */}
-          {error && (
-            <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs font-bold">{error}</div>
-          )}
-          {info && !error && (
-            <div className="mb-4 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-xl text-green-400 text-xs font-bold">{info}</div>
-          )}
+          <AnimatePresence>
+            {error && (
+              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-bold">
+                {error}
+              </motion.div>
+            )}
+            {info && (
+              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="mb-5 p-3.5 bg-green-500/10 border border-green-500/20 rounded-xl text-green-400 text-xs font-bold">
+                {info}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {/* ── LOGIN FORM ───────────────────────────────────────── */}
+          {/* ── LOGIN ── */}
           {mode === 'login' && (
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2">Email</label>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Email</label>
                 <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" size={18} />
-                  <input type="email" required placeholder="you@example.com"
-                    value={form.email} onChange={set('email')}
-                    className="w-full bg-bg-main border border-white/10 p-4 pl-12 rounded-2xl focus:border-primary outline-none transition-all" />
+                  <Mail size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    placeholder="you@example.com" autoComplete="email"
+                    className={`${inputCls} pl-11 pr-4`} />
                 </div>
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2">Password</label>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Password</label>
                 <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" size={18} />
-                  <input type="password" required placeholder="••••••••"
-                    value={form.password} onChange={set('password')}
-                    className="w-full bg-bg-main border border-white/10 p-4 pl-12 rounded-2xl focus:border-primary outline-none transition-all" />
+                  <Lock size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                  <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder="Your password" autoComplete="current-password"
+                    className={`${inputCls} pl-11 pr-12`} />
+                  <button type="button" onClick={() => setShowPass(p => !p)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
+                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
                 </div>
-              </div>
-              <button type="submit" disabled={loading}
-                className="btn-primary w-full py-4 text-base font-bold flex items-center justify-center gap-3 disabled:opacity-60">
-                {loading ? 'Signing in…' : 'Enter The Hub'} <ChevronRight size={20} />
-              </button>
-            </form>
-          )}
-
-          {/* ── REGISTER FORM ────────────────────────────────────── */}
-          {mode === 'register' && (
-            <form onSubmit={handleSendOTP} className="space-y-5">
-              {/* First + Last name */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2">First Name *</label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-primary" size={16} />
-                    <input type="text" required placeholder="First"
-                      value={form.first_name} onChange={set('first_name')}
-                      className="w-full bg-bg-main border border-white/10 p-3.5 pl-10 rounded-2xl focus:border-primary outline-none transition-all text-sm" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2">Last Name</label>
-                  <input type="text" placeholder="Last"
-                    value={form.last_name} onChange={set('last_name')}
-                    className="w-full bg-bg-main border border-white/10 p-3.5 rounded-2xl focus:border-primary outline-none transition-all text-sm" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2">Email *</label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" size={18} />
-                  <input type="email" required placeholder="you@example.com"
-                    value={form.email} onChange={set('email')}
-                    className="w-full bg-bg-main border border-white/10 p-4 pl-12 rounded-2xl focus:border-primary outline-none transition-all" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2">Phone</label>
-                <div className="relative">
-                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" size={18} />
-                  <input type="tel" placeholder="+1 555 000 0000"
-                    value={form.phone} onChange={set('phone')}
-                    className="w-full bg-bg-main border border-white/10 p-4 pl-12 rounded-2xl focus:border-primary outline-none transition-all" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2">Password *</label>
-                <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" size={18} />
-                  <input type="password" required placeholder="Min 6 characters" minLength={6}
-                    value={form.password} onChange={set('password')}
-                    className="w-full bg-bg-main border border-white/10 p-4 pl-12 rounded-2xl focus:border-primary outline-none transition-all" />
-                </div>
-              </div>
-              <div className="px-2 py-3 bg-primary/5 border border-primary/20 rounded-xl text-xs text-primary font-bold flex items-center gap-2">
-                <ShieldCheck size={14} /> An OTP will be sent to your email to verify your account
               </div>
               <button type="submit" disabled={busy}
-                className="btn-primary w-full py-4 text-base font-bold flex items-center justify-center gap-3 disabled:opacity-60">
-                {busy ? 'Sending OTP…' : 'Send OTP to Email'} <ChevronRight size={20} />
+                className="w-full py-4 bg-primary hover:bg-primary-hover text-white font-black uppercase tracking-widest text-xs rounded-2xl transition-all disabled:opacity-50 mt-2 flex items-center justify-center gap-2">
+                {busy ? 'Signing in…' : <><LogIn size={15} /> Sign In</>}
               </button>
             </form>
           )}
 
-          {/* ── OTP VERIFICATION FORM ────────────────────────────── */}
-          {mode === 'otp' && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-primary/20 border border-primary/40 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <KeyRound size={28} className="text-primary" />
+          {/* ── REGISTER ── */}
+          {mode === 'register' && (
+            <form onSubmit={handleSendOTP} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">First Name</label>
+                  <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)}
+                    placeholder="Anjali" autoComplete="given-name" className={`${inputCls} px-4`} />
                 </div>
-                <h3 className="text-xl font-black text-white mb-2">Check Your Email</h3>
-                <p className="text-sm text-text-muted">
-                  We sent a 6-digit code to <span className="text-primary font-bold">{form.email}</span>
-                </p>
-              </div>
-              <form onSubmit={handleVerifyOTP} className="space-y-5">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2">Enter OTP *</label>
-                  <div className="relative">
-                    <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" size={18} />
-                    <input
-                      type="text"
-                      maxLength={6}
-                      pattern="\d{6}"
-                      required
-                      placeholder="6-digit code"
-                      value={form.otp}
-                      onChange={set('otp')}
-                      className="w-full bg-bg-main border border-white/10 p-4 pl-12 rounded-2xl focus:border-primary outline-none transition-all text-center text-xl font-black tracking-[0.4em]"
-                      autoFocus
-                    />
-                  </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Last Name</label>
+                  <input type="text" value={lastName} onChange={e => setLastName(e.target.value)}
+                    placeholder="Sharma" autoComplete="family-name" className={`${inputCls} px-4`} />
                 </div>
-                <button type="submit" disabled={busy}
-                  className="btn-primary w-full py-4 text-base font-bold flex items-center justify-center gap-3 disabled:opacity-60">
-                  {busy ? 'Verifying…' : 'Verify & Create Account'} <ChevronRight size={20} />
-                </button>
-              </form>
-              <div className="flex items-center justify-between text-xs">
-                <button onClick={() => { setMode('register'); setError(''); setInfo(''); }}
-                  className="text-text-muted hover:text-white font-bold uppercase tracking-widest">← Back</button>
-                <button onClick={resendOTP} disabled={busy}
-                  className="flex items-center gap-1.5 text-primary font-bold uppercase tracking-widest hover:underline disabled:opacity-60">
-                  <RefreshCw size={12} /> Resend OTP
-                </button>
               </div>
-            </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Email</label>
+                <div className="relative">
+                  <Mail size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    placeholder="you@example.com" autoComplete="email" className={`${inputCls} pl-11 pr-4`} />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Phone</label>
+                <div className="relative">
+                  <Phone size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                    placeholder="+91 98765 43210" autoComplete="tel" className={`${inputCls} pl-11 pr-4`} />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Password</label>
+                <div className="relative">
+                  <Lock size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                  <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder="Create a password" autoComplete="new-password" className={`${inputCls} pl-11 pr-12`} />
+                  <button type="button" onClick={() => setShowPass(p => !p)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
+                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+              <button type="submit" disabled={busy}
+                className="w-full py-4 bg-primary hover:bg-primary-hover text-white font-black uppercase tracking-widest text-xs rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {busy ? 'Sending OTP…' : <><ChevronRight size={15} /> Send OTP</>}
+              </button>
+            </form>
           )}
 
-          <div className="mt-8 flex items-center gap-2 justify-center opacity-30 grayscale hover:grayscale-0 hover:opacity-100 transition-all cursor-pointer">
-            <ShieldCheck size={16} className="text-primary" />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Secured Member Access</span>
-          </div>
-
-          <div className="mt-6 flex justify-center gap-3">
-            <button onClick={() => navigate('/')}
-              className="px-5 py-3 border border-white/20 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all">
-              Back To Home
-            </button>
-            <button onClick={() => navigate('/login')}
-              className="px-5 py-3 bg-primary text-white rounded-lg text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
-              Staff Login
-            </button>
-          </div>
+          {/* ── OTP ── */}
+          {mode === 'otp' && (
+            <form onSubmit={handleVerifyOTP} className="space-y-5">
+              <div className="text-center mb-2">
+                <div className="w-16 h-16 bg-primary/10 border border-primary/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <KeyRound size={28} className="text-primary" />
+                </div>
+                <p className="text-sm text-white/60">Enter the 6-digit code sent to</p>
+                <p className="font-black text-primary mt-1">{email}</p>
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">OTP Code</label>
+                <input type="text" value={otp} onChange={e => setOtp(e.target.value)}
+                  placeholder="______" maxLength={6} autoComplete="one-time-code"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-5 text-center text-2xl font-black tracking-[0.5em] text-white placeholder-white/15 focus:outline-none focus:border-primary/50 transition-all" />
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <Clock size={14} className={otpTimer > 0 ? 'text-primary' : 'text-white/30'} />
+                {otpTimer > 0 ? (
+                  <span className="text-xs font-bold text-white/50">Resend in <span className="text-primary font-black">{otpTimer}s</span></span>
+                ) : (
+                  <button type="button" onClick={resendOTP} disabled={busy || !canResend}
+                    className="text-xs font-black text-primary hover:underline flex items-center gap-1 disabled:opacity-40">
+                    <RefreshCw size={12} /> Resend OTP
+                  </button>
+                )}
+              </div>
+              <button type="submit" disabled={busy}
+                className="w-full py-4 bg-primary hover:bg-primary-hover text-white font-black uppercase tracking-widest text-xs rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {busy ? 'Verifying…' : 'Verify & Create Account'}
+              </button>
+              <button type="button" onClick={() => { setMode('register'); setError(''); setInfo(''); clearInterval(timerRef.current); }}
+                className="w-full text-center text-[10px] text-white/30 hover:text-white/60 font-bold uppercase tracking-widest">
+                ← Back to Registration
+              </button>
+            </form>
+          )}
         </div>
+
+        <p className="text-center text-[10px] text-white/20 mt-6">
+          Staff?{' '}
+          <button onClick={() => navigate('/login')} className="text-primary hover:underline font-bold">
+            Staff login here
+          </button>
+        </p>
       </motion.div>
     </div>
   );

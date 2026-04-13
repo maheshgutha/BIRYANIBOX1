@@ -41,6 +41,9 @@ const UserSchema = new mongoose.Schema({
 
   // Status
   is_active:         { type: Boolean, default: true },
+  is_checked_in:     { type: Boolean, default: false },
+  last_checkin_at:   { type: Date },
+  last_checkout_at:  { type: Date },
   disabled_reason:   { type: String, maxlength: 200 },
   disabled_at:       { type: Date },
 

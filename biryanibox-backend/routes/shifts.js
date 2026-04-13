@@ -120,3 +120,48 @@ router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
 });
 
 module.exports = router;
+// ── POST /api/shifts/checkin  — staff check in ──────────────────────────
+router.post('/checkin', protect, async (req, res, next) => {
+  try {
+    const ALLOWED = ['manager', 'captain', 'chef', 'delivery'];
+    if (!ALLOWED.includes(req.user.role))
+      return res.status(400).json({ success: false, message: 'Only staff can check in' });
+    if (req.user.is_checked_in)
+      return res.status(400).json({ success: false, message: 'Already checked in' });
+
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const existing = await ShiftLog.findOne({ user_id: req.user._id, date: today.toISOString().split('T')[0] });
+    if (!existing) {
+      await ShiftLog.create({
+        user_id: req.user._id, role: req.user.role,
+        date: today.toISOString().split('T')[0],
+        check_in: new Date(), status: 'present',
+      });
+    }
+    await User.findByIdAndUpdate(req.user._id, { is_checked_in: true, last_checkin_at: new Date() });
+    res.json({ success: true, message: 'Checked in successfully', checked_in: true });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/shifts/checkout  — staff check out ─────────────────────────
+router.post('/checkout', protect, async (req, res, next) => {
+  try {
+    if (!req.user.is_checked_in)
+      return res.status(400).json({ success: false, message: 'Not checked in' });
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    await ShiftLog.findOneAndUpdate(
+      { user_id: req.user._id, date: today.toISOString().split('T')[0] },
+      { check_out: new Date() }
+    );
+    await User.findByIdAndUpdate(req.user._id, { is_checked_in: false, last_checkout_at: new Date() });
+    res.json({ success: true, message: 'Checked out successfully', checked_in: false });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/shifts/checkin-status  — current user's check-in status ─────
+router.get('/checkin-status', protect, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).select('is_checked_in last_checkin_at name role');
+    res.json({ success: true, data: { is_checked_in: user.is_checked_in, last_checkin_at: user.last_checkin_at, name: user.name, role: user.role } });
+  } catch (err) { next(err); }
+});

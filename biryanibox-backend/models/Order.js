@@ -15,7 +15,7 @@ const OrderSchema = new mongoose.Schema({
     enum: ['pending', 'start_cooking', 'completed_cooking', 'served', 'paid', 'cancelled'],
     default: 'pending',
   },
-  order_type:     { type: String, enum: ['dine-in', 'delivery', 'takeaway'], default: 'dine-in' },
+  order_type:     { type: String, enum: ['dine-in', 'delivery', 'takeaway', 'pickup'], default: 'dine-in' },
   payment_method: { type: String, enum: ['upi', 'card', 'cash', 'gift_card'] },
   spiceness:      { type: String, enum: ['mild', 'medium', 'hot', 'extra_hot'], default: 'medium' },
   rating:         { type: Number, min: 1, max: 5 },

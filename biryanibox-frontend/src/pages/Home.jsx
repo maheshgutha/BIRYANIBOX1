@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence, useMotionValue, useSpring, useTransform, useScroll, useInView } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const MotionDiv = motion.div;
 const MotionButton = motion.button;
 import {
   ShoppingBag, User, Menu as MenuIcon, X, ShieldCheck, ChevronDown, LogOut,
   Gift, ListOrdered, Clock, MapPin, Truck, Facebook, Instagram, ArrowRight,
-  Star, CheckCircle, Search, ChevronRight, Navigation, Download, UtensilsCrossed,
-  Check, MessageSquare, ThumbsUp, Send,
+  Star, CheckCircle, Search, ChevronRight, Navigation, Download,
+  MessageSquare, ThumbsUp, Send,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useOrders } from '../context/useContextHooks';
@@ -21,84 +21,6 @@ import muttonBiryani from '../assets/mutton-biryani.png';
 import chickenTikka from '../assets/chicken-tikka.png';
 import rasmalai from '../assets/rasmalai.png';
 import backgroundInterior from '../assets/background.png';
-
-// ─── Floating 3D Particles ────────────────────────────────────────────────────
-const Floating3DParticles = () => {
-  const particles = Array.from({ length: 18 }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    size: Math.random() * 6 + 3,
-    duration: Math.random() * 12 + 8,
-    delay: Math.random() * 5,
-    emoji: ['🌶️','✨','🍛','⭐','🔥','💫'][i % 6],
-  }));
-
-  return (
-    <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-      {particles.map(p => (
-        <motion.div
-          key={p.id}
-          className="absolute select-none"
-          style={{ left: `${p.x}%`, top: `${p.y}%`, fontSize: `${p.size}px`, opacity: 0.15 }}
-          animate={{
-            y: [0, -60, -120, -60, 0],
-            x: [0, 20, -10, 15, 0],
-            rotate: [0, 180, 360],
-            opacity: [0.05, 0.2, 0.05],
-          }}
-          transition={{ duration: p.duration, delay: p.delay, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          {p.emoji}
-        </motion.div>
-      ))}
-      {/* Glowing orbs */}
-      <motion.div
-        className="absolute w-[600px] h-[600px] rounded-full pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(229,138,48,0.08) 0%, transparent 70%)', left: '10%', top: '20%' }}
-        animate={{ scale: [1, 1.2, 1], x: [0, 30, 0], y: [0, -20, 0] }}
-        transition={{ duration: 15, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <motion.div
-        className="absolute w-[400px] h-[400px] rounded-full pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(229,138,48,0.05) 0%, transparent 70%)', right: '5%', bottom: '30%' }}
-        animate={{ scale: [1, 1.3, 1], x: [0, -40, 0], y: [0, 30, 0] }}
-        transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut', delay: 3 }}
-      />
-    </div>
-  );
-};
-
-// ─── 3D Tilt Card ────────────────────────────────────────────────────────────
-const Tilt3DCard = ({ children, className = '', intensity = 10 }) => {
-  const ref = useRef(null);
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const rotateX = useSpring(useTransform(y, [-0.5, 0.5], [intensity, -intensity]), { stiffness: 300, damping: 30 });
-  const rotateY = useSpring(useTransform(x, [-0.5, 0.5], [-intensity, intensity]), { stiffness: 300, damping: 30 });
-  const scale = useSpring(1, { stiffness: 300, damping: 30 });
-
-  const handleMouse = useCallback((e) => {
-    if (!ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    x.set((e.clientX - rect.left) / rect.width - 0.5);
-    y.set((e.clientY - rect.top) / rect.height - 0.5);
-  }, [x, y]);
-
-  return (
-    <motion.div
-      ref={ref}
-      className={className}
-      style={{ rotateX, rotateY, scale, transformStyle: 'preserve-3d', perspective: 1000 }}
-      onMouseMove={handleMouse}
-      onMouseEnter={() => scale.set(1.02)}
-      onMouseLeave={() => { x.set(0); y.set(0); scale.set(1); }}
-    >
-      {children}
-    </motion.div>
-  );
-};
-
 
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 const Hero = ({ navigate }) => {
@@ -136,22 +58,9 @@ const Hero = ({ navigate }) => {
             <button onClick={() => navigate('/cart')} className="px-12 py-6 bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-xs rounded-full hover:bg-white/10 transition-all">View Rewards</button>
           </div>
         </MotionDiv>
-        <MotionDiv key={`img-${currentSlide}`} initial={{ opacity: 0, scale: 0.8, rotate: -10 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 1, type: 'spring' }} className="hidden lg:block relative" style={{ perspective: 1200 }}>
+        <MotionDiv key={`img-${currentSlide}`} initial={{ opacity: 0, scale: 0.8, rotate: -10 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 1, type: 'spring' }} className="hidden lg:block relative">
           <div className="absolute inset-0 bg-primary/20 filter blur-[150px] rounded-full animate-pulse" />
-          <motion.img
-            src={slides[currentSlide].image}
-            alt="Dish"
-            className="w-[85%] mx-auto relative z-10 filter drop-shadow-[0_45px_45px_rgba(229,138,48,0.4)]"
-            animate={{ y: [0, -20, 0], rotateY: [0, 5, 0, -5, 0] }}
-            transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-          />
-          {/* Orbiting glow rings */}
-          <motion.div
-            className="absolute inset-0 rounded-full border border-primary/20 pointer-events-none"
-            animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.7, 0.3] }}
-            transition={{ duration: 3, repeat: Infinity }}
-            style={{ left: '10%', right: '10%', top: '10%', bottom: '10%' }}
-          />
+          <img src={slides[currentSlide].image} alt="Dish" className="w-[85%] mx-auto relative z-10 filter drop-shadow-[0_45px_45px_rgba(229,138,48,0.4)]" />
         </MotionDiv>
       </div>
       <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex gap-4 z-20">
@@ -230,8 +139,8 @@ const PopularItems = () => {
             const id = item._id || item.id;
             const isAdded = added === id;
             return (
-              <Tilt3DCard key={id} className="group bg-secondary/40 border border-white/8 rounded-3xl overflow-hidden hover:border-primary/40 transition-all" intensity={8}>
-              <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.07 }}>
+              <motion.div key={id} initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.07 }}
+                className="group bg-secondary/40 border border-white/8 rounded-3xl overflow-hidden hover:border-primary/40 transition-all">
                 <div className="h-44 overflow-hidden relative">
                   <img src={getImg(item)} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -252,7 +161,6 @@ const PopularItems = () => {
                   </div>
                 </div>
               </motion.div>
-              </Tilt3DCard>
             );
           })}
         </div>
@@ -306,7 +214,7 @@ const AllItemsList = () => {
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="w-1.5 h-1.5 rounded-full bg-primary/60 shrink-0" />
                       <span className="text-sm font-bold text-white/80 group-hover:text-white truncate">{item.name}</span>
-                      {(item.is_veg || item.isVeg) && <span className="text-[8px] text-green-400 font-black shrink-0">VEG</span>}
+                      {item.is_veg && <span className="text-[8px] text-green-400 font-black shrink-0">VEG</span>}
                     </div>
                     <span className="text-sm font-black text-primary ml-3 shrink-0">${(item.price || 0).toFixed(0)}</span>
                   </button>
@@ -333,26 +241,9 @@ const MenuCategories = () => {
   const [filterVeg, setFilterVeg] = useState('all');
   const [filterSpice, setFilterSpice] = useState('all');
   const [filterHalal, setFilterHalal] = useState(false);
-
-  const hasActiveFilters = filterVeg !== 'all' || filterSpice !== 'all' || filterHalal || searchQuery.trim() !== '';
-  const clearFilters = () => {
-    setFilterVeg('all');
-    setFilterSpice('all');
-    setFilterHalal(false);
-    setSearchQuery('');
-    setActiveCategory('All');
-  };
-  const [selectedTable, setSelectedTable] = useState(null);
-  const [tableConfirmed, setTableConfirmed] = useState(false);
-  const [takeawayAddress, setTakeawayAddress] = useState('');
-  const [takeawayAddrErr, setTakeawayAddrErr] = useState(false);
-  const [takeawayDistance, setTakeawayDistance] = useState('');
-  const [takeawayNotes, setTakeawayNotes] = useState('');
-  const RATE_PER_KM = 5; // $5/km
   const { addToCart } = useCart();
   const { menu } = useOrders();
 
-  const TABLE_OPTIONS = ['Table 1', 'Table 2', 'VIP 1', 'VIP 2', 'Takeaway'];
 
   const handleTableSelect = (t) => {
     setSelectedTable(t);
@@ -360,26 +251,18 @@ const MenuCategories = () => {
     if (t !== 'Takeaway') { setTakeawayAddress(''); setTakeawayAddrErr(false); setTakeawayDistance(''); setTakeawayNotes(''); }
   };
 
-  const handleTableClear = () => {
-    setSelectedTable(null);
-    setTableConfirmed(false);
-    setTakeawayAddress('');
-    setTakeawayAddrErr(false);
-    setTakeawayDistance('');
-    setTakeawayNotes('');
-  };
 
   const categories = ['All', ...Array.from(new Set(menu.map(item => item.category)))];
   const currentItems = activeCategory === 'All' ? menu : menu.filter(item => item.category === activeCategory);
   const filteredItems = currentItems.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
-    // Support both camelCase (isVeg) and snake_case (is_veg) from API
-    const itemIsVeg   = item.isVeg   ?? item.is_veg   ?? false;
-    const itemIsHalal = item.isHalal ?? item.is_halal ?? false;
-    const itemSpice   = item.spiceLevel ?? item.spice_level ?? item.spice_level_id ?? 0;
-    const matchesType  = filterVeg === 'all' || (filterVeg === 'veg' && itemIsVeg) || (filterVeg === 'non-veg' && !itemIsVeg);
-    const matchesSpice = filterSpice === 'all' || Number(itemSpice) === Number(filterSpice);
-    const matchesHalal = !filterHalal || itemIsHalal;
+    // Support both camelCase (legacy) and snake_case (backend) field names
+    const isVeg   = item.is_veg   ?? item.isVeg   ?? false;
+    const isHalal = item.is_halal ?? item.isHalal ?? true;
+    const spiceLv = item.spice_level ?? item.spiceLevel ?? 0;
+    const matchesType  = filterVeg === 'all' || (filterVeg === 'veg' && isVeg) || (filterVeg === 'non-veg' && !isVeg);
+    const matchesSpice = filterSpice === 'all' || spiceLv === Number(filterSpice);
+    const matchesHalal = !filterHalal || isHalal;
     return matchesSearch && matchesType && matchesSpice && matchesHalal;
   });
 
@@ -440,133 +323,6 @@ const MenuCategories = () => {
           </div>
         </div>
 
-        {/* Table Selection */}
-        <div className="mb-10 p-6 rounded-[28px] bg-white/[0.03] border border-white/[0.08]">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center">
-                <UtensilsCrossed size={18} className="text-primary" />
-              </div>
-              <span className="text-[11px] font-black uppercase tracking-[0.3em] text-white/40">Select Your Table</span>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {TABLE_OPTIONS.map(t => (
-                <button key={t} onClick={() => handleTableSelect(t)}
-                  className={`px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all border ${selectedTable === t && tableConfirmed ? 'bg-primary border-primary text-white shadow-lg shadow-primary/30 scale-105' : 'bg-white/5 border-white/10 text-white/50 hover:border-white/30 hover:text-white hover:bg-white/10'}`}>
-                  {t}
-                </button>
-              ))}
-              {tableConfirmed && (
-                <button onClick={handleTableClear} className="px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-all">Clear</button>
-              )}
-            </div>
-          </div>
-
-          <AnimatePresence>
-            {tableConfirmed && (
-              <MotionDiv initial={{ opacity: 0, height: 0, marginTop: 0 }} animate={{ opacity: 1, height: 'auto', marginTop: 16 }} exit={{ opacity: 0, height: 0, marginTop: 0 }} className="overflow-hidden">
-                {/* Confirmation banner */}
-                <div className={`flex items-center gap-3 px-5 py-3 rounded-2xl border ${selectedTable === 'Takeaway' ? 'bg-orange-500/10 border-orange-500/25' : 'bg-primary/10 border-primary/25'}`}>
-                  <Check size={14} className={selectedTable === 'Takeaway' ? 'text-orange-400 shrink-0' : 'text-primary shrink-0'} />
-                  <span className={`text-[11px] font-black uppercase tracking-widest ${selectedTable === 'Takeaway' ? 'text-orange-400' : 'text-primary'}`}>
-                    {selectedTable === 'Takeaway' ? 'Takeaway selected — enter your delivery address below' : `${selectedTable} selected — your order will be served here`}
-                  </span>
-                </div>
-
-                {/* Takeaway full details panel */}
-                {selectedTable === 'Takeaway' && (
-                  <MotionDiv initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mt-4">
-                    <div className="bg-primary/5 border border-primary/25 rounded-2xl p-6 space-y-5">
-                      {/* Header */}
-                      <div className="flex items-center gap-2 text-primary font-black text-xs uppercase tracking-widest">
-                        <Truck size={15} /> Takeaway Details — Address Required
-                      </div>
-
-                      {/* Error */}
-                      {takeawayAddrErr && (
-                        <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
-                          <p className="text-xs text-red-400 font-bold">✕ Delivery address is required to add items for takeaway</p>
-                        </div>
-                      )}
-
-                      {/* Delivery Address */}
-                      <div>
-                        <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">
-                          Delivery Address <span className="text-red-400">*</span>
-                        </label>
-                        <div className="relative">
-                          <MapPin size={14} className="absolute left-3.5 top-3.5 text-primary shrink-0" />
-                          <textarea
-                            id="takeaway-address-input"
-                            rows={2}
-                            placeholder="House No., Street, Area, Landmark, City, PIN…"
-                            value={takeawayAddress}
-                            onChange={e => { setTakeawayAddress(e.target.value); if (e.target.value.trim()) setTakeawayAddrErr(false); }}
-                            className={`w-full bg-bg-main border p-3 pl-9 rounded-xl text-sm text-white placeholder:text-white/20 focus:outline-none resize-none transition-colors ${takeawayAddrErr ? 'border-red-500/50 bg-red-500/5' : 'border-white/10 focus:border-primary'}`}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Distance + Fee row */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">
-                            Distance (km) <span className="text-text-muted/50 font-normal">(optional)</span>
-                          </label>
-                          <input
-                            type="number" min="0.1" step="0.1"
-                            placeholder="e.g. 3.5"
-                            value={takeawayDistance}
-                            onChange={e => setTakeawayDistance(e.target.value)}
-                            className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white placeholder:text-white/20 focus:border-primary focus:outline-none transition-colors"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">
-                            Delivery Fee ($5/km)
-                          </label>
-                          <div className={`w-full p-3 rounded-xl text-sm font-black border ${parseFloat(takeawayDistance) > 0 ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-white/5 border-white/10 text-text-muted'}`}>
-                            {parseFloat(takeawayDistance) > 0
-                              ? `$${(parseFloat(takeawayDistance) * RATE_PER_KM).toFixed(2)} (${takeawayDistance} km × $${RATE_PER_KM})`
-                              : 'Enter distance above'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Delivery Notes */}
-                      <div>
-                        <label className="text-[10px] text-text-muted font-black uppercase tracking-widest mb-2 block">
-                          Delivery Notes (Optional)
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Gate code, flat number, landmark..."
-                          value={takeawayNotes}
-                          onChange={e => setTakeawayNotes(e.target.value)}
-                          className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white placeholder:text-white/20 focus:border-primary focus:outline-none transition-colors"
-                        />
-                      </div>
-
-                      {/* Rider dispatch note */}
-                      <div className="flex items-center gap-2 text-[10px] text-text-muted">
-                        <Truck size={11} className="text-primary shrink-0" />
-                        Rider will be dispatched when owner marks order as <span className="text-primary font-black ml-1">Paid</span>
-                      </div>
-
-                      {/* Address confirmed */}
-                      {takeawayAddress.trim() && (
-                        <p className="text-[11px] text-green-400 font-bold flex items-center gap-1.5">
-                          <Check size={11} /> Address saved — add items and place your order
-                        </p>
-                      )}
-                    </div>
-                  </MotionDiv>
-                )}
-              </MotionDiv>
-            )}
-          </AnimatePresence>
-        </div>
-
         {/* Category tabs */}
         <div className="flex gap-6 overflow-x-auto pb-10 scrollbar-hide mb-16 border-b border-white/5 sticky top-24 z-30 bg-bg-main/90 backdrop-blur-xl">
           {categories.map(cat => (
@@ -582,23 +338,21 @@ const MenuCategories = () => {
           <AnimatePresence mode="popLayout">
             {filteredItems.length > 0 ? filteredItems.map(item => (
               <MotionDiv key={item.name} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
-                whileHover={{ y: -8, rotateX: 3, scale: 1.01, boxShadow: '0 30px 60px rgba(229,138,48,0.15)' }}
-                style={{ transformStyle: 'preserve-3d', perspective: 1000 }}
-                className="group bg-secondary/20 rounded-[40px] overflow-hidden border border-white/5 hover:border-primary/50 transition-all shadow-3xl">
+                className="group bg-secondary/20 rounded-[40px] overflow-hidden border border-white/5 hover:border-primary/50 transition-all shadow-3xl hover:-translate-y-2">
                 <div className="relative aspect-[4/3] overflow-hidden">
                   <img src={getMenuItemImage(item)} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
                   <div className="absolute top-6 left-6 flex flex-col gap-2">
-                    {(item.isVeg || item.is_veg) && <div className="px-3 py-1 bg-green-500 text-white text-[8px] font-black uppercase tracking-widest rounded-full shadow-lg">Vegetarian</div>}
-                    {(item.isHalal || item.is_halal) && <div className="px-3 py-1 bg-blue-600 text-white text-[8px] font-black uppercase tracking-widest rounded-full shadow-lg">Halal Certified</div>}
+                    {(item.is_veg ?? item.isVeg) && <div className="px-3 py-1 bg-green-500 text-white text-[8px] font-black uppercase tracking-widest rounded-full shadow-lg">Vegetarian</div>}
+                    {(item.is_halal ?? item.isHalal) && <div className="px-3 py-1 bg-blue-600 text-white text-[8px] font-black uppercase tracking-widest rounded-full shadow-lg">Halal Certified</div>}
                   </div>
                   <div className="absolute top-6 right-6 flex flex-col items-end gap-3">
-                    <div className={`w-6 h-6 border-2 rounded-sm flex items-center justify-center p-0.5 ${(item.isVeg || item.is_veg) ? 'border-green-500' : 'border-red-500'}`}>
-                      <div className={`w-full h-full rounded-full ${(item.isVeg || item.is_veg) ? 'bg-green-500' : 'bg-red-500'}`} />
+                    <div className={`w-6 h-6 border-2 rounded-sm flex items-center justify-center p-0.5 ${(item.is_veg ?? item.isVeg) ? 'border-green-500' : 'border-red-500'}`}>
+                      <div className={`w-full h-full rounded-full ${(item.is_veg ?? item.isVeg) ? 'bg-green-500' : 'bg-red-500'}`} />
                     </div>
-                    {(item.spiceLevel || item.spice_level || 0) > 0 && (
+                    {(item.spice_level ?? item.spiceLevel ?? 0) > 0 && (
                       <div className="flex gap-0.5 bg-black/40 backdrop-blur-md p-1.5 rounded-lg border border-white/10">
-                        {Array(item.spiceLevel || item.spice_level || 0).fill(0).map((_, i) => <span key={i} className="text-[10px]">🌶️</span>)}
+                        {Array(item.spice_level ?? item.spiceLevel ?? 0).fill(0).map((_, i) => <span key={i} className="text-[10px]">🌶️</span>)}
                       </div>
                     )}
                   </div>
@@ -616,15 +370,9 @@ const MenuCategories = () => {
                     <div className="text-xs text-text-muted">Stock: {item.stock}</div>
                     <button
                       onClick={() => {
-                        if (selectedTable === 'Takeaway' && !takeawayAddress.trim()) {
-                          setTakeawayAddrErr(true);
-                          document.getElementById('takeaway-address-input')?.focus();
-                          return;
-                        }
                         addToCart({
                           id: item.id, _id: item._id, name: item.name, price: item.price,
                           category: item.category, image: item.image, image_url: item.image_url,
-                          ...(selectedTable === 'Takeaway' && takeawayAddress.trim() ? { delivery_address: takeawayAddress.trim(), delivery_notes: takeawayNotes.trim() || undefined, distance_km: parseFloat(takeawayDistance) || undefined } : {}),
                         });
                       }}
                       disabled={!item.available || item.stock <= 0}
@@ -635,38 +383,7 @@ const MenuCategories = () => {
                 </div>
               </MotionDiv>
             )) : (
-              <div className="col-span-full py-20 flex flex-col items-center justify-center text-center">
-                {menu.length === 0 ? (
-                  // Menu still loading from server
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                    <p className="text-white/20 font-black uppercase tracking-[0.5em] text-xs">Loading Menu...</p>
-                  </div>
-                ) : (
-                  // Menu loaded but filters return no results
-                  <MotionDiv initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-6">
-                    <div className="w-20 h-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center text-4xl">
-                      🔍
-                    </div>
-                    <div>
-                      <p className="text-white font-black text-xl mb-2">No items match your filters</p>
-                      <p className="text-text-muted text-sm">
-                        {filterVeg !== 'all' && <span className="inline-block px-2 py-0.5 bg-white/10 rounded-full text-xs mr-1 mb-1">{filterVeg}</span>}
-                        {filterSpice !== 'all' && <span className="inline-block px-2 py-0.5 bg-white/10 rounded-full text-xs mr-1 mb-1">{'🌶️'.repeat(Number(filterSpice))} spice</span>}
-                        {filterHalal && <span className="inline-block px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full text-xs mr-1 mb-1">Halal only</span>}
-                        {searchQuery && <span className="inline-block px-2 py-0.5 bg-primary/20 text-primary rounded-full text-xs mr-1 mb-1">"{searchQuery}"</span>}
-                      </p>
-                      <p className="text-text-muted/60 text-xs mt-2">Try removing some filters to see more items</p>
-                    </div>
-                    <button
-                      onClick={clearFilters}
-                      className="px-8 py-3 bg-primary text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-yellow-500 transition-all shadow-lg shadow-primary/20"
-                    >
-                      Clear All Filters
-                    </button>
-                  </MotionDiv>
-                )}
-              </div>
+              <div className="col-span-full py-32 text-center text-white/20 font-black uppercase tracking-[0.5em]">Awaiting Dispatch Hub Response...</div>
             )}
           </AnimatePresence>
         </div>
@@ -691,15 +408,10 @@ const WelcomeBlurb = () => (
           <div><p className="text-5xl font-black text-white">48h</p><p className="text-[10px] font-black text-primary uppercase tracking-[0.3em] mt-2">Marination Hub</p></div>
         </div>
       </MotionDiv>
-      <MotionDiv initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} className="relative" style={{ perspective: 1000 }}>
-        <motion.div
-          className="aspect-[4/5] rounded-[60px] overflow-hidden border border-white/10 shadow-3xl group"
-          whileHover={{ rotateY: -5, rotateX: 3, scale: 1.01 }}
-          style={{ transformStyle: 'preserve-3d' }}
-          transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-        >
+      <MotionDiv initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }} className="relative">
+        <div className="aspect-[4/5] rounded-[60px] overflow-hidden border border-white/10 shadow-3xl group">
           <img src={backgroundInterior} alt="Kitchen Artisan" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" />
-        </motion.div>
+        </div>
         <div className="absolute -bottom-10 -left-10 bg-secondary p-10 rounded-[40px] border border-white/10 shadow-3xl max-w-sm">
           <p className="text-lg italic text-white/90 leading-relaxed font-serif">"The flavor-legacy of the Nizam's era, now synchronized with the modern Northeast grid."</p>
           <p className="mt-8 text-[12px] font-black uppercase tracking-[0.4em] text-primary">— Rabbani Basha</p>
@@ -744,9 +456,7 @@ const Testimonials = () => (
               { name: 'Anita S.', role: 'Scranton Foodie', text: "The Chicken Tikka Masala is legendary. It's like Bittoo's but with a modern artisan twist." },
               { name: 'Rahul V.', role: 'Biryani Critic', text: 'Truly the only place in the Northeast that understands the ritual of slow-cooked Dum Biryani.' },
             ].map((t, i) => (
-              <motion.div key={i} className="p-12 bg-secondary/20 border border-white/5 rounded-[40px] relative hover:border-primary/30 transition-all shadow-2xl group"
-                whileHover={{ y: -6, rotateX: 2, boxShadow: '0 20px 40px rgba(229,138,48,0.1)' }}
-                style={{ transformStyle: 'preserve-3d', perspective: 800 }}>
+              <div key={i} className="p-12 bg-secondary/20 border border-white/5 rounded-[40px] relative hover:border-primary/30 transition-all shadow-2xl group">
                 <div className="absolute top-8 right-10 text-primary opacity-20 group-hover:opacity-100 transition-opacity"><Star size={32} /></div>
                 <p className="text-xl text-white/80 mb-8 italic font-serif leading-relaxed">"{t.text}"</p>
                 <div className="flex items-center gap-6">
@@ -756,7 +466,7 @@ const Testimonials = () => (
                     <p className="text-[10px] text-primary font-bold uppercase mt-1">{t.role}</p>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>
@@ -1016,7 +726,6 @@ const Home = () => {
 
   return (
     <div className="bg-bg-main">
-      <Floating3DParticles />
       <Navbar />
       <Hero navigate={navigate} />
       <RestaurantVideo />

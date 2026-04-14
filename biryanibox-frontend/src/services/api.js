@@ -126,7 +126,8 @@ export const tablesAPI = {
   update:         (id, body)      => request(`/tables/${id}`,                  { method: 'PUT',   body: JSON.stringify(body) }),
   setStatus:      (id, status)    => request(`/tables/${id}/status`,           { method: 'PATCH', body: JSON.stringify({ status }) }),
   assignCaptain:  (id, captain_id) => request(`/tables/${id}/assign-captain`,  { method: 'PATCH', body: JSON.stringify({ captain_id }) }),
-  assignBulk:     (assignments)   => request('/tables/assign-captains-bulk',   { method: 'POST',  body: JSON.stringify({ assignments }) }),
+  assignBulk:          (assignments)   => request('/tables/assign-captains-bulk',   { method: 'POST',  body: JSON.stringify({ assignments }) }),
+  assignCaptainTables: (table_ids, captain_id) => request('/tables/assign-captain-tables', { method: 'PATCH', body: JSON.stringify({ table_ids, captain_id }) }),
   delete:         (id)            => request(`/tables/${id}`,                  { method: 'DELETE' }),
 };
 

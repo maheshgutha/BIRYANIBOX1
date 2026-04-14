@@ -100,23 +100,23 @@ const seed = async () => {
   console.log('Loyalty tiers seeded');
 
   // ── Restaurant Tables (9 tables) ───────────────────────────────────────────
-  const tables = await RestaurantTable.insertMany([
+  await RestaurantTable.insertMany([
     { table_number: 1, label: 'Table 1', capacity: 4,  type: 'regular', status: 'available', is_active: true },
     { table_number: 2, label: 'Table 2', capacity: 4,  type: 'regular', status: 'available', is_active: true },
     { table_number: 3, label: 'Table 3', capacity: 6,  type: 'regular', status: 'available', is_active: true },
     { table_number: 4, label: 'Table 4', capacity: 6,  type: 'regular', status: 'available', is_active: true },
     { table_number: 5, label: 'Table 5', capacity: 8,  type: 'regular', status: 'available', is_active: true },
     { table_number: 6, label: 'Table 6', capacity: 8,  type: 'regular', status: 'available', is_active: true },
-    { table_number: 7, label: 'VIP 1',   capacity: 10, type: 'vip',     status: 'available', is_active: true },
-    { table_number: 8, label: 'VIP 2',   capacity: 12, type: 'vip',     status: 'available', is_active: true },
-    { table_number: 9, label: 'VIP 3',   capacity: 8,  type: 'vip',     status: 'available', is_active: true },
+    { table_number: 7, label: 'Table 7', capacity: 10, type: 'vip',     status: 'available', is_active: true },
+    { table_number: 8, label: 'Table 8', capacity: 12, type: 'vip',     status: 'available', is_active: true },
+    { table_number: 9, label: 'Table 9', capacity: 8,  type: 'vip',     status: 'available', is_active: true },
   ]);
   console.log('Restaurant tables seeded');
 
   // ── AUTO-ASSIGN Captains to their Table Zones ──────────────────────────────
   // Captain 1 → Tables 1, 2, 3
   // Captain 2 → Tables 4, 5, 6
-  // Captain 3 → Tables 7, 8, 9  (VIP 1, 2, 3)
+  // Captain 3 → Tables 7, 8, 9
   // Captain 4 → No tables       (Delivery & Pickup only)
   const cap1 = users.find(u => u.email === 'captain1@biryanibox.com');
   const cap2 = users.find(u => u.email === 'captain2@biryanibox.com');
@@ -129,7 +129,7 @@ const seed = async () => {
   console.log('Captain zones assigned:');
   console.log(`  Captain1 (${cap1._id}) → Tables 1, 2, 3`);
   console.log(`  Captain2 (${cap2._id}) → Tables 4, 5, 6`);
-  console.log(`  Captain3 (${cap3._id}) → Tables 7, 8, 9 (VIP 1-3)`);
+  console.log(`  Captain3 (${cap3._id}) → Tables 7, 8, 9`);
   console.log(`  Captain4 → Delivery & Pickup (no tables)`);
 
   console.log('\n✅ Seed complete!\n');
@@ -138,7 +138,7 @@ const seed = async () => {
   console.log('  Manager:  manager@biryanibox.com  / manager123');
   console.log('  Captain1: captain1@biryanibox.com / captain123  (Tables 1-3)');
   console.log('  Captain2: captain2@biryanibox.com / captain123  (Tables 4-6)');
-  console.log('  Captain3: captain3@biryanibox.com / captain123  (VIP 1-3)');
+  console.log('  Captain3: captain3@biryanibox.com / captain123  (Tables 7-9)');
   console.log('  Captain4: captain4@biryanibox.com / captain123  (Delivery/Pickup)');
   console.log('  Chef1:    chef1@biryanibox.com    / chef123');
   console.log('  Chef2:    chef2@biryanibox.com    / chef123');

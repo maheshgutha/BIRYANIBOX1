@@ -8,7 +8,7 @@ const { protect, authorize } = require('../middleware/auth');
 // Zone map:
 //   Captain 1 → Tables 1, 2, 3   (regular)
 //   Captain 2 → Tables 4, 5, 6   (regular)
-//   Captain 3 → VIP 1, VIP 2, VIP 3  (vip)
+//   Captain 3 → Tables 7, 8, 9   (regular/vip)
 //   Captain 4 → no tables (delivery/pickup orders only)
 async function seedTables() {
   try {
@@ -26,12 +26,12 @@ async function seedTables() {
       { table_number: 4, label: 'Table 4', capacity: 6,  type: 'regular', status: 'available', is_active: true },
       { table_number: 5, label: 'Table 5', capacity: 8,  type: 'regular', status: 'available', is_active: true },
       { table_number: 6, label: 'Table 6', capacity: 8,  type: 'regular', status: 'available', is_active: true },
-      { table_number: 7, label: 'VIP 1',   capacity: 10, type: 'vip',     status: 'available', is_active: true },
-      { table_number: 8, label: 'VIP 2',   capacity: 12, type: 'vip',     status: 'available', is_active: true },
-      { table_number: 9, label: 'VIP 3',   capacity: 8,  type: 'vip',     status: 'available', is_active: true },
+      { table_number: 7, label: 'Table 7', capacity: 10, type: 'vip',     status: 'available', is_active: true },
+      { table_number: 8, label: 'Table 8', capacity: 12, type: 'vip',     status: 'available', is_active: true },
+      { table_number: 9, label: 'Table 9', capacity: 8,  type: 'vip',     status: 'available', is_active: true },
     ];
     await RestaurantTable.insertMany(tables);
-    console.log('[Tables] 9 tables seeded: Tables 1-6 + VIP 1-3');
+    console.log('[Tables] 9 tables seeded: Tables 1-9');
     console.log('[Tables] NOTE: Run utils/seed.js to assign captains to their zones');
   } catch (err) {
     console.error('[Tables] Seed error:', err.message);
@@ -73,7 +73,6 @@ router.get('/captain-zone/:captainId', protect, async (req, res, next) => {
   try {
     const tables = await RestaurantTable.find({ captain_id: req.params.captainId, is_active: true })
       .sort({ table_number: 1 });
-    // Identify zone type
     const isDeliveryCaptain = tables.length === 0;
     res.json({
       success: true,
@@ -86,6 +85,46 @@ router.get('/captain-zone/:captainId', protect, async (req, res, next) => {
           : tables.map(t => t.label).join(', '),
       }
     });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/tables  — create a new table (owner/manager only) ───────────
+router.post('/', protect, authorize('owner', 'manager'), async (req, res, next) => {
+  try {
+    const { label, capacity, type, captain_id } = req.body;
+
+    if (!label || !label.trim()) {
+      return res.status(400).json({ success: false, message: 'Table label is required' });
+    }
+
+    // Check for duplicate label
+    const existingLabel = await RestaurantTable.findOne({ label: label.trim() });
+    if (existingLabel) {
+      return res.status(400).json({ success: false, message: `A table with label "${label.trim()}" already exists` });
+    }
+
+    // Auto-assign next table_number
+    const last = await RestaurantTable.findOne().sort({ table_number: -1 });
+    const nextNumber = last ? last.table_number + 1 : 1;
+
+    // Validate captain if provided
+    if (captain_id) {
+      const cap = await User.findOne({ _id: captain_id, role: 'captain' });
+      if (!cap) return res.status(400).json({ success: false, message: 'User is not a captain' });
+    }
+
+    const table = await RestaurantTable.create({
+      table_number: nextNumber,
+      label: label.trim(),
+      capacity: capacity || 4,
+      type: type || 'regular',
+      status: 'available',
+      captain_id: captain_id || null,
+      is_active: true,
+    });
+
+    const populated = await RestaurantTable.findById(table._id).populate('captain_id', 'name email');
+    res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 });
 
@@ -133,7 +172,7 @@ router.patch('/:id/assign-captain', protect, authorize('owner', 'manager'), asyn
 // Supports zone-bulk assignment:
 //   { zone: 1, captain_id: "<id>" }  → assigns tables 1-3
 //   { zone: 2, captain_id: "<id>" }  → assigns tables 4-6
-//   { zone: 3, captain_id: "<id>" }  → assigns tables 7-9 (VIP)
+//   { zone: 3, captain_id: "<id>" }  → assigns tables 7-9
 // OR traditional { assignments: [{ table_number, captain_id }] }
 router.post('/assign-captains-bulk', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
@@ -177,6 +216,45 @@ router.post('/assign-captains-bulk', protect, authorize('owner', 'manager'), asy
       if (t) results.push(t);
     }
     res.json({ success: true, data: results });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/tables/:id/assign-captain-tables ───────────────────────────
+// Assign/unassign multiple tables to/from a captain at once
+// Body: { table_ids: [id1, id2, ...], captain_id: "<id>" | null }
+router.patch('/assign-captain-tables', protect, authorize('owner', 'manager'), async (req, res, next) => {
+  try {
+    const { table_ids, captain_id } = req.body;
+    if (!Array.isArray(table_ids)) {
+      return res.status(400).json({ success: false, message: 'table_ids array required' });
+    }
+    if (captain_id) {
+      const cap = await User.findOne({ _id: captain_id, role: 'captain' });
+      if (!cap) return res.status(400).json({ success: false, message: 'User is not a captain' });
+    }
+    const results = [];
+    for (const id of table_ids) {
+      const t = await RestaurantTable.findByIdAndUpdate(
+        id,
+        { captain_id: captain_id || null },
+        { new: true }
+      ).populate('captain_id', 'name email');
+      if (t) results.push(t);
+    }
+    res.json({ success: true, data: results });
+  } catch (err) { next(err); }
+});
+
+// ── DELETE /api/tables/:id ─────────────────────────────────────────────────
+router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
+  try {
+    const table = await RestaurantTable.findByIdAndUpdate(
+      req.params.id,
+      { is_active: false },
+      { new: true }
+    );
+    if (!table) return res.status(404).json({ success: false, message: 'Table not found' });
+    res.json({ success: true, message: 'Table deactivated' });
   } catch (err) { next(err); }
 });
 

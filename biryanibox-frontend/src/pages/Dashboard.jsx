@@ -843,7 +843,7 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
     const weekAgo  = new Date(now); weekAgo.setDate(now.getDate() - 7);
     const monthAgo = new Date(now); monthAgo.setMonth(now.getMonth() - 1);
 
-    // Captain zone: tables 1-3 → captain1, 4-6 → captain2, VIP(7-9) → captain3, no tables → captain4
+    // Captain zone: tables 1-3 → captain1, 4-6 → captain2, 7-9 → captain3, no tables → captain4
     const myTables = captainTableNumbers || [];
     const isDeliveryCaptain = myTables.length === 0;
 
@@ -980,15 +980,21 @@ const TableStatus = ({ user }) => {
   const [updating, setUpdating] = useState(null);
   const [msg, setMsg] = useState({ text: '', type: '' });
   const [isDeliveryCaptain, setIsDeliveryCaptain] = useState(false);
+  const [showAddTable, setShowAddTable] = useState(false);
+  const [addForm, setAddForm] = useState({ label: '', capacity: 4, type: 'regular', captain_id: '' });
+  const [captains, setCaptains] = useState([]);
+  const [addingTable, setAddingTable] = useState(false);
 
   const isCaptain = user?.role === 'captain';
+  const isOwner = user?.role === 'owner';
+  const isManager = user?.role === 'manager';
+  const canAddTable = isOwner || isManager;
 
   const [reservations, setReservations] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Load tables (captain sees own, others see all)
       if (isCaptain) {
         const res = await tablesAPI.getMyTables();
         const myTables = res.data || [];
@@ -999,7 +1005,6 @@ const TableStatus = ({ user }) => {
         setTables(res.data || []);
         setIsDeliveryCaptain(false);
       }
-      // Also load upcoming confirmed reservations to show on table cards
       try {
         const rRes = await reservationsAPI.getAll('?status=confirmed');
         setReservations(rRes.data || []);
@@ -1010,6 +1015,13 @@ const TableStatus = ({ user }) => {
 
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(load, 20000);
+
+  // Load captains list for the "Add Table" form
+  useEffect(() => {
+    if (canAddTable) {
+      usersAPI.getAll('?role=captain').then(r => setCaptains(r.data || [])).catch(() => setCaptains([]));
+    }
+  }, [canAddTable]);
 
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
 
@@ -1023,6 +1035,25 @@ const TableStatus = ({ user }) => {
     finally { setUpdating(null); }
   };
 
+  const handleAddTable = async (e) => {
+    e.preventDefault();
+    if (!addForm.label.trim()) { flash('Table label is required', 'error'); return; }
+    setAddingTable(true);
+    try {
+      await tablesAPI.create({
+        label: addForm.label.trim(),
+        capacity: parseInt(addForm.capacity) || 4,
+        type: addForm.type,
+        captain_id: addForm.captain_id || undefined,
+      });
+      flash(`Table "${addForm.label}" added successfully!`);
+      setShowAddTable(false);
+      setAddForm({ label: '', capacity: 4, type: 'regular', captain_id: '' });
+      load();
+    } catch (err) { flash(err.message || 'Failed to add table', 'error'); }
+    finally { setAddingTable(false); }
+  };
+
   const tableConfig = {
     available:     { bg: 'bg-green-500/10 border-green-500/30', badge: 'bg-green-500/20 text-green-400', dot: 'bg-green-400' },
     occupied:      { bg: 'bg-red-500/10 border-red-500/30',     badge: 'bg-red-500/20 text-red-400',     dot: 'bg-red-400'   },
@@ -1032,7 +1063,6 @@ const TableStatus = ({ user }) => {
 
   const allStatuses = ['available', 'occupied', 'reserved', 'not_available'];
 
-  // Captain 4 (delivery captain) — no tables, show info panel
   if (isDeliveryCaptain) {
     return (
       <div className="space-y-6">
@@ -1075,13 +1105,23 @@ const TableStatus = ({ user }) => {
               : 'Click a table to change its status manually'}
           </p>
         </div>
-        <div className="flex gap-4 text-xs font-bold text-text-muted flex-wrap">
-          {allStatuses.map(s => (
-            <div key={s} className="flex items-center gap-1.5 capitalize">
-              <span className={`w-2.5 h-2.5 rounded-full ${tableConfig[s]?.dot}`} />
-              {s.replace('_', ' ')}
-            </div>
-          ))}
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex gap-4 text-xs font-bold text-text-muted flex-wrap">
+            {allStatuses.map(s => (
+              <div key={s} className="flex items-center gap-1.5 capitalize">
+                <span className={`w-2.5 h-2.5 rounded-full ${tableConfig[s]?.dot}`} />
+                {s.replace('_', ' ')}
+              </div>
+            ))}
+          </div>
+          {canAddTable && (
+            <button
+              onClick={() => setShowAddTable(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all"
+            >
+              <Plus size={14} /> Add Table
+            </button>
+          )}
         </div>
       </div>
       {isCaptain && (
@@ -1091,12 +1131,85 @@ const TableStatus = ({ user }) => {
         </div>
       )}
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
+
+      {/* Add Table Modal */}
+      <AnimatePresence>
+        {showAddTable && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
+              className="bg-[#1a1a1a] rounded-3xl border border-white/10 w-full max-w-sm shadow-2xl">
+              <div className="flex items-center justify-between p-6 border-b border-white/10">
+                <h3 className="text-xl font-black text-white flex items-center gap-2"><Plus size={18} className="text-primary" />Add New Table</h3>
+                <button onClick={() => setShowAddTable(false)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all"><X size={16} /></button>
+              </div>
+              <form onSubmit={handleAddTable} className="p-6 space-y-4">
+                <div>
+                  <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">TABLE LABEL *</label>
+                  <input
+                    type="text" required
+                    value={addForm.label}
+                    onChange={e => setAddForm(p => ({ ...p, label: e.target.value }))}
+                    placeholder="e.g. Table 10, Terrace 1, Lounge A"
+                    className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">CAPACITY</label>
+                    <input
+                      type="number" min="1" max="50"
+                      value={addForm.capacity}
+                      onChange={e => setAddForm(p => ({ ...p, capacity: e.target.value }))}
+                      className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">TYPE</label>
+                    <select
+                      value={addForm.type}
+                      onChange={e => setAddForm(p => ({ ...p, type: e.target.value }))}
+                      className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
+                    >
+                      <option value="regular">Regular</option>
+                      <option value="vip">VIP</option>
+                      <option value="outdoor">Outdoor</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">ASSIGN CAPTAIN (optional)</label>
+                  <select
+                    value={addForm.captain_id}
+                    onChange={e => setAddForm(p => ({ ...p, captain_id: e.target.value }))}
+                    className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer"
+                  >
+                    <option value="">— Unassigned —</option>
+                    {captains.map(c => (
+                      <option key={c._id} value={c._id}>{c.name} ({c.email})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setShowAddTable(false)}
+                    className="flex-1 py-3.5 border border-white/20 rounded-2xl text-sm font-bold text-white/70 hover:bg-white/5 transition-all">Cancel</button>
+                  <button type="submit" disabled={addingTable}
+                    className="flex-1 py-3.5 bg-primary hover:bg-primary-hover text-white rounded-2xl text-sm font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-50">
+                    {addingTable ? <Loader size={14} className="animate-spin" /> : <Plus size={14} />}
+                    {addingTable ? 'Adding...' : 'Add Table'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {tables.map(t => {
             const cfg = tableConfig[t.status] || tableConfig.available;
             const isUpdating = updating === t._id;
-            // Find upcoming reservation for this table
             const tableRes = reservations.find(r =>
               String(r.table_assigned) === String(t.table_number) ||
               String(r.table_assigned) === t.label
@@ -1104,14 +1217,16 @@ const TableStatus = ({ user }) => {
             return (
               <div key={t._id} className={`rounded-2xl border p-4 ${cfg.bg} relative overflow-hidden`}>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-xl font-black text-white">T{t.label || t.table_number}</p>
+                  <p className="text-xl font-black text-white">{t.label || `T${t.table_number}`}</p>
                   {isUpdating && <Loader size={14} className="animate-spin text-primary" />}
                 </div>
                 {t.capacity && <p className="text-[10px] text-text-muted mb-2">{t.capacity} seats</p>}
                 <span className={`text-[9px] font-black px-2 py-1 rounded-full uppercase mb-2 inline-block ${cfg.badge}`}>
                   {t.status.replace('_', ' ')}
                 </span>
-                {/* Reservation info on reserved tables */}
+                {t.type === 'vip' && (
+                  <span className="ml-1 text-[9px] font-black px-2 py-1 rounded-full uppercase bg-amber-500/20 text-amber-400">VIP</span>
+                )}
                 {tableRes && (
                   <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-2 mb-2">
                     <p className="text-[9px] font-black text-yellow-400 uppercase tracking-widest mb-0.5">📅 Reserved</p>
@@ -1122,6 +1237,9 @@ const TableStatus = ({ user }) => {
                     </p>
                     <p className="text-[9px] text-yellow-300/60">{tableRes.guests} guests</p>
                   </div>
+                )}
+                {t.captain_id && (
+                  <p className="text-[9px] text-text-muted mb-1 truncate">👤 {t.captain_id.name || 'Captain'}</p>
                 )}
                 <select
                   value={t.status}
@@ -1140,6 +1258,11 @@ const TableStatus = ({ user }) => {
             <div className="col-span-full py-20 text-center text-text-muted">
               <LayoutDashboard size={40} className="mx-auto mb-3 opacity-20" />
               <p className="font-bold text-sm uppercase tracking-widest">No tables configured</p>
+              {canAddTable && (
+                <button onClick={() => setShowAddTable(true)} className="mt-4 px-5 py-2.5 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+                  Add First Table
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1284,7 +1407,7 @@ const ReservationsPanel = () => {
               {/* Table # */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Table # (optional)</label>
-                <input value={form.table_number} onChange={sf('table_number')} placeholder="e.g. 3 or VIP 1"
+                <input value={form.table_number} onChange={sf('table_number')} placeholder="e.g. 10, Terrace 1"
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
               {/* Notes */}
@@ -1335,7 +1458,7 @@ const ReservationsPanel = () => {
                     <div className="grid md:grid-cols-2 gap-3">
                       <div>
                         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Assign Table</label>
-                        <input value={tableAssign} onChange={e => setTableAssign(e.target.value)} placeholder="e.g. Table 3 or VIP Table 7"
+                        <input value={tableAssign} onChange={e => setTableAssign(e.target.value)} placeholder="e.g. Table 3 or Table 7"
                           className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
                       </div>
                       <div>
@@ -2024,6 +2147,8 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
   const [delConfirm, setDelConfirm] = useState(null);
   const [msg, setMsg] = useState({ text: '', type: '' });
   const [roleFilter, setRoleFilter] = useState('all');
+  const [allTables, setAllTables] = useState([]);
+  const [captainTableMap, setCaptainTableMap] = useState({}); // captainId → [tableIds]
   const [form, setForm] = useState({
     name: '', email: '', phone: '', password: '', role: 'captain',
     dob: '', gender: '', address: '', city: '', state: '', pincode: '',
@@ -2031,6 +2156,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
     joining_date: '', id_proof_type: '', id_proof_number: '',
     salary: '', bank_account: '', ifsc_code: '',
   });
+  const [selectedTableIds, setSelectedTableIds] = useState([]); // for captain assignment
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
 
   const allowedRoles = currentUserRole === 'owner'
@@ -2042,7 +2168,22 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
     try {
       const queries = allowedRoles.map(r => usersAPI.getAll(`?role=${r}`));
       const results = await Promise.all(queries);
-      setStaff(results.flatMap(r => r.data || []));
+      const allStaff = results.flatMap(r => r.data || []);
+      setStaff(allStaff);
+
+      // Load all tables + build captain→tables map
+      const tablesRes = await tablesAPI.getAll();
+      const tables = tablesRes.data || [];
+      setAllTables(tables);
+      const map = {};
+      for (const t of tables) {
+        if (t.captain_id) {
+          const capId = t.captain_id._id || t.captain_id;
+          if (!map[capId]) map[capId] = [];
+          map[capId].push(t._id);
+        }
+      }
+      setCaptainTableMap(map);
     } catch { setStaff([]); }
     finally { setLoading(false); }
   }, []);
@@ -2052,27 +2193,58 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
 
   const openAdd = () => {
     setEditTarget(null);
+    setSelectedTableIds([]);
     setForm({ name: '', email: '', phone: '', password: '', role: allowedRoles[0], dob: '', gender: '', address: '', city: '', state: '', pincode: '', emergency_contact_name: '', emergency_contact_phone: '', joining_date: '', id_proof_type: '', id_proof_number: '', salary: '', bank_account: '', ifsc_code: '' });
     setShowForm(true);
   };
 
   const openEdit = (u) => {
     setEditTarget(u);
+    // Load current table assignments for this captain
+    const currentTableIds = (captainTableMap[u._id] || []);
+    setSelectedTableIds(currentTableIds);
     setForm({ name: u.name, email: u.email || '', phone: u.phone || '', password: '', role: u.role, dob: u.dob ? u.dob.split('T')[0] : '', gender: u.gender || '', address: u.address || '', city: u.city || '', state: u.state || '', pincode: u.pincode || '', emergency_contact_name: u.emergency_contact_name || '', emergency_contact_phone: u.emergency_contact_phone || '', joining_date: u.joining_date ? u.joining_date.split('T')[0] : '', id_proof_type: u.id_proof_type || '', id_proof_number: u.id_proof_number || '', salary: u.salary || '', bank_account: u.bank_account || '', ifsc_code: u.ifsc_code || '' });
     setShowForm(true);
+  };
+
+  const toggleTableSelection = (tableId) => {
+    setSelectedTableIds(prev =>
+      prev.includes(tableId) ? prev.filter(id => id !== tableId) : [...prev, tableId]
+    );
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       const { password, ...rest } = form;
+      let savedUser;
       if (editTarget) {
-        await usersAPI.update(editTarget._id, rest);
+        const res = await usersAPI.update(editTarget._id, rest);
+        savedUser = res.data;
         flash('Staff updated successfully');
       } else {
-        await usersAPI.create({ ...rest, password });
+        const res = await usersAPI.create({ ...rest, password });
+        savedUser = res.data;
         flash(`${form.role} added successfully`);
       }
+
+      // If role is captain, handle table assignments
+      if (form.role === 'captain' && savedUser?._id) {
+        const captainId = savedUser._id;
+
+        // 1. Unassign tables currently owned by this captain that are no longer selected
+        const previousTableIds = editTarget ? (captainTableMap[editTarget._id] || []) : [];
+        const toUnassign = previousTableIds.filter(id => !selectedTableIds.includes(id));
+        for (const tid of toUnassign) {
+          await tablesAPI.assignCaptain(tid, null);
+        }
+
+        // 2. Assign newly selected tables to this captain
+        for (const tid of selectedTableIds) {
+          await tablesAPI.assignCaptain(tid, captainId);
+        }
+      }
+
       setShowForm(false);
       load();
     } catch (err) { flash(err.message, 'error'); }
@@ -2101,8 +2273,18 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
     security: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
   };
 
-  // Filter staff by role
   const filteredStaff = roleFilter === 'all' ? staff : staff.filter(u => u.role === roleFilter);
+
+  // Tables available for captain assignment (show all tables, mark which captain has them)
+  const getTableOwnerName = (tableId) => {
+    for (const [capId, tableIds] of Object.entries(captainTableMap)) {
+      if (tableIds.includes(tableId)) {
+        const cap = staff.find(s => s._id === capId);
+        if (cap && (!editTarget || capId !== editTarget._id)) return cap.name;
+      }
+    }
+    return null;
+  };
 
   return (
     <div className="space-y-8">
@@ -2184,6 +2366,60 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                     <PasswordField value={form.password} onChange={sf('password')} placeholder="Min 6 characters" required />
                   </div>
                 )}
+
+                {/* Captain Table Assignment Section */}
+                {form.role === 'captain' && (
+                  <div className="bg-green-500/5 border border-green-500/20 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Shield size={14} className="text-green-400" />
+                      <label className="text-[11px] text-green-400 font-black uppercase tracking-widest">
+                        TABLE ZONE ASSIGNMENT
+                      </label>
+                    </div>
+                    <p className="text-[10px] text-text-muted">Select which tables this captain will manage. Only this captain will receive notifications for these tables.</p>
+                    {allTables.length === 0 ? (
+                      <p className="text-[10px] text-text-muted italic">No tables available yet. Add tables first from the Table Status module.</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+                        {allTables.map(t => {
+                          const isSelected = selectedTableIds.includes(t._id);
+                          const ownerName = getTableOwnerName(t._id);
+                          const isOwnedByOther = !!ownerName;
+                          return (
+                            <button
+                              key={t._id}
+                              type="button"
+                              onClick={() => toggleTableSelection(t._id)}
+                              className={`p-2.5 rounded-xl border text-center transition-all ${
+                                isSelected
+                                  ? 'bg-green-500/20 border-green-500/50 text-green-400'
+                                  : isOwnedByOther
+                                  ? 'bg-orange-500/10 border-orange-500/20 text-orange-400 opacity-70'
+                                  : 'bg-white/5 border-white/10 text-text-muted hover:border-white/30 hover:text-white'
+                              }`}
+                            >
+                              <p className="text-[10px] font-black">{t.label}</p>
+                              {t.type === 'vip' && <p className="text-[8px] text-amber-400">VIP</p>}
+                              {isSelected && <p className="text-[8px] text-green-400">✓ Selected</p>}
+                              {isOwnedByOther && !isSelected && (
+                                <p className="text-[8px] text-orange-400 truncate">{ownerName}</p>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {selectedTableIds.length > 0 && (
+                      <p className="text-[10px] text-green-400 font-bold">
+                        {selectedTableIds.length} table{selectedTableIds.length !== 1 ? 's' : ''} selected
+                      </p>
+                    )}
+                    {selectedTableIds.length === 0 && (
+                      <p className="text-[10px] text-text-muted italic">No tables selected — this captain will handle Delivery & Pickup only.</p>
+                    )}
+                  </div>
+                )}
+
                 <details className="group">
                   <summary className="text-[10px] text-primary font-black uppercase tracking-widest cursor-pointer hover:text-primary/80 list-none flex items-center gap-2">
                     <Plus size={12} /> Additional Details (optional)
@@ -2223,48 +2459,59 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
           <div className="divide-y divide-white/5">
-            {filteredStaff.map(u => (
-              <div key={u._id} className="flex items-center px-6 py-5 hover:bg-white/3 group">
-                <button
-                  onClick={() => onViewProfile && onViewProfile(u)}
-                  className="flex items-center gap-4 flex-1 min-w-0 text-left"
-                >
-                  <div className="w-11 h-11 rounded-full border border-primary/30 overflow-hidden shrink-0">
-                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${u.name}`} alt="" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">{u.name}</p>
-                    <p className="text-[10px] text-text-muted">{u.email}</p>
-                    {u.phone && <p className="text-[10px] text-text-muted">{u.phone}</p>}
-                  </div>
-                </button>
-                <div className="w-[15%]">
-                  <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${roleColor[u.role] || 'text-text-muted bg-white/5 border-white/10'}`}>{u.role}</span>
-                </div>
-                <div className="w-[15%] text-xs text-text-muted">{u.phone || '—'}</div>
-                <div className="w-[10%]">
-                  <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase border ${u.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
-                    {u.is_active ? 'Active' : 'Disabled'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                  {onViewProfile && (
-                    <button onClick={() => onViewProfile(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition-all" title="View Profile">
-                      <Eye size={13} />
-                    </button>
-                  )}
-                  <button onClick={() => openEdit(u)} className="p-2 bg-primary/20 text-primary rounded-lg hover:bg-primary hover:text-white transition-all" title="Edit"><Edit2 size={13} /></button>
-                  <button onClick={() => toggleActive(u)}
-                    className={`p-2 rounded-lg transition-all ${u.is_active ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500 hover:text-white' : 'bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white'}`}
-                    title={u.is_active ? 'Disable' : 'Enable'}>
-                    {u.is_active ? <ToggleLeft size={13} /> : <ToggleRight size={13} />}
+            {filteredStaff.map(u => {
+              const assignedTables = u.role === 'captain'
+                ? allTables.filter(t => (t.captain_id?._id || t.captain_id) === u._id)
+                : [];
+              return (
+                <div key={u._id} className="flex items-center px-6 py-5 hover:bg-white/3 group">
+                  <button
+                    onClick={() => onViewProfile && onViewProfile(u)}
+                    className="flex items-center gap-4 flex-1 min-w-0 text-left"
+                  >
+                    <div className="w-11 h-11 rounded-full border border-primary/30 overflow-hidden shrink-0">
+                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${u.name}`} alt="" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">{u.name}</p>
+                      <p className="text-[10px] text-text-muted">{u.email}</p>
+                      {u.role === 'captain' && (
+                        <p className="text-[10px] text-green-400 mt-0.5">
+                          {assignedTables.length > 0
+                            ? `🪑 ${assignedTables.map(t => t.label).join(', ')}`
+                            : '🚗 Delivery & Pickup'}
+                        </p>
+                      )}
+                    </div>
                   </button>
-                  {currentUserRole === 'owner' && (
-                    <button onClick={() => setDelConfirm(u)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all" title="Delete"><Trash2 size={13} /></button>
-                  )}
+                  <div className="w-[15%]">
+                    <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${roleColor[u.role] || 'text-text-muted bg-white/5 border-white/10'}`}>{u.role}</span>
+                  </div>
+                  <div className="w-[15%] text-xs text-text-muted">{u.phone || '—'}</div>
+                  <div className="w-[10%]">
+                    <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase border ${u.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                      {u.is_active ? 'Active' : 'Disabled'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    {onViewProfile && (
+                      <button onClick={() => onViewProfile(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition-all" title="View Profile">
+                        <Eye size={13} />
+                      </button>
+                    )}
+                    <button onClick={() => openEdit(u)} className="p-2 bg-primary/20 text-primary rounded-lg hover:bg-primary hover:text-white transition-all" title="Edit"><Edit2 size={13} /></button>
+                    <button onClick={() => toggleActive(u)}
+                      className={`p-2 rounded-lg transition-all ${u.is_active ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500 hover:text-white' : 'bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white'}`}
+                      title={u.is_active ? 'Disable' : 'Enable'}>
+                      {u.is_active ? <ToggleLeft size={13} /> : <ToggleRight size={13} />}
+                    </button>
+                    {currentUserRole === 'owner' && (
+                      <button onClick={() => setDelConfirm(u)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all" title="Delete"><Trash2 size={13} /></button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {filteredStaff.length === 0 && (
               <div className="py-16 text-center text-text-muted">
                 <Users size={40} className="mx-auto mb-3 opacity-20" />
@@ -2302,8 +2549,6 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
 };
 
 
-
-// ─── LEAVE MODULE ─────────────────────────────────────────────────────────────
 const LeaveModule = ({ user }) => {
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -5382,5 +5627,6 @@ const Dashboard = () => {
     </div>
   );
 };
+
 
 export default Dashboard;

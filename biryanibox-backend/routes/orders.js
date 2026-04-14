@@ -35,7 +35,7 @@ const notifyRoles = async (roles, { type, title, message }) => {
 };
 
 // ── Helper: get captain for a table number ────────────────────────────────
-// Tables 1-3 → captain 1, 4-6 → captain 2, 7-9 → captain 3
+// Tables 1-3 → captain 1, 4-6 → captain 2, 7-9 → captain 3 (dynamic, based on DB assignments)
 // Takeaway/Delivery → captain with role 'captain' who handles delivery (4th captain)
 const getCaptainForTable = async (tableNumber) => {
   if (!tableNumber || tableNumber === 'Takeaway') {
@@ -47,7 +47,7 @@ const getCaptainForTable = async (tableNumber) => {
     }
     return null;
   }
-  // Try label match first (e.g. "VIP 1", "Table 2")
+  // Try label match first (e.g. "Table 7", "Table 2")
   const byLabel = await RestaurantTable.findOne({ label: tableNumber }).populate('captain_id');
   if (byLabel) return byLabel.captain_id || null;
   // Fallback: numeric match
@@ -297,7 +297,7 @@ router.post('/', protect, async (req, res, next) => {
       if (!isNaN(parsed)) {
         resolvedTableNum = parsed;
       } else {
-        // Try to extract number from label like 'Table 1' or 'VIP 1'
+        // Try to extract number from label like "Table 1" or "Table 7"
         const match = String(table_number).match(/\d+/);
         if (match) resolvedTableNum = parseInt(match[0]);
       }

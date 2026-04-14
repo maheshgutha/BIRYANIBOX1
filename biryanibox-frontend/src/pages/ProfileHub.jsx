@@ -263,7 +263,7 @@ const ProfileHub = () => {
   useEffect(() => {
     if (activeTab === 'live') {
       loadLiveOrders();
-      const id = setInterval(loadLiveOrders, 4000);
+      const id = setInterval(loadLiveOrders, 40000);
       return () => clearInterval(id);
     }
   }, [activeTab, loadLiveOrders]);
@@ -397,7 +397,7 @@ const ProfileHub = () => {
       <div className="pt-32 pb-20 container max-w-6xl mx-auto px-6">
 
         {/* Header */}
-        <div className="flex items-center gap-6 mb-10">
+        <div className="flex items-center gap-6 mb-10 mt-32">
           <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-primary/30 shrink-0">
             <img src={'https://api.dicebear.com/7.x/avataaars/svg?seed=' + user.name} alt="Avatar" className="w-full h-full" />
           </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart, useAuth } from '../context/useContextHooks';
 import { ordersAPI, tablesAPI, giftCardsAPI, loyaltyAPI } from '../services/api';
@@ -7,7 +7,7 @@ import {
   ShoppingBag, Plus, Minus, ArrowRight, ChevronLeft,
   Tag, CheckCircle, XCircle, Gift, Copy, TrendingUp, Loader, Package,
   MapPin, RefreshCw, Clock, ChefHat, Star, Utensils, CheckSquare, CreditCard,
-  UtensilsCrossed, Truck,
+  UtensilsCrossed, Truck, ChevronsDown, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
 import heroBiryani   from '../assets/hero-biryani.png';
@@ -84,11 +84,13 @@ const ORDER_STEPS    = DINEIN_STEPS;   // default fallback
 const STATUS_TO_STEP = DINEIN_STATUS_STEP;
 
 // ── Live Order Tracker ─────────────────────────────────────────────────────────
-const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCoupon, onNewOrder, orderType }) => {
+// inline=true → compact banner inside cart page; inline=false → full-page view
+const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCoupon, onNewOrder, orderType, inline = false, onGoToBooking }) => {
   const navigate  = useNavigate();
   const [order,      setOrder]      = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh,setLastRefresh]= useState(new Date());
+  const [collapsed,  setCollapsed]  = useState(false);
 
   // Pick correct step config based on order type
   const ot = order?.order_type || orderType || 'dine-in';
@@ -120,6 +122,113 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
   const displayTotal   = order?.total ?? grandTotal;
   const displayOrderNum = order?.order_number || orderNumber;
 
+  // ── INLINE mode: compact tracker banner shown inside the cart page ──────────
+  if (inline) {
+    return (
+      <div className="bg-secondary/40 border border-primary/30 rounded-3xl overflow-hidden">
+        {/* Header row */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center">
+              <MapPin size={14} className="text-primary" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary">Live Order Tracking</p>
+              <p className="text-xs text-white/60 font-bold">{displayOrderNum ? `#${displayOrderNum}` : 'Processing…'}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => fetchOrder(true)} disabled={refreshing}
+              className="text-primary/60 hover:text-primary transition-colors">
+              <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+            <button onClick={() => setCollapsed(c => !c)}
+              className="text-white/30 hover:text-white transition-colors">
+              {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            </button>
+          </div>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {!collapsed && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              className="overflow-hidden"
+            >
+              <div className="p-5 space-y-4">
+                {/* Progress bar */}
+                <div className="flex items-center justify-between relative">
+                  <div className="absolute top-4 left-0 right-0 h-0.5 bg-white/10 z-0" />
+                  <motion.div className="absolute top-4 left-0 h-0.5 bg-primary z-0"
+                    initial={{ width: '0%' }}
+                    animate={{ width: `${(currentStep / (steps.length - 1)) * 100}%` }}
+                    transition={{ duration: 0.8 }} />
+                  {steps.map((step, idx) => {
+                    const Icon = step.icon;
+                    const done   = idx < currentStep;
+                    const active = idx === currentStep;
+                    return (
+                      <div key={idx} className="flex flex-col items-center gap-1.5 z-10">
+                        <motion.div animate={active ? { scale: [1, 1.15, 1] } : {}} transition={{ repeat: Infinity, duration: 2 }}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all ${done ? 'bg-primary border-primary' : active ? 'bg-primary border-primary shadow-lg shadow-primary/40' : 'bg-secondary border-white/20'}`}>
+                          <Icon size={13} className={done || active ? 'text-white' : 'text-text-muted'} />
+                        </motion.div>
+                        <span className={`text-[8px] font-black uppercase tracking-wider ${active ? 'text-primary' : done ? 'text-white/50' : 'text-text-muted'}`}>
+                          {step.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Items summary */}
+                <div className="bg-white/5 rounded-2xl p-3 space-y-1.5">
+                  {displayItems.slice(0, 3).map((item, i) => (
+                    <div key={i} className="flex justify-between text-xs">
+                      <span className="text-white/70">{item.name || 'Item'}</span>
+                      <span className="text-text-muted font-bold">×{item.quantity || 1}</span>
+                    </div>
+                  ))}
+                  {displayItems.length > 3 && (
+                    <p className="text-[10px] text-text-muted">+{displayItems.length - 3} more items</p>
+                  )}
+                  <div className="border-t border-white/10 pt-1.5 flex justify-between font-black text-xs">
+                    <span className="text-white/50">Total</span>
+                    <span className="text-primary">${typeof displayTotal === 'number' ? displayTotal.toFixed(2) : '—'}</span>
+                  </div>
+                </div>
+
+                {isDone && (
+                  <div className="flex items-center gap-2 text-green-400 text-xs font-black">
+                    <CheckCircle size={14} /> Order Complete! Thank you 🙏
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  {onGoToBooking && (
+                    <button onClick={onGoToBooking}
+                      className="flex-1 py-3 bg-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 hover:bg-primary/80 transition-all">
+                      <ChevronsDown size={13} /> Go to Booking
+                    </button>
+                  )}
+                  <button onClick={() => navigate('/')}
+                    className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center gap-1.5">
+                    + Add Items <ArrowRight size={12} />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  // ── FULL PAGE mode (when cart is empty and only tracking is shown) ──────────
   return (
     <div className="min-h-screen bg-bg-main text-white pt-28 px-6 pb-12 md:px-12">
       <div className="max-w-2xl mx-auto space-y-8">
@@ -146,7 +255,6 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
               const Icon = step.icon;
               const done    = idx < currentStep;
               const active  = idx === currentStep;
-              const pending = idx > currentStep;
               return (
                 <div key={idx} className="flex flex-col items-center gap-2 z-10">
                   <motion.div animate={active ? { scale: [1, 1.15, 1] } : {}} transition={{ repeat: Infinity, duration: 2 }}
@@ -185,7 +293,6 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
           </div>
         </div>
 
-        {/* Reward coupon unlocked */}
         <AnimatePresence>
           {newCoupon && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
@@ -248,6 +355,7 @@ const Cart = () => {
   const { user }  = useAuth();
   const navigate  = useNavigate();
   const userId    = user?._id || user?.id || user?.email || null;
+  const bookingRef = useRef(null);
 
   const [history,       setHistory]       = useState(() => userId ? getHistory(userId) : { runningTotal: 0, nextMilestone: 1000, entries: [], coupons: [] });
   const [appliedCoupon, setAppliedCoupon] = useState(null);
@@ -445,8 +553,12 @@ const Cart = () => {
     setNewCoupon(null); setShowTracker(false); setShowSuccess(false);
   };
 
-  // Show tracker if active order exists
-  if (placedOrderId && showTracker) {
+  const handleGoToBooking = () => {
+    bookingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // Full-page tracker only when cart is EMPTY and actively tracking
+  if (placedOrderId && showTracker && cart.length === 0) {
     return (
       <LiveOrderTracker orderId={placedOrderId} orderNumber={placedOrderNum}
         placedItems={placedItemsSnap} grandTotal={placedTotal}
@@ -483,6 +595,20 @@ const Cart = () => {
           {/* ── Left: Cart items + tracker ── */}
           <div className="flex-1 space-y-8">
             <h1 className="text-4xl font-bold font-heading">Your Flavor Box</h1>
+
+            {/* ── Inline Live Tracker: shown when cart has items + active order ── */}
+            {placedOrderId && showTracker && cart.length > 0 && (
+              <LiveOrderTracker
+                inline
+                orderId={placedOrderId}
+                orderNumber={placedOrderNum}
+                placedItems={placedItemsSnap}
+                grandTotal={placedTotal}
+                newCoupon={newCoupon}
+                onNewOrder={handleNewOrder}
+                onGoToBooking={handleGoToBooking}
+              />
+            )}
 
             {/* Rewards Tracker */}
             {userId && (
@@ -593,7 +719,7 @@ const Cart = () => {
 
           {/* ── Right: Order summary ── */}
           {cart.length > 0 && (
-            <div className="lg:w-[360px] space-y-5 shrink-0">
+            <div ref={bookingRef} className="lg:w-[360px] space-y-5 shrink-0">
               <h2 className="text-xl font-black">Order Summary</h2>
 
               <div className="bg-secondary/30 border border-white/10 rounded-2xl p-5 space-y-3">

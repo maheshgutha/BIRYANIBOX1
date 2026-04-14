@@ -91,7 +91,7 @@ const Navbar = () => {
         <div className="hidden md:flex items-center gap-8">
 
           {/* ── Dine-In / Delivery toggle ── */}
-          <div className="flex bg-white/5 p-1 rounded-full border border-white/10 mr-2">
+          {/* <div className="flex bg-white/5 p-1 rounded-full border border-white/10 mr-2">
             <button
               onClick={() => handleModeChange('dinein')}
               className={`flex items-center gap-2 px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${orderMode === 'dinein' ? 'bg-primary text-white shadow-xl' : 'text-white/40 hover:text-white'}`}
@@ -104,7 +104,7 @@ const Navbar = () => {
             >
               <Truck size={13} /> Delivery
             </button>
-          </div>
+          </div> */}
 
           {/* Nav links */}
           {navLinks.map(link => (

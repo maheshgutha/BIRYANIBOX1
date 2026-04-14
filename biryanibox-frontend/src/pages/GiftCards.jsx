@@ -143,21 +143,21 @@ const GiftCards = () => {
             ) : (
               <>
                 {/* Sub-tabs: Received | Add by Code */}
-                <div className="flex bg-white/5 p-1 rounded-xl mb-6 border border-white/10 w-fit">
+                {/* <div className="flex bg-white/5 p-1 rounded-xl mb-6 border border-white/10 w-fit">
                   {[['received','Received Cards'],['add','Add by Code']].map(([t,label]) => (
                     <button key={t} onClick={() => setCardSubTab(t)}
                       className={`px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${cardSubTab === t ? 'bg-primary text-white' : 'text-white/40 hover:text-white'}`}>
                       {label}
                     </button>
                   ))}
-                </div>
+                </div> */}
 
                 {cardSubTab === 'received' && (
                   myCards.length === 0 ? (
                     <div className="text-center py-16 bg-secondary/40 border border-white/10 rounded-3xl">
                       <Gift size={40} className="mx-auto mb-4 text-white/20" />
                       <p className="text-white/40 font-bold mb-2">No gift cards received yet.</p>
-                      <p className="text-white/20 text-xs">Ask your friend to share the unique code, then add it via <strong className="text-primary">Add by Code</strong>.</p>
+              
                     </div>
                   ) : (
                     <div className="grid md:grid-cols-2 gap-6">

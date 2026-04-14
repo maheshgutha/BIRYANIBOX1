@@ -201,11 +201,11 @@ const Reservations = () => {
 
   return (
     <div className="min-h-screen bg-bg-main text-white">
-      <Navbar />
+      <Navbar/>
       <div className="pt-32 pb-20 container max-w-4xl mx-auto px-6">
 
         {/* Header */}
-        <MotionDiv initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
+        <MotionDiv initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10 mt-32">
           <span className="text-primary font-black uppercase tracking-[0.4em] text-[10px] mb-3 block">Reserve a Table</span>
           <h1 className="text-5xl md:text-6xl font-black font-heading mb-4">
             Book Your <span className="text-primary">Experience.</span>
@@ -216,7 +216,7 @@ const Reservations = () => {
         </MotionDiv>
 
         {/* Tabs */}
-        <div className="flex bg-white/5 p-1 rounded-2xl mb-8 border border-white/10 w-fit">
+        <div className="flex bg-white/5 p-1 rounded-2xl mb-8 border border-white/10 w-fit ">
           {[['new', Plus, 'New Reservation'], ['my', Utensils, 'My Reservations']].map(([v, Icon, label]) => (
             <button key={v} onClick={() => setActiveView(v)}
               className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeView === v ? 'bg-primary text-white shadow-lg' : 'text-white/40 hover:text-white'}`}>

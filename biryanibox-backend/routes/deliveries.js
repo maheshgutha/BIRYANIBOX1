@@ -145,9 +145,8 @@ router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', '
     if (req.user.role === 'delivery' && delivery.driver_id?.toString() !== req.user._id.toString())
       return res.status(403).json({ success: false, message: 'Not your delivery' });
 
-    // Rider cannot pickup until captain dispatches
-    if (status === 'picked_up' && req.user.role === 'delivery' && !delivery.captain_dispatched)
-      return res.status(400).json({ success: false, message: 'Cannot pickup until captain dispatches the order.' });
+    // Captain dispatch is advisory (soft warning on frontend) but does not block rider
+    // If captain hasn't dispatched but rider has collected order, allow the update
 
     delivery.status = status;
     if (status === 'picked_up')  { delivery.picked_up_at  = new Date(); delivery.in_transit_at = new Date(); }

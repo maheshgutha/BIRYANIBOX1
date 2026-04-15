@@ -83,13 +83,14 @@ const StatCard = ({ icon: Icon, label, value, color = 'text-orange-400' }) => (
   </div>
 );
 
-const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onDeliver, onFail, actLoading }) => {
+const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, actLoading }) => {
   const order = delivery.order_id || {};
   const cfg = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
-  const canAccept    = delivery.status === 'pending';
-  const canPickup    = delivery.status === 'assigned' && delivery.captain_dispatched;
-  const waitDispatch = delivery.status === 'assigned' && !delivery.captain_dispatched;
-  const canDeliver   = delivery.status === 'picked_up' || delivery.status === 'in_transit';
+  const canAccept     = delivery.status === 'pending';
+  const canPickup     = delivery.status === 'assigned';          // show always once accepted
+  const dispatched    = delivery.captain_dispatched;             // visual hint only
+  const canTransit    = delivery.status === 'picked_up';
+  const canDeliver    = delivery.status === 'in_transit';
 
   return (
     <motion.div layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
@@ -126,19 +127,50 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onDeliver, onFail,
             <p className="text-xs text-white/60">{order.items.slice(0,3).map(i=>`${i.name} x${i.quantity}`).join(', ')}{order.items.length>3?` +${order.items.length-3} more`:''}</p>
           </div>
         )}
-        {waitDispatch && (
-          <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-xl px-3 py-2">
-            <Info size={13} className="text-blue-400 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-blue-300">Order accepted. Waiting for captain to dispatch — pickup enabled once dispatched.</p>
+        {canPickup && !dispatched && (
+          <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-3 py-2">
+            <Info size={13} className="text-yellow-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-yellow-300">Waiting for captain to dispatch — you can still mark picked up once you have the order.</p>
           </div>
         )}
-        {canPickup && (
+        {canPickup && dispatched && (
           <div className="flex items-start gap-2 bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2">
             <CheckCircle size={13} className="text-green-400 mt-0.5 flex-shrink-0" />
             <p className="text-xs text-green-300">Captain dispatched! Head to restaurant and pick up the order now.</p>
           </div>
         )}
       </div>
+      {/* ── Step progress tracker ─────────────────────────────────────── */}
+      <div className="px-5 pb-3">
+        <div className="flex items-center gap-0">
+          {[
+            { status: 'assigned',   label: 'Accepted',   icon: '✅' },
+            { status: 'picked_up',  label: 'Picked Up',  icon: '📦' },
+            { status: 'in_transit', label: 'On the Way', icon: '🛵' },
+            { status: 'delivered',  label: 'Delivered',  icon: '🏠' },
+          ].map((step, i, arr) => {
+            const statOrder = ['assigned', 'picked_up', 'in_transit', 'delivered'];
+            const curIdx = statOrder.indexOf(delivery.status);
+            const stepIdx = statOrder.indexOf(step.status);
+            const done    = curIdx > stepIdx;
+            const active  = curIdx === stepIdx;
+            return (
+              <div key={step.status} className="flex items-center flex-1">
+                <div className="flex flex-col items-center gap-0.5">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] border-2 transition-all ${done ? 'bg-green-500 border-green-500' : active ? 'bg-orange-500 border-orange-500 shadow-lg shadow-orange-500/40' : 'bg-white/5 border-white/20'}`}>
+                    {done ? '✓' : step.icon}
+                  </div>
+                  <span className={`text-[7px] font-black uppercase tracking-wider ${active ? 'text-orange-400' : done ? 'text-green-400' : 'text-white/20'}`}>{step.label}</span>
+                </div>
+                {i < arr.length - 1 && (
+                  <div className={`flex-1 h-0.5 mb-4 mx-1 ${done ? 'bg-green-500' : 'bg-white/10'}`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="px-5 pb-4 flex flex-wrap gap-2">
         {canAccept && (
           <>
@@ -152,15 +184,21 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onDeliver, onFail,
         )}
         {canPickup && (
           <button onClick={() => onPickup(delivery._id)} disabled={actLoading}
+            className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-black py-2.5 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-orange-500/20">
+            <Package size={13} /> 📦 Picked Up — Start Delivery
+          </button>
+        )}
+        {canTransit && (
+          <button onClick={() => onTransit(delivery._id)} disabled={actLoading}
             className="flex-1 flex items-center justify-center gap-2 bg-purple-500 hover:bg-purple-600 text-white text-xs font-black py-2.5 px-4 rounded-xl transition-all disabled:opacity-50">
-            <Package size={13} /> Mark Picked Up
+            <Navigation size={13} /> 🛵 On the Way
           </button>
         )}
         {canDeliver && (
           <>
             <button onClick={() => onDeliver(delivery._id)} disabled={actLoading}
               className="flex-1 flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white text-xs font-black py-2.5 px-4 rounded-xl transition-all disabled:opacity-50">
-              <CheckCircle size={13} /> Mark Delivered
+              <CheckCircle size={13} /> 🏠 Mark Delivered
             </button>
             <button onClick={() => onFail(delivery._id)} disabled={actLoading}
               className="px-4 py-2.5 bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-black rounded-xl hover:bg-red-500 hover:text-white transition-all">Failed</button>
@@ -221,6 +259,12 @@ export default function DeliveryDashboard() {
   const handlePickup = async (id) => {
     setActLoading(true);
     try { await deliveryAPI.updateStatus(id, 'picked_up'); showFlash('📦 Picked up! Deliver to customer.'); await loadAll(); }
+    catch (e) { showFlash(e.message || 'Failed', 'error'); }
+    finally { setActLoading(false); }
+  };
+  const handleTransit = async (id) => {
+    setActLoading(true);
+    try { await deliveryAPI.updateStatus(id, 'in_transit'); showFlash('🛵 On the way! Ride safe.'); await loadAll(); }
     catch (e) { showFlash(e.message || 'Failed', 'error'); }
     finally { setActLoading(false); }
   };
@@ -320,7 +364,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : available.map(d => (
                 <DeliveryCard key={d._id} delivery={d} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onDeliver={handleDeliver} onFail={handleFail} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} actLoading={actLoading} />
               ))}
             </AnimatePresence>
           )}
@@ -335,7 +379,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : (
                 <DeliveryCard key={myActive._id} delivery={myActive} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onDeliver={handleDeliver} onFail={handleFail} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} actLoading={actLoading} />
               )}
             </AnimatePresence>
           )}

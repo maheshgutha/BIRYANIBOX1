@@ -3975,7 +3975,24 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
 // ─── ORDER BOOKING (live orders panel + POS) ─────────────────────────────────
 const OrderBookingPanel = ({ orders, user, updateOrderStatus, deleteOrder, captainTableNumbers }) => {
   const [filterStatus, setFilterStatus] = useState('all');
-  const filtered = filterStatus === 'all' ? orders : orders.filter(o => o.status === filterStatus);
+
+  // For captains: only show orders from their assigned tables (+ delivery/pickup for captain4)
+  const zoneOrders = (() => {
+    if (user.role !== 'captain') return orders; // owners/managers see all
+    const isDeliveryCaptain = !captainTableNumbers || captainTableNumbers.length === 0;
+    if (isDeliveryCaptain) {
+      // Captain 4 sees delivery and pickup orders only
+      return orders.filter(o => ['delivery', 'pickup', 'takeaway'].includes(o.order_type));
+    }
+    // Regular captain: see their zone tables + any pending that haven't been assigned yet
+    return orders.filter(o => {
+      if (['delivery', 'pickup', 'takeaway'].includes(o.order_type)) return false; // not their job
+      const tNum = parseInt(o.table_number);
+      return captainTableNumbers.includes(tNum);
+    });
+  })();
+
+  const filtered = filterStatus === 'all' ? zoneOrders : zoneOrders.filter(o => o.status === filterStatus);
 
   return (
     <div className="space-y-6">
@@ -4140,8 +4157,39 @@ const FinanceCenter = ({ orders }) => {
   const [importBills, setImportBills] = useState(false);
   const [period, setPeriod] = useState('all');
   const [loadingFinance, setLoadingFinance] = useState(true);
+  const [billImportResults, setBillImportResults] = useState([]);
 
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: 'success' }), 3500); };
+
+  // ── Import Bills: each uploaded file becomes one expense entry ─────────────
+  const handleBillFiles = async (files) => {
+    if (!files.length) return;
+    const results = [];
+    for (const file of files) {
+      const nameParts = file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+      const title = nameParts.charAt(0).toUpperCase() + nameParts.slice(1);
+      // Guess amount from filename (e.g. "electric_bill_250" → 250)
+      const amountMatch = file.name.match(/(\d+(?:\.\d+)?)/);
+      const amount = amountMatch ? parseFloat(amountMatch[1]) : 0;
+      try {
+        await budgetAPI.create({
+          title,
+          amount: amount > 0 ? amount : 1,
+          entry_type: 'expense',
+          category: 'other',
+          date: new Date().toISOString().slice(0, 10),
+          notes: `Imported from file: ${file.name}`,
+        });
+        results.push({ name: file.name, ok: true, amount: amount > 0 ? amount : 1 });
+      } catch (err) {
+        results.push({ name: file.name, ok: false, error: err.message || 'Failed' });
+      }
+    }
+    setBillImportResults(results);
+    loadFinance();
+    const ok = results.filter(r => r.ok).length;
+    flash(`${ok} of ${files.length} bill${files.length > 1 ? 's' : ''} imported as expense entries!`, ok === files.length ? 'success' : 'error');
+  };
 
   // ── Load budget + waste from DB ───────────────────────────────────────────
   const loadFinance = useCallback(async () => {
@@ -4258,12 +4306,36 @@ const FinanceCenter = ({ orders }) => {
               <button onClick={() => setImportBills(false)} className="text-text-muted hover:text-white"><X size={16} /></button>
             </div>
             <p className="text-sm text-text-muted mb-4">Upload supplier or utility bills — each becomes a budget expense entry automatically.</p>
-            <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
+            <div
+              className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center cursor-pointer hover:border-primary/40 transition-colors"
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => {
+                e.preventDefault();
+                const files = Array.from(e.dataTransfer.files);
+                handleBillFiles(files);
+              }}
+            >
               <FileText size={32} className="mx-auto mb-3 text-text-muted opacity-40" />
               <p className="text-sm text-text-muted font-bold">Drag & drop bills here or click to browse</p>
-              <p className="text-[10px] text-text-muted mt-1">PDF, JPG, PNG supported</p>
-              <button className="mt-4 px-5 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase hover:bg-primary-hover">Browse Files</button>
+              <p className="text-[10px] text-text-muted mt-1">PDF, JPG, PNG — each file becomes an expense entry</p>
+              <label className="mt-4 inline-block px-5 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase hover:bg-primary-hover cursor-pointer transition-all">
+                Browse Files
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" multiple className="hidden"
+                  onChange={e => handleBillFiles(Array.from(e.target.files))} />
+              </label>
             </div>
+            {billImportResults.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Imported Entries</p>
+                {billImportResults.map((r, i) => (
+                  <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-xl border text-xs ${r.ok ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                    {r.ok ? '✓' : '✗'} {r.name}
+                    {r.ok && <span className="text-text-muted ml-auto">${r.amount} expense added</span>}
+                    {!r.ok && <span className="text-text-muted ml-auto">{r.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

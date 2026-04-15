@@ -2,7 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const Announcement = require('../models/Announcement');
 const { protect, authorize } = require('../middleware/auth');
-
+const Notification = require('../models/Notification');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
@@ -62,10 +62,11 @@ router.post('/', protect, authorize('owner', 'manager'), async (req, res, next) 
       has_offer, offer_discount, offer_scope, offer_items,
     } = req.body;
 
+    const roles = target_roles || ['customer'];
     const announcement = await Announcement.create({
       title, message,
       priority: priority || 'normal',
-      target_roles: target_roles || ['customer'],
+      target_roles: roles,
       is_active: true,
       created_by: req.user._id,
       is_scheduled: !!is_scheduled,
@@ -77,6 +78,35 @@ router.post('/', protect, authorize('owner', 'manager'), async (req, res, next) 
       offer_scope: offer_scope || 'all',
       offer_items: has_offer ? (offer_items || []) : [],
     });
+
+    // ── Send notifications to target staff roles immediately (non-scheduled) ─
+    if (!is_scheduled) {
+      const staffRoles = roles.filter(r => r !== 'customer');
+      const emoji = is_festival ? '🎉' : has_offer ? '🎁' : priority === 'urgent' ? '🚨' : '📢';
+      const notifTitle = `${emoji} ${title}`;
+      const notifMsg   = has_offer ? `${message} — ${offer_discount}% OFF offer!` : message;
+
+      // Notify targeted staff roles
+      if (staffRoles.length > 0) {
+        const staffTargets = await User.find({ role: { $in: staffRoles }, is_active: true });
+        if (staffTargets.length > 0) {
+          await Notification.insertMany(staffTargets.map(u => ({
+            user_id: u._id, type: 'announcement', title: notifTitle, message: notifMsg,
+          })));
+        }
+      }
+      // Owner/manager always gets a ping when a customer announcement is posted
+      if (roles.includes('customer')) {
+        const admins = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
+        if (admins.length > 0) {
+          await Notification.insertMany(admins.map(u => ({
+            user_id: u._id, type: 'announcement',
+            title: `📢 Customer Announcement: ${title}`,
+            message: `Posted to customers: "${message.slice(0, 80)}${message.length > 80 ? '…' : ''}"`,
+          })));
+        }
+      }
+    }
 
     res.status(201).json({ success: true, data: announcement });
   } catch (err) { next(err); }

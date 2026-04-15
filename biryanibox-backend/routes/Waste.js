@@ -1,6 +1,6 @@
 const express = require('express');
 const router  = express.Router();
-const WasteLog = require('../models/WasteLog');
+const WasteLog = require('../models/Wastelog');
 const { protect, authorize } = require('../middleware/auth');
 
 // GET /api/waste

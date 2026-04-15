@@ -71,11 +71,11 @@ const DELIVERY_STEPS = [
   { key: 'paid',              label: 'Paid',      icon: CreditCard },
 ];
 const PICKUP_STEPS = [
-  { key: 'pending',           label: 'Placed',    icon: Package    },
-  { key: 'start_cooking',     label: 'Preparing', icon: ChefHat    },
-  { key: 'completed_cooking', label: 'Ready',     icon: Utensils   },
-  { key: 'dispatched',        label: 'At Counter', icon: Star      },
-  { key: 'paid',              label: 'Picked Up', icon: CreditCard },
+  { key: 'pending',           label: 'Order Placed',   icon: Package    },
+  { key: 'start_cooking',     label: 'Preparing',      icon: ChefHat    },
+  { key: 'completed_cooking', label: 'Ready to Pickup', icon: Utensils  },
+  { key: 'dispatched',        label: 'At Counter',     icon: MapPin     },
+  { key: 'paid',              label: 'Completed',      icon: CheckCircle},
 ];
 const DINEIN_STATUS_STEP   = { pending:0, start_cooking:1, completed_cooking:2, served:3, paid:4 };
 const DELIVERY_STATUS_STEP = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, delivered:4, paid:5 };
@@ -119,6 +119,14 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
   useEffect(() => { if (isDone) clearActiveOrder(); }, [isDone]);
 
   const displayItems   = (order?.items?.length ? order.items : placedItems) || [];
+  // Pickup-specific status message (delivery style)
+  const pickupStatusMsg = {
+    pending:           '⏳ Order received — kitchen will start shortly',
+    start_cooking:     '🔥 Chef is preparing your order',
+    completed_cooking: '✅ Your order is ready at the counter!',
+    dispatched:        '📦 Order is packed and waiting at the counter',
+    paid:              '🎉 Picked up! Thank you for choosing Biryani Box',
+  };
   const displayTotal   = order?.total ?? grandTotal;
   const displayOrderNum = order?.order_number || orderNumber;
 
@@ -201,6 +209,13 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
                   </div>
                 </div>
 
+                {/* Pickup/Delivery status message */}
+                {order && ot === 'pickup' && order.status && pickupStatusMsg[order.status] && (
+                  <div className="bg-primary/10 border border-primary/20 rounded-xl p-3 text-xs text-primary font-bold text-center">
+                    {pickupStatusMsg[order.status]}
+                  </div>
+                )}
+
                 {isDone && (
                   <div className="flex items-center gap-2 text-green-400 text-xs font-black">
                     <CheckCircle size={14} /> Order Complete! Thank you 🙏
@@ -269,6 +284,13 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
             })}
           </div>
         </div>
+
+        {/* Pickup status message (full page) */}
+        {order && ot === 'pickup' && order.status && pickupStatusMsg[order.status] && (
+          <div className="bg-primary/10 border border-primary/30 rounded-2xl p-4 text-sm text-primary font-black text-center">
+            {pickupStatusMsg[order.status]}
+          </div>
+        )}
 
         {/* Order card */}
         <div className="bg-secondary/40 border border-white/10 rounded-3xl p-6 space-y-4">
@@ -528,6 +550,16 @@ const Cart = () => {
       const res = await ordersAPI.create(payload);
       const orderId  = res.data?._id || res.data?.order?._id;
       const orderNum = res.data?.order_number || res.data?.order?.order_number || ('BOX-' + Date.now().toString().slice(-5));
+
+      // ── GIFT CARD: redeem after order placed so DB marks it as used ──────
+      if (appliedGift && orderId) {
+        try {
+          await giftCardsAPI.redeem({ code: appliedGift.code, order_id: orderId });
+        } catch (e) {
+          console.warn('[GiftCard] Redeem failed:', e.message);
+        }
+        setAppliedGift(null);
+      }
 
       const unlocked = updateRewards(grandTotal);
       setNewCoupon(unlocked);

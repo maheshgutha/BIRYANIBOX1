@@ -8,8 +8,6 @@ const GiftCardSchema = new mongoose.Schema({
   sender_email:     { type: String, lowercase: true },
   // Track which customer user sent this card (for sender dashboard)
   sent_by_user_id:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-  // Track which customer has added/claimed this card to their account
-  claimed_by_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   receiver_name:    { type: String },
   receiver_email:   { type: String, lowercase: true },
   // legacy fields kept for backward compat
@@ -20,6 +18,9 @@ const GiftCardSchema = new mongoose.Schema({
   status:           { type: String, enum: ['active', 'used', 'expired'], default: 'active' },
   expiry_date:      { type: Date },
   email_sent:       { type: Boolean, default: false },
+  // Track which order redeemed this card (one-time use enforcement)
+  redeemed_by_order_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', default: null },
+  redeemed_at:      { type: Date, default: null },
 }, { timestamps: { createdAt: 'created_at' } });
 
 module.exports = mongoose.model('GiftCard', GiftCardSchema);

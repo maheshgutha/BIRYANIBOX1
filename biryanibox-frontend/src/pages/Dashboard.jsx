@@ -18,7 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   usersAPI, ordersAPI, ingredientsAPI, reservationsAPI, tablesAPI,
   feedbackAPI, announcementsAPI, shiftsAPI, notificationsAPI, normalizeOrder,
-  menuAPI, cateringAPI, leavesAPI, deliveryAPI,
+  menuAPI, cateringAPI, leavesAPI, deliveryAPI, budgetAPI, wasteAPI,
 } from '../services/api';
 import POS from '../components/POS';
 
@@ -1273,11 +1273,14 @@ const TableStatus = ({ user }) => {
 
 // ─── RESERVATIONS ─────────────────────────────────────────────────────────────
 const ReservationsPanel = () => {
+  const { user } = useAuth();
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
   const RESERVATION_TIMES = ['11:00 AM','11:30 AM','12:00 PM','12:30 PM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','7:00 PM','7:30 PM','8:00 PM','8:30 PM','9:00 PM','9:30 PM'];
-  const [form, setForm] = useState({ guest_name: '', guest_phone: '', party_size: 2, date: '', time: '', notes: '', table_number: '' });
+  const [form, setForm] = useState({ customer_name: '', email: '', phone: '', guests: 2, date: '', time: '', notes: '', table_assigned: '' });
   const [msg, setMsg] = useState({ text: '', type: '' });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
 
@@ -1291,103 +1294,158 @@ const ReservationsPanel = () => {
   useEffect(() => { load(); }, []);
   useAutoRefresh(load, 30000);
 
+  const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = {
-        customer_name:  form.guest_name,
-        phone:          form.guest_phone,
-        guests:         Number(form.party_size),
-        date:           form.date ? new Date(form.date).toISOString() : undefined,
-        time:           form.time,
-        notes:          form.notes,
-        table_assigned: form.table_number,
-      };
-      await reservationsAPI.create(payload);
+      await reservationsAPI.create({
+        customer_name: form.customer_name,
+        email: form.email,
+        phone: form.phone,
+        guests: Number(form.guests),
+        date: form.date ? new Date(form.date).toISOString() : undefined,
+        time: form.time,
+        notes: form.notes,
+        table_assigned: form.table_assigned,
+      });
       flash('Reservation created successfully');
       setShowForm(false);
-      setForm({ guest_name: '', guest_phone: '', party_size: 2, date: '', time: '', notes: '', table_number: '' });
+      setForm({ customer_name: '', email: '', phone: '', guests: 2, date: '', time: '', notes: '', table_assigned: '' });
       load();
     } catch (err) { flash(err.message, 'error'); }
   };
 
-  const [confirmingId,   setConfirmingId]   = useState(null);
-  const [quotationMsg,   setQuotationMsg]   = useState('');
-  const [tableAssign,    setTableAssign]    = useState('');
+  const [confirmingId, setConfirmingId] = useState(null);
+  const [quotationMsg, setQuotationMsg] = useState('');
+  const [tableAssign,  setTableAssign]  = useState('');
+  const [tableConflicts, setTableConflicts] = useState([]); // conflicts from API
+  const [checkingConflict, setCheckingConflict] = useState(false);
+
+  // ── Check conflicts whenever table or confirmingId changes ───────────────
+  useEffect(() => {
+    if (!confirmingId || !tableAssign.trim()) { setTableConflicts([]); return; }
+    const reservation = reservations.find(r => r._id === confirmingId);
+    if (!reservation?.date || !reservation?.time) return;
+    let cancelled = false;
+    setCheckingConflict(true);
+    reservationsAPI.checkConflict(tableAssign.trim(), reservation.date, reservation.time, confirmingId)
+      .then(r => { if (!cancelled) setTableConflicts(r.conflicts || []); })
+      .catch(() => { if (!cancelled) setTableConflicts([]); })
+      .finally(() => { if (!cancelled) setCheckingConflict(false); });
+    return () => { cancelled = true; };
+  }, [tableAssign, confirmingId, reservations]);
 
   const updateStatus = async (id, status) => {
-    try { await reservationsAPI.patch(id, { status }); flash(`Status changed to ${status}`); load(); }
-    catch (err) { flash(err.message, 'error'); }
+    try {
+      await reservationsAPI.patch(id, { status });
+      flash(`Reservation ${status}${status === 'cancelled' ? ' — sorry email sent' : ''}`);
+      load();
+    } catch (err) { flash(err.message, 'error'); }
   };
 
-  const handleConfirmReservation = async (id) => {
+  const handleConfirm = async (id) => {
     try {
       const body = {};
       if (quotationMsg.trim()) body.quotation_message = quotationMsg.trim();
       if (tableAssign.trim())  body.table_assigned    = tableAssign.trim();
       await reservationsAPI.confirm(id, body);
-      flash('Reservation confirmed — email sent to customer!');
+      flash('Reservation confirmed — confirmation email sent!');
       setConfirmingId(null); setQuotationMsg(''); setTableAssign('');
       load();
-    } catch (err) {
-      const msg = err?.message || '';
-      if (msg.includes('403') || msg.toLowerCase().includes('not authorized') || msg.toLowerCase().includes('forbidden')) {
-        flash('Permission denied. Only Owner or Manager can confirm reservations.', 'error');
-      } else {
-        flash(msg || 'Failed to confirm reservation. Please try again.', 'error');
-      }
-    }
+    } catch (err) { flash(err?.message || 'Failed to confirm', 'error'); }
   };
 
-  const statusColor = { confirmed: 'text-green-400', pending: 'text-yellow-400', cancelled: 'text-red-400', completed: 'text-text-muted' };
+  const markComplete = async (id) => {
+    try { await reservationsAPI.patch(id, { status: 'completed' }); flash('Marked as completed'); load(); }
+    catch (err) { flash(err.message, 'error'); }
+  };
+
+  const STATUS_COLORS = {
+    confirmed: 'text-green-400', pending: 'text-yellow-400',
+    cancelled:  'text-red-400',  completed: 'text-text-muted',
+  };
+  const STATUS_BG = {
+    pending:   'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+    confirmed: 'bg-green-500/10 text-green-400 border-green-500/20',
+    completed: 'bg-white/5 text-text-muted border-white/10',
+    cancelled: 'bg-red-500/10 text-red-400 border-red-500/20',
+  };
+
+  const counts = { pending: 0, confirmed: 0, completed: 0, cancelled: 0 };
+  reservations.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
+  const filtered = filterStatus === 'all' ? reservations : reservations.filter(r => r.status === filterStatus);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><Calendar size={28} className="text-primary" />Reservations</h2>
           <p className="text-text-muted text-sm mt-1">{reservations.length} total reservations</p>
         </div>
-        <button onClick={() => setShowForm(s => !s)}
-          className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
-          <Plus size={14} /> New Reservation
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={refresh} disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} /> Refresh
+          </button>
+          <button onClick={() => setShowForm(s => !s)}
+            className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+            <Plus size={14} /> New Reservation
+          </button>
+        </div>
       </div>
+
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
+
+      {/* Status group tabs with counts */}
+      <div className="grid grid-cols-4 gap-3">
+        {(['pending','confirmed','completed','cancelled']).map(s => (
+          <button key={s} onClick={() => setFilterStatus(filterStatus === s ? 'all' : s)}
+            className={`rounded-2xl border p-4 text-center transition-all ${filterStatus === s ? 'ring-2 ring-primary' : ''} ${STATUS_BG[s]}`}>
+            <p className="text-2xl font-black">{counts[s]}</p>
+            <p className="text-[10px] uppercase font-bold tracking-widest mt-1 capitalize">{s}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* New Reservation Form */}
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
             className="bg-secondary/40 rounded-3xl border border-primary/30 p-8">
-            <h3 className="text-lg font-bold mb-6 text-white">New Reservation</h3>
+            <h3 className="text-lg font-bold mb-6 text-white flex items-center gap-2"><Calendar size={18} className="text-primary" /> New Reservation</h3>
             <form onSubmit={handleSubmit} className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Guest Name */}
               <div>
-                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Guest Name *</label>
-                <input required value={form.guest_name} onChange={sf('guest_name')} placeholder="Full name"
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Full Name *</label>
+                <div className="relative">
+                  <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                  <input required value={form.customer_name} onChange={sf('customer_name')} placeholder="Customer name"
+                    className="w-full bg-bg-main border border-white/10 pl-9 pr-3 py-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
               </div>
-              {/* Email */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Email</label>
-                <input type="email" value={form.email || ''} onChange={sf('email')} placeholder="customer@email.com"
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                <div className="relative">
+                  <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                  <input type="email" value={form.email} onChange={sf('email')} placeholder="customer@email.com"
+                    className="w-full bg-bg-main border border-white/10 pl-9 pr-3 py-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
               </div>
-              {/* Phone */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Phone</label>
-                <input type="tel" value={form.guest_phone} onChange={sf('guest_phone')} placeholder="+91 98765 43210"
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                <div className="relative">
+                  <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                  <input type="tel" value={form.phone} onChange={sf('phone')} placeholder="+1 555 000 0000"
+                    className="w-full bg-bg-main border border-white/10 pl-9 pr-3 py-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
               </div>
-              {/* Date */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Date *</label>
-                <input type="date" required value={form.date} onChange={sf('date')}
-                  min={new Date().toISOString().split('T')[0]}
+                <input type="date" required value={form.date} onChange={sf('date')} min={new Date().toISOString().split('T')[0]}
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
-              {/* Time dropdown */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Time *</label>
                 <select required value={form.time} onChange={sf('time')}
@@ -1396,25 +1454,22 @@ const ReservationsPanel = () => {
                   {RESERVATION_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              {/* Guests dropdown */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Guests *</label>
-                <select required value={form.party_size} onChange={sf('party_size')}
+                <select required value={form.guests} onChange={sf('guests')}
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm">
                   {[1,2,3,4,5,6,7,8,9,10,12,15,20].map(n => <option key={n} value={n}>{n} {n === 1 ? 'Guest' : 'Guests'}</option>)}
                 </select>
               </div>
-              {/* Table # */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Table # (optional)</label>
-                <input value={form.table_number} onChange={sf('table_number')} placeholder="e.g. 10, Terrace 1"
+                <input value={form.table_assigned} onChange={sf('table_assigned')} placeholder="e.g. Table 5, Terrace 1"
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
-              {/* Notes */}
               <div className="md:col-span-2">
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Special Requests</label>
                 <textarea value={form.notes} onChange={sf('notes')} rows={2}
-                  placeholder="Dietary preferences, occasion, seating preference..."
+                  placeholder="Dietary preferences, special occasions, seating preference…"
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
               </div>
               <div className="md:col-span-full flex gap-3">
@@ -1425,69 +1480,91 @@ const ReservationsPanel = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
           <div className="divide-y divide-white/5">
-            {reservations.map(r => (
+            {filtered.length === 0 && (
+              <div className="py-20 text-center text-text-muted">
+                <Calendar size={40} className="mx-auto mb-3 opacity-20" />
+                <p className="font-bold text-sm uppercase tracking-widest">No {filterStatus !== 'all' ? filterStatus : ''} reservations</p>
+              </div>
+            )}
+            {filtered.map(r => (
               <React.Fragment key={r._id}>
-                <div className="border-b border-white/5 flex items-center px-6 py-4 hover:bg-white/3 group">
-                  <div className="flex-1">
+                <div className="flex items-center px-6 py-4 hover:bg-white/3 group flex-wrap gap-2">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-white">{r.customer_name}</p>
-                    <p className="text-xs text-text-muted">{r.phone} · {r.guests} guests · Table {r.table_assigned || '—'}</p>
+                    <p className="text-xs text-text-muted">{r.phone || '—'} · {r.guests} guests{r.table_assigned ? ` · Table ${r.table_assigned}` : ''}</p>
+                    {r.email && <p className="text-[10px] text-text-muted/70">{r.email}</p>}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-text-muted">
                     <span>{r.date ? new Date(r.date).toLocaleDateString() : '—'} {r.time}</span>
-                    <span className={`font-bold uppercase ${statusColor[r.status] || ''}`}>{r.status}</span>
+                    <span className={`font-black uppercase px-2 py-0.5 rounded-full text-[10px] border ${STATUS_BG[r.status] || ''}`}>{r.status}</span>
                   </div>
-                  <div className="flex items-center gap-2 ml-4 opacity-0 group-hover:opacity-100 transition-all">
+                  <div className="flex items-center gap-2 ml-2">
                     {r.status === 'pending' && (
                       <button onClick={() => setConfirmingId(confirmingId === r._id ? null : r._id)}
                         className="px-3 py-1.5 bg-green-500/20 text-green-400 text-[10px] font-black rounded-lg hover:bg-green-500 hover:text-white transition-all">
                         ✉ Confirm & Email
                       </button>
                     )}
-                    {r.status !== 'cancelled' && (
+                    {r.status === 'confirmed' && (
+                      <button onClick={() => markComplete(r._id)}
+                        className="px-3 py-1.5 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-lg hover:bg-blue-500 hover:text-white transition-all">
+                        ✓ Complete
+                      </button>
+                    )}
+                    {r.status !== 'cancelled' && r.status !== 'completed' && (
                       <button onClick={() => updateStatus(r._id, 'cancelled')}
-                        className="px-3 py-1.5 bg-red-500/10 text-red-400 text-[10px] font-black rounded-lg hover:bg-red-500 hover:text-white transition-all">Cancel</button>
+                        className="px-3 py-1.5 bg-red-500/10 text-red-400 text-[10px] font-black rounded-lg hover:bg-red-500 hover:text-white transition-all">✕ Cancel</button>
                     )}
                   </div>
                 </div>
                 {confirmingId === r._id && (
                   <div className="border-b border-primary/20 bg-primary/5 px-6 py-4 space-y-3">
-                    <p className="text-xs font-black uppercase tracking-widest text-primary">✉ Confirm Reservation & Send Email to Customer</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-primary">✉ Confirm & Send Email to Customer</p>
                     <div className="grid md:grid-cols-2 gap-3">
                       <div>
                         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Assign Table</label>
-                        <input value={tableAssign} onChange={e => setTableAssign(e.target.value)} placeholder="e.g. Table 3 or Table 7"
-                          className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                        <input value={tableAssign} onChange={e => setTableAssign(e.target.value)} placeholder="e.g. Table 3"
+                          className={`w-full bg-bg-main border p-2.5 rounded-xl outline-none text-white text-sm ${tableConflicts.length > 0 ? 'border-red-500/60 focus:border-red-500' : 'border-white/10 focus:border-primary'}`} />
+                        {/* Conflict warning */}
+                        {checkingConflict && <p className="text-[10px] text-text-muted mt-1">Checking availability…</p>}
+                        {!checkingConflict && tableConflicts.length > 0 && (
+                          <div className="mt-2 bg-red-500/10 border border-red-500/30 rounded-xl p-3 space-y-1">
+                            <p className="text-[10px] text-red-400 font-black uppercase tracking-widest">⚠ Table Conflict — Within 30 Minutes</p>
+                            {tableConflicts.map(con => (
+                              <p key={con._id} className="text-[10px] text-red-300">
+                                {con.customer_name} is booked at <strong>{con.time}</strong> ({con.status})
+                              </p>
+                            ))}
+                            <p className="text-[10px] text-red-400/70">Choose a different table or a time at least 30 min apart.</p>
+                          </div>
+                        )}
+                        {!checkingConflict && tableAssign.trim() && tableConflicts.length === 0 && (
+                          <p className="text-[10px] text-green-400 font-bold mt-1">✓ Table available at this time</p>
+                        )}
                       </div>
                       <div>
                         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Message to Customer (optional)</label>
                         <textarea value={quotationMsg} onChange={e => setQuotationMsg(e.target.value)} rows={2}
-                          placeholder="Add a personal note for the customer's confirmation email…"
+                          placeholder="Add a personal note for the confirmation email…"
                           className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => handleConfirmReservation(r._id)}
-                        className="px-5 py-2 bg-green-500 text-white text-xs font-black rounded-xl hover:bg-green-600 transition-all">
-                        ✓ Confirm & Send Email
+                      <button onClick={() => handleConfirm(r._id)} disabled={tableConflicts.length > 0 || checkingConflict}
+                        className="px-5 py-2 bg-green-500 text-white text-xs font-black rounded-xl hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                        {checkingConflict ? 'Checking…' : '✓ Confirm & Send Email'}
                       </button>
-                      <button onClick={() => { setConfirmingId(null); setQuotationMsg(''); setTableAssign(''); }}
-                        className="px-5 py-2 border border-white/20 text-text-muted text-xs font-black rounded-xl hover:bg-white/5 transition-all">
-                        Cancel
-                      </button>
+                      <button onClick={() => { setConfirmingId(null); setQuotationMsg(''); setTableAssign(''); setTableConflicts([]); }}
+                        className="px-5 py-2 border border-white/20 text-text-muted text-xs font-black rounded-xl hover:bg-white/5 transition-all">Cancel</button>
                     </div>
                   </div>
                 )}
               </React.Fragment>
             ))}
-            {reservations.length === 0 && (
-              <div className="py-20 text-center text-text-muted">
-                <Calendar size={40} className="mx-auto mb-3 opacity-20" />
-                <p className="font-bold text-sm uppercase tracking-widest">No reservations yet</p>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -1504,6 +1581,8 @@ const FeedbackBox = () => {
   const [replyMsg, setReplyMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1546,14 +1625,19 @@ const FeedbackBox = () => {
           </h2>
           <p className="text-text-muted text-sm mt-1">{feedback.length} total · {unread} unread</p>
         </div>
-        {unread > 0 && (
-          <button onClick={markAllRead} className="px-5 py-2 bg-primary/10 border border-primary/30 text-primary text-xs font-black rounded-xl uppercase tracking-widest hover:bg-primary hover:text-white transition-all">
-            Mark All Read
+        <div className="flex items-center gap-2">
+          {unread > 0 && (
+            <button onClick={markAllRead} className="px-5 py-2 bg-primary/10 border border-primary/30 text-primary text-xs font-black rounded-xl uppercase tracking-widest hover:bg-primary hover:text-white transition-all">
+              Mark All Read
+            </button>
+          )}
+          <button onClick={refresh} disabled={refreshing} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} /> Refresh
           </button>
-        )}
+        </div>
       </div>
       <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5 w-fit">
-        {['all', 'unread', 'food', 'service', 'ambience', 'general'].map(f => (
+        {['all', 'unread'].map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filter === f ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{f}</button>
         ))}
@@ -1651,22 +1735,24 @@ const FeedbackBox = () => {
 
 // ─── ANNOUNCEMENTS ────────────────────────────────────────────────────────────
 const AnnouncementsPanel = ({ isAdmin }) => {
+  const { user } = useAuth();
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [announcementTab, setAnnouncementTab] = useState('customer'); // 'customer' | 'staff'
   const [menuItems, setMenuItems] = useState([]);
   const [form, setForm] = useState({
     title: '', message: '', priority: 'normal',
-    target_roles: ['chef', 'captain', 'manager', 'owner', 'customer'],
+    target_roles: ['customer'],
     is_scheduled: false, scheduled_date: '',
     is_festival: false, festival_name: '',
     has_offer: false, offer_scope: 'all', offer_discount: '', offer_item_ids: [],
+    is_staff_only: false,
   });
   const [msg, setMsg] = useState({ text: '', type: '' });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
   const sb = f => e => setForm(p => ({ ...p, [f]: e.target.checked }));
 
-  // Load menu for offer item selection
   useEffect(() => {
     menuAPI.getAll().then(r => setMenuItems(r.data || [])).catch(() => {});
   }, []);
@@ -1697,15 +1783,20 @@ const AnnouncementsPanel = ({ isAdmin }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      // Staff-only targets all staff roles; customer targets customers
+      const target_roles = form.is_staff_only
+        ? ['owner', 'manager', 'captain', 'chef']
+        : ['customer'];
       const payload = {
         ...form,
+        target_roles,
         scheduled_date: form.is_scheduled && form.scheduled_date ? new Date(form.scheduled_date).toISOString() : null,
         offer_items: form.has_offer && form.offer_scope === 'selected' ? form.offer_item_ids : form.has_offer ? ['ALL'] : [],
       };
       await announcementsAPI.create(payload);
       flash(form.is_scheduled ? 'Announcement scheduled!' : 'Announcement posted!');
       setShowForm(false);
-      setForm({ title: '', message: '', priority: 'normal', target_roles: ['chef', 'captain', 'manager', 'owner', 'customer'], is_scheduled: false, scheduled_date: '', is_festival: false, festival_name: '', has_offer: false, offer_scope: 'all', offer_discount: '', offer_item_ids: [] });
+      setForm({ title: '', message: '', priority: 'normal', target_roles: ['customer'], is_scheduled: false, scheduled_date: '', is_festival: false, festival_name: '', has_offer: false, offer_scope: 'all', offer_discount: '', offer_item_ids: [], is_staff_only: false });
       load();
     } catch (err) { flash(err.message, 'error'); }
   };
@@ -1715,12 +1806,19 @@ const AnnouncementsPanel = ({ isAdmin }) => {
     catch (err) { flash(err.message, 'error'); }
   };
 
-  const priorityColor = { low: 'text-text-muted', normal: 'text-blue-400', high: 'text-yellow-400', urgent: 'text-red-400' };
+  const priorityColor  = { low: 'text-text-muted', normal: 'text-blue-400', high: 'text-yellow-400', urgent: 'text-red-400' };
   const priorityBorder = { low: 'border-white/5', normal: 'border-blue-500/20', high: 'border-yellow-500/30', urgent: 'border-red-500/40' };
+
+  // Split announcements: staff vs customer
+  const STAFF_ROLES = ['owner','manager','captain','chef'];
+  const isStaffAnnouncement = (a) => a.target_roles?.some(r => STAFF_ROLES.includes(r)) && !a.target_roles?.includes('customer');
+  const customerAnnouncements = announcements.filter(a => !isStaffAnnouncement(a));
+  const staffAnnouncements    = announcements.filter(a => isStaffAnnouncement(a));
+  const visibleAnnouncements  = announcementTab === 'staff' ? staffAnnouncements : customerAnnouncements;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><Megaphone size={28} className="text-primary" />Announcements</h2>
           <p className="text-text-muted text-sm mt-1">Post manually or schedule for festivals & events</p>
@@ -1732,26 +1830,45 @@ const AnnouncementsPanel = ({ isAdmin }) => {
           </button>
         )}
       </div>
+
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
+
+      {/* Tabs: Customer vs Staff */}
+      <div className="flex gap-1 bg-white/5 p-1.5 rounded-2xl border border-white/8 w-fit">
+        <button onClick={() => setAnnouncementTab('customer')}
+          className={`px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${announcementTab === 'customer' ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
+          🌐 Customer ({customerAnnouncements.length})
+        </button>
+        <button onClick={() => setAnnouncementTab('staff')}
+          className={`px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${announcementTab === 'staff' ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
+          👥 Staff Only ({staffAnnouncements.length})
+        </button>
+      </div>
+
       <AnimatePresence>
         {showForm && isAdmin && (
           <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
             className="bg-secondary/40 rounded-3xl border border-primary/30 p-8 space-y-5">
             <h3 className="text-lg font-bold text-white">New Announcement</h3>
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Title */}
+              {/* Staff-only toggle */}
+              <div className="flex items-center gap-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={form.is_staff_only} onChange={sb('is_staff_only')} className="w-4 h-4 rounded accent-purple-400" />
+                  <span className="text-sm font-bold text-purple-400 flex items-center gap-2">👥 Staff Only Announcement</span>
+                </label>
+                <p className="text-xs text-text-muted">{form.is_staff_only ? 'Visible only to: Owner, Manager, Captain, Chef' : 'Will be shown to customers'}</p>
+              </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Title *</label>
                 <input required value={form.title} onChange={sf('title')}
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
-              {/* Message */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Message *</label>
                 <textarea required value={form.message} onChange={sf('message')} rows={3}
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
-              {/* Priority */}
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Priority</label>
                 <div className="flex gap-2">
@@ -1764,76 +1881,68 @@ const AnnouncementsPanel = ({ isAdmin }) => {
               {/* Festival toggle */}
               <div className="flex items-center gap-4 p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-xl">
                 <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={form.is_festival} onChange={sb('is_festival')}
-                    className="w-4 h-4 rounded accent-yellow-400" />
+                  <input type="checkbox" checked={form.is_festival} onChange={sb('is_festival')} className="w-4 h-4 rounded accent-yellow-400" />
                   <span className="text-sm font-bold text-yellow-400 flex items-center gap-2"><Star size={14} /> Festival Offer</span>
                 </label>
                 {form.is_festival && (
-                  <input type="text" placeholder="Festival name (e.g. Eid Special, Diwali Offer)"
+                  <input type="text" placeholder="Festival name (e.g. Christmas Special)"
                     value={form.festival_name} onChange={sf('festival_name')}
                     className="flex-1 bg-bg-main border border-yellow-500/30 p-2.5 rounded-xl focus:border-yellow-400 outline-none text-white text-sm" />
                 )}
               </div>
-              {/* Offer toggle */}
-              <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl space-y-4">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={form.has_offer} onChange={sb('has_offer')}
-                    className="w-4 h-4 rounded accent-green-400" />
-                  <span className="text-sm font-bold text-green-400 flex items-center gap-2"><Star size={14} /> 🎁 Attach an Offer / Discount</span>
-                </label>
-                {form.has_offer && (
-                  <div className="space-y-4 pt-2">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1">
-                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Discount % *</label>
-                        <input type="number" min="1" max="100" required value={form.offer_discount} onChange={sf('offer_discount')}
-                          placeholder="e.g. 20"
-                          className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-green-400" />
-                      </div>
-                      <div className="flex-1">
-                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Apply To</label>
-                        <div className="flex gap-2">
-                          {['all', 'selected'].map(s => (
-                            <button key={s} type="button" onClick={() => setForm(p => ({ ...p, offer_scope: s, offer_item_ids: [] }))}
-                              className={`flex-1 py-2 rounded-xl text-xs font-black uppercase border transition-all ${form.offer_scope === s ? 'bg-green-500/30 border-green-500 text-green-400' : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
-                              {s === 'all' ? '🍽 All Items' : '✅ Pick Items'}
-                            </button>
-                          ))}
+              {/* Offer toggle — only for customer announcements */}
+              {!form.is_staff_only && (
+                <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl space-y-4">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={form.has_offer} onChange={sb('has_offer')} className="w-4 h-4 rounded accent-green-400" />
+                    <span className="text-sm font-bold text-green-400 flex items-center gap-2"><Star size={14} /> 🎁 Attach an Offer / Discount</span>
+                  </label>
+                  {form.has_offer && (
+                    <div className="space-y-4 pt-2">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Discount % *</label>
+                          <input type="number" min="1" max="100" required value={form.offer_discount} onChange={sf('offer_discount')} placeholder="e.g. 20"
+                            className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-green-400" />
                         </div>
-                      </div>
-                    </div>
-
-                    {form.offer_scope === 'selected' && (
-                      <div>
-                        <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">
-                          Select Items ({form.offer_item_ids.length} selected)
-                        </label>
-                        <div className="max-h-48 overflow-y-auto grid grid-cols-2 gap-2 p-2 bg-bg-main rounded-xl border border-white/10">
-                          {menuItems.map(item => {
-                            const id = item._id || item.id;
-                            const picked = form.offer_item_ids.includes(id);
-                            return (
-                              <button key={id} type="button" onClick={() => toggleOfferItem(id)}
-                                className={`px-3 py-2 rounded-lg text-xs font-bold text-left border transition-all flex items-center gap-2 ${picked ? 'bg-green-500/20 border-green-500/40 text-green-300' : 'bg-white/5 border-white/5 text-text-muted hover:border-white/20 hover:text-white'}`}>
-                                <span className={`w-3 h-3 rounded-sm border flex-shrink-0 flex items-center justify-center text-[8px] ${picked ? 'bg-green-500 border-green-500 text-white' : 'border-white/30'}`}>{picked ? '✓' : ''}</span>
-                                <span className="truncate">{item.name}</span>
+                        <div className="flex-1">
+                          <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Apply To</label>
+                          <div className="flex gap-2">
+                            {['all', 'selected'].map(s => (
+                              <button key={s} type="button" onClick={() => setForm(p => ({ ...p, offer_scope: s, offer_item_ids: [] }))}
+                                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase border transition-all ${form.offer_scope === s ? 'bg-green-500/30 border-green-500 text-green-400' : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
+                                {s === 'all' ? '🍽 All Items' : '✅ Pick Items'}
                               </button>
-                            );
-                          })}
+                            ))}
+                          </div>
                         </div>
-                        {form.offer_item_ids.length === 0 && (
-                          <p className="text-[10px] text-red-400 font-bold mt-1">Select at least one item</p>
-                        )}
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                      {form.offer_scope === 'selected' && (
+                        <div>
+                          <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Select Items ({form.offer_item_ids.length} selected)</label>
+                          <div className="max-h-48 overflow-y-auto grid grid-cols-2 gap-2 p-2 bg-bg-main rounded-xl border border-white/10">
+                            {menuItems.map(item => {
+                              const id = item._id || item.id;
+                              const picked = form.offer_item_ids.includes(id);
+                              return (
+                                <button key={id} type="button" onClick={() => toggleOfferItem(id)}
+                                  className={`px-3 py-2 rounded-lg text-xs font-bold text-left border transition-all flex items-center gap-2 ${picked ? 'bg-green-500/20 border-green-500/40 text-green-300' : 'bg-white/5 border-white/5 text-text-muted hover:border-white/20 hover:text-white'}`}>
+                                  <span className={`w-3 h-3 rounded-sm border flex-shrink-0 flex items-center justify-center text-[8px] ${picked ? 'bg-green-500 border-green-500 text-white' : 'border-white/30'}`}>{picked ? '✓' : ''}</span>
+                                  <span className="truncate">{item.name}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {/* Schedule toggle */}
               <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl space-y-3">
                 <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={form.is_scheduled} onChange={sb('is_scheduled')}
-                    className="w-4 h-4 rounded accent-blue-400" />
+                  <input type="checkbox" checked={form.is_scheduled} onChange={sb('is_scheduled')} className="w-4 h-4 rounded accent-blue-400" />
                   <span className="text-sm font-bold text-blue-400 flex items-center gap-2"><Calendar size={14} /> Schedule for Later</span>
                 </label>
                 {form.is_scheduled && (
@@ -1857,21 +1966,29 @@ const AnnouncementsPanel = ({ isAdmin }) => {
       </AnimatePresence>
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="space-y-4">
-          {announcements.map(a => (
+          {announcementTab === 'staff' && (
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl px-4 py-3 flex items-center gap-2">
+              <span className="text-purple-400 text-xs font-bold">👥 Staff-only announcements — visible to Owner, Manager, Captain & Chef only</span>
+            </div>
+          )}
+          {visibleAnnouncements.map(a => (
             <div key={a._id} className={`bg-secondary/40 rounded-2xl border p-6 ${priorityBorder[a.priority] || 'border-white/5'}`}>
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className={`w-2.5 h-2.5 rounded-full ${a.priority === 'urgent' ? 'bg-red-400 animate-pulse' : a.priority === 'high' ? 'bg-yellow-400' : 'bg-blue-400'}`} />
                   <h4 className="text-base font-bold text-white">{a.title}</h4>
                   <span className={`text-[10px] font-black uppercase ${priorityColor[a.priority]}`}>{a.priority}</span>
+                  {isStaffAnnouncement(a) && (
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">👥 Staff Only</span>
+                  )}
                   {a.is_festival && (
                     <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
                       🎉 {a.festival_name || 'Festival Offer'}
                     </span>
                   )}
-                  {a.offer_items && a.offer_items.length > 0 && (
+                  {a.has_offer && (
                     <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
-                      🎁 {a.offer_discount}% OFF · {a.offer_items.includes('ALL') ? 'All Items' : `${a.offer_items.length} item${a.offer_items.length > 1 ? 's' : ''}`}
+                      🎁 {a.offer_discount}% OFF · {a.offer_items?.includes('ALL') ? 'All Items' : `${a.offer_items?.length || 0} item${(a.offer_items?.length || 0) > 1 ? 's' : ''}`}
                     </span>
                   )}
                   {a.is_scheduled && a.scheduled_date && (
@@ -1887,15 +2004,69 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                 )}
               </div>
               <p className="text-sm text-white/80 ml-6">{a.message}</p>
+              {/* Show offer items list with prices + estimated cost */}
+              {a.has_offer && a.offer_items && a.offer_items.length > 0 && (
+                <div className="ml-6 mt-3 bg-green-500/5 border border-green-500/15 rounded-xl px-3 py-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-green-400 font-black uppercase tracking-widest">Offer applies to:</p>
+                    <span className="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded-full">{a.offer_discount}% OFF</span>
+                  </div>
+                  {a.offer_items.includes('ALL') ? (
+                    <div>
+                      <p className="text-xs text-white/70">🍽 All menu items — {a.offer_discount}% discount applied at checkout</p>
+                      {menuItems.length > 0 && (
+                        <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                          {menuItems.slice(0, 8).map(mi => {
+                            const discounted = (mi.price * (1 - a.offer_discount / 100)).toFixed(2);
+                            return (
+                              <div key={mi._id || mi.id} className="flex items-center justify-between text-[10px]">
+                                <span className="text-white/60">{mi.name}</span>
+                                <span className="flex items-center gap-1.5">
+                                  <span className="line-through text-white/30">${mi.price?.toFixed(2)}</span>
+                                  <span className="text-green-400 font-black">${discounted}</span>
+                                </span>
+                              </div>
+                            );
+                          })}
+                          {menuItems.length > 8 && <p className="text-[10px] text-text-muted">+{menuItems.length - 8} more items</p>}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {a.offer_items.map(itemId => {
+                        const mi = menuItems.find(m => (m._id || m.id) === itemId);
+                        if (!mi) return null;
+                        const discounted = (mi.price * (1 - a.offer_discount / 100)).toFixed(2);
+                        return (
+                          <div key={itemId} className="flex items-center justify-between text-[10px] bg-white/5 rounded-lg px-2 py-1">
+                            <span className="text-white font-bold">{mi.name}</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="line-through text-white/30">${mi.price?.toFixed(2)}</span>
+                              <span className="text-green-400 font-black">${discounted}</span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <p className="text-[10px] text-green-400/70 font-bold pt-1">
+                        Est. avg saving: ${(a.offer_items.map(id => {
+                          const mi = menuItems.find(m => (m._id || m.id) === id);
+                          return mi ? mi.price * a.offer_discount / 100 : 0;
+                        }).reduce((s, v) => s + v, 0) / Math.max(a.offer_items.length, 1)).toFixed(2)} per item
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
               <p className="text-[10px] text-text-muted ml-6 mt-2">
                 By {a.created_by?.name || 'Admin'} · {new Date(a.created_at).toLocaleDateString()}
               </p>
             </div>
           ))}
-          {announcements.length === 0 && (
+          {visibleAnnouncements.length === 0 && (
             <div className="py-20 text-center text-text-muted">
               <Megaphone size={40} className="mx-auto mb-3 opacity-20" />
-              <p className="font-bold text-sm uppercase tracking-widest">No announcements</p>
+              <p className="font-bold text-sm uppercase tracking-widest">No {announcementTab === 'staff' ? 'staff' : 'customer'} announcements</p>
             </div>
           )}
         </div>
@@ -1993,11 +2164,16 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><UserCheck size={28} className="text-primary" />Shift Logs</h2>
           <p className="text-text-muted text-sm mt-1">Attendance analytics & check-in tracking</p>
         </div>
-        <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
-          {['today', 'weekly', 'monthly', 'yearly'].map(p => (
-            <button key={p} onClick={() => setPeriod(p)}
-              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${period === p ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{p}</button>
-          ))}
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} /> Refresh
+          </button>
+          <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
+            {['today', 'weekly', 'monthly', 'yearly'].map(p => (
+              <button key={p} onClick={() => setPeriod(p)}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${period === p ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{p}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -2293,9 +2469,14 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
           <h2 className="text-3xl font-bold text-white mb-1">Staff Management</h2>
           <p className="text-text-muted text-sm">{currentUserRole === 'owner' ? 'Manage all managers, captains & chefs' : 'Manage captains and chefs'}</p>
         </div>
-        <button onClick={openAdd} className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover">
-          <Plus size={14} /> Add Staff
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} /> Refresh
+          </button>
+          <button onClick={openAdd} className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover">
+            <Plus size={14} /> Add Staff
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
@@ -2633,12 +2814,17 @@ const LeaveModule = ({ user }) => {
             {isStaff ? 'Apply and track your leave requests' : 'Manage and approve leave applications'}
           </p>
         </div>
-        {!isOwner && (
-          <button onClick={() => setShowForm(s => !s)}
-            className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
-            <Plus size={14} /> Apply Leave
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} /> Refresh
           </button>
-        )}
+          {!isOwner && (
+            <button onClick={() => setShowForm(s => !s)}
+              className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+              <Plus size={14} /> Apply Leave
+            </button>
+          )}
+        </div>
       </div>
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
@@ -2788,6 +2974,7 @@ const CateringPanel = () => {
   const [priceForm,      setPriceForm]      = useState('');
   const [quotationMsg,   setQuotationMsg]   = useState('');
   const [sendingQuote,   setSendingQuote]   = useState(false);
+  const [filterStatus,   setFilterStatus]   = useState('all');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2801,8 +2988,16 @@ const CateringPanel = () => {
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
 
   const updateStatus = async (id, status) => {
-    try { await cateringAPI.update(id, { status }); flash(`Status updated to ${status}`); load(); }
-    catch (err) { flash(err.message, 'error'); }
+    // Enforce: cannot confirm without a quotation
+    if (status === 'confirmed') {
+      const order = orders.find(o => o._id === id);
+      if (!order?.total_price && !order?.quotation_message) {
+        flash('Send a quotation email first before confirming this catering order.', 'error');
+        return;
+      }
+    }
+    try { await cateringAPI.updateStatus(id, status); flash(`Status updated to ${status}`); load(); }
+    catch (err) { flash(err.message || 'Failed to update status', 'error'); }
   };
 
   const handleSendQuotation = async (id) => {
@@ -2811,16 +3006,11 @@ const CateringPanel = () => {
     setSendingQuote(true);
     try {
       await cateringAPI.sendQuotation(id, { total_price: price, quotation_message: quotationMsg, status: 'confirmed' });
-      flash('Quotation sent to customer email!');
+      flash('Quotation sent to customer email! Order confirmed.');
       setPriceForm(''); setQuotationMsg(''); setSelected(null);
       load();
     } catch (err) { flash(err.message || 'Failed to send quotation', 'error'); }
     finally { setSendingQuote(false); }
-  };
-
-  const setPrice = async (id) => {
-    try { await cateringAPI.update(id, { total_price: parseFloat(priceForm) }); flash('Price set!'); setPriceForm(''); setSelected(null); load(); }
-    catch (err) { flash(err.message, 'error'); }
   };
 
   const deleteOrder = async (id) => {
@@ -2838,104 +3028,221 @@ const CateringPanel = () => {
   const totalRevenue = orders.filter(o => o.status === 'confirmed' || o.status === 'completed')
     .reduce((a, o) => a + (o.total_price || 0), 0);
 
+  const filtered = filterStatus === 'all' ? orders : orders.filter(o => o.status === filterStatus);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><Utensils size={28} className="text-primary" />Catering Orders</h2>
-          <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ₹{totalRevenue.toLocaleString()} confirmed revenue</p>
+          <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ${totalRevenue.toLocaleString()} confirmed revenue</p>
         </div>
+        <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+          <RefreshCw size={13} /> Refresh
+        </button>
       </div>
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
-      {/* Stats */}
+      {/* Status group counts */}
       <div className="grid grid-cols-4 gap-4">
         {['pending', 'confirmed', 'completed', 'cancelled'].map(s => (
-          <div key={s} className={`rounded-2xl border p-4 text-center ${statusColors[s] || 'bg-white/5 border-white/10'}`}>
+          <button key={s} onClick={() => setFilterStatus(filterStatus === s ? 'all' : s)}
+            className={`rounded-2xl border p-4 text-center transition-all ${filterStatus === s ? 'ring-2 ring-primary' : ''} ${statusColors[s] || 'bg-white/5 border-white/10'}`}>
             <p className="text-2xl font-black">{orders.filter(o => o.status === s).length}</p>
             <p className="text-[10px] uppercase font-bold tracking-widest mt-1 capitalize">{s}</p>
-          </div>
+          </button>
         ))}
       </div>
 
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="space-y-4">
-          {orders.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="py-20 text-center text-text-muted bg-secondary/40 rounded-3xl border border-white/5">
               <Utensils size={40} className="mx-auto mb-3 opacity-20" />
-              <p className="font-bold text-sm uppercase tracking-widest">No catering orders yet</p>
+              <p className="font-bold text-sm uppercase tracking-widest">No {filterStatus !== 'all' ? filterStatus : ''} catering orders</p>
             </div>
-          ) : orders.map(o => (
-            <div key={o._id} className="bg-secondary/40 rounded-2xl border border-white/5 hover:border-white/10 transition-all overflow-hidden">
+          ) : filtered.map(o => (
+            <div key={o._id} className="bg-secondary/40 rounded-2xl border border-white/5 hover:border-primary/20 transition-all overflow-hidden">
+              {/* Header */}
               <div className="p-5 flex items-start justify-between gap-4 flex-wrap">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 flex-wrap mb-2">
-                    <h3 className="text-base font-bold text-white">{o.customer_name}</h3>
+                <div className="flex-1 min-w-0 space-y-3">
+
+                  {/* Name + badges */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base font-black text-white">{o.contact_name || o.customer_name}</h3>
                     <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${statusColors[o.status] || 'bg-white/5 border-white/10 text-text-muted'}`}>{o.status}</span>
+                    {o.total_price > 0 && <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-primary/20 text-primary border border-primary/30">✓ Quoted: ${Number(o.total_price).toLocaleString()}</span>}
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-text-muted">
-                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Event Type</span><span className="text-white font-bold">{o.event_type || '—'}</span></div>
-                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Event Date</span><span className="text-white font-bold">{o.event_date ? new Date(o.event_date).toLocaleDateString() : '—'}</span></div>
-                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Guests</span><span className="text-white font-bold">{o.guest_count}</span></div>
-                    <div><span className="text-[9px] uppercase font-bold block mb-0.5">Price</span><span className="text-primary font-black">{o.total_price ? `${o.total_price.toFixed(0)}` : 'Quote pending'}</span></div>
-                    {o.quote_value > 0 && (
-                      <div><span className="text-[9px] uppercase font-bold block mb-0.5">Customer Est.</span><span className="text-yellow-400 font-black">₹{o.quote_value.toLocaleString()}</span></div>
-                    )}
+
+                  {/* Event info grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {[
+                      { label: 'Event Type', value: o.event_type || '—' },
+                      { label: 'Event Date', value: o.event_date ? new Date(o.event_date).toLocaleDateString('en-US',{day:'numeric',month:'short',year:'numeric'}) : '—' },
+                      { label: 'Guests', value: o.guest_count || o.guests || '—' },
+                      { label: 'Final Quote', value: o.total_price > 0 ? `$${Number(o.total_price).toLocaleString()}` : 'Pending', highlight: o.total_price > 0 },
+                    ].map(({ label, value, highlight }) => (
+                      <div key={label} className={`rounded-xl p-2.5 ${highlight ? 'bg-primary/10 border border-primary/20' : 'bg-white/5'}`}>
+                        <p className="text-[9px] text-text-muted uppercase font-black tracking-widest mb-0.5">{label}</p>
+                        <p className={`font-black text-sm ${highlight ? 'text-primary' : 'text-white'}`}>{value}</p>
+                      </div>
+                    ))}
                   </div>
-                  {o.email && <p className="text-xs text-text-muted mt-2">{o.email} {o.phone && `· ${o.phone}`}</p>}
-                  {o.menu_selection && <p className="text-xs text-white/60 mt-1"><span className="text-primary font-bold">Menu:</span> {o.menu_selection}</p>}
-                  {o.notes && <p className="text-xs text-white/60 mt-1 italic">"{o.notes}"</p>}
+
+                  {/* Contact */}
+                  {(o.email || o.contact_email) && (
+                    <p className="text-[11px] text-text-muted">
+                      📧 {o.email || o.contact_email}
+                      {(o.phone || o.contact_phone) && <span> · 📞 {o.phone || o.contact_phone}</span>}
+                    </p>
+                  )}
+
+                  {/* ── Menu Selection ── */}
+                  {o.menu_selection && (() => {
+                    const raw = o.menu_selection || '';
+                    const isPkg = raw.startsWith('Package:');
+                    let pkgName = '', items = [];
+                    if (isPkg) {
+                      const parts = raw.split('|');
+                      pkgName = parts[0]?.replace('Package:', '').trim();
+                      items = (parts[1]?.replace('Items:', '').trim() || '').split(',').map(s => s.trim()).filter(Boolean);
+                    } else {
+                      items = raw.replace('Custom Menu:', '').trim().split(',').map(s => s.trim()).filter(Boolean);
+                    }
+                    return (
+                      <div className="bg-white/5 border border-white/8 rounded-2xl p-4 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] text-text-muted font-black uppercase tracking-widest">
+                            {isPkg ? '📦 Package' : '🍽 Custom Menu'}
+                          </p>
+                          {isPkg && pkgName && (
+                            <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/20">{pkgName}</span>
+                          )}
+                        </div>
+                        {items.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {items.map((item, idx) => (
+                              <span key={idx} className="text-[10px] px-2.5 py-1 bg-white/8 border border-white/10 rounded-full text-white/80 font-bold">{item}</span>
+                            ))}
+                          </div>
+                        )}
+                        {o.quote_value > 0 && (
+                          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                            <p className="text-[10px] text-text-muted font-bold">Customer Budget Estimate</p>
+                            <div className="text-right">
+                              <p className="text-sm font-black text-yellow-400">${Number(o.quote_value).toLocaleString()}</p>
+                              {(o.guest_count || o.guests) > 0 && (
+                                <p className="text-[10px] text-text-muted">${(o.quote_value / Number(o.guest_count || o.guests)).toFixed(2)} / guest</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Notes */}
+                  {o.notes && (
+                    <div className="bg-white/5 rounded-xl px-3 py-2">
+                      <p className="text-[9px] text-text-muted uppercase font-black tracking-widest mb-0.5">Customer Notes</p>
+                      <p className="text-xs text-white/70 italic">"{o.notes}"</p>
+                    </div>
+                  )}
+                  {o.quotation_message && (
+                    <div className="bg-primary/5 border border-primary/20 rounded-xl px-3 py-2">
+                      <p className="text-[9px] text-primary font-black uppercase tracking-widest mb-0.5">Quotation Note Sent</p>
+                      <p className="text-xs text-white/70">{o.quotation_message}</p>
+                    </div>
+                  )}
                 </div>
+
+                {/* Actions */}
                 <div className="flex flex-col gap-2 shrink-0">
                   {o.status === 'pending' && (
-                    <button onClick={() => updateStatus(o._id, 'confirmed')}
-                      className="px-3 py-1.5 bg-green-500/20 text-green-400 text-[10px] font-black rounded-lg hover:bg-green-500 hover:text-white transition-all">
-                      Confirm
-                    </button>
+                    <>
+                      <button onClick={() => { setSelected(selected === o._id ? null : o._id); if (selected !== o._id && o.quote_value > 0) setPriceForm(String(o.quote_value)); }}
+                        className="px-3 py-2 bg-primary/20 text-primary text-[10px] font-black rounded-xl hover:bg-primary hover:text-white transition-all">
+                        ✉ Send Quotation
+                      </button>
+                      <button onClick={() => updateStatus(o._id, 'confirmed')}
+                        disabled={!o.total_price && !o.quotation_message}
+                        title={!o.total_price ? 'Send quotation first' : 'Confirm'}
+                        className="px-3 py-2 bg-green-500/20 text-green-400 text-[10px] font-black rounded-xl hover:bg-green-500 hover:text-white disabled:opacity-40 transition-all">
+                        {o.total_price ? '✓ Confirm' : '⚠ Needs Quote'}
+                      </button>
+                    </>
                   )}
                   {o.status === 'confirmed' && (
                     <button onClick={() => updateStatus(o._id, 'completed')}
-                      className="px-3 py-1.5 bg-blue-500/20 text-blue-400 text-[10px] font-black rounded-lg hover:bg-blue-500 hover:text-white transition-all">
-                      Complete
+                      className="px-3 py-2 bg-blue-500/20 text-blue-400 text-[10px] font-black rounded-xl hover:bg-blue-500 hover:text-white transition-all">
+                      ✓ Complete
                     </button>
                   )}
-                  {o.status !== 'cancelled' && (
+                  {o.status !== 'cancelled' && o.status !== 'completed' && (
                     <button onClick={() => updateStatus(o._id, 'cancelled')}
-                      className="px-3 py-1.5 bg-red-500/10 text-red-400 text-[10px] font-black rounded-lg hover:bg-red-500 hover:text-white transition-all">
-                      Cancel
+                      className="px-3 py-2 bg-red-500/10 text-red-400 text-[10px] font-black rounded-xl hover:bg-red-500 hover:text-white transition-all">
+                      ✕ Cancel
                     </button>
                   )}
-                  <button onClick={() => setSelected(selected === o._id ? null : o._id)}
-                    className="px-3 py-1.5 bg-primary/20 text-primary text-[10px] font-black rounded-lg hover:bg-primary hover:text-white transition-all">
-                    ✉ Send Quotation
-                  </button>
                   <button onClick={() => deleteOrder(o._id)}
-                    className="px-3 py-1.5 bg-white/5 text-text-muted text-[10px] font-black rounded-lg hover:bg-red-500/20 hover:text-red-400 transition-all">
+                    className="px-3 py-2 bg-white/5 text-text-muted text-[10px] font-black rounded-xl hover:bg-red-500/20 hover:text-red-400 transition-all">
                     Delete
                   </button>
                 </div>
               </div>
+
+              {/* ── Quotation Form ── */}
               {selected === o._id && (
-                <div className="px-5 pb-5 border-t border-primary/20 pt-4 bg-primary/5 space-y-3">
-                  <p className="text-xs font-black uppercase tracking-widest text-primary">✉ Send Quotation to Customer</p>
-                  <div className="grid md:grid-cols-2 gap-3">
+                <div className="px-5 pb-5 border-t border-primary/20 pt-4 bg-primary/5 space-y-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-primary">✉ Quotation Details — Sent to Customer & Confirms Order</p>
+
+                  {/* Summary row */}
+                  <div className="grid grid-cols-3 gap-3 bg-white/5 rounded-2xl p-4">
                     <div>
-                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Total Price (₹) *</label>
-                      <input type="number" value={priceForm} onChange={e => setPriceForm(e.target.value)}
-                        placeholder="e.g. 25000" className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                      <p className="text-[9px] text-text-muted uppercase font-black tracking-widest mb-1">Guests</p>
+                      <p className="text-xl font-black text-white">{o.guest_count || o.guests || '—'}</p>
                     </div>
                     <div>
-                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Personal Message (optional)</label>
-                      <textarea value={quotationMsg} onChange={e => setQuotationMsg(e.target.value)} rows={2}
-                        placeholder="Add a warm note for the customer…"
+                      <p className="text-[9px] text-text-muted uppercase font-black tracking-widest mb-1">Cust. Estimate</p>
+                      <p className="text-xl font-black text-yellow-400">{o.quote_value > 0 ? `$${Number(o.quote_value).toLocaleString()}` : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-text-muted uppercase font-black tracking-widest mb-1">Est. Per Head</p>
+                      <p className="text-xl font-black text-green-400">
+                        {o.quote_value > 0 && (o.guest_count || o.guests) > 0
+                          ? `$${(o.quote_value / Number(o.guest_count || o.guests)).toFixed(2)}`
+                          : '—'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">
+                        Your Quote ($) *
+                        {o.quote_value > 0 && <span className="text-yellow-400 normal-case font-normal ml-1">· customer estimated ${Number(o.quote_value).toLocaleString()}</span>}
+                      </label>
+                      <input type="number" value={priceForm} onChange={e => setPriceForm(e.target.value)}
+                        placeholder={o.quote_value ? String(o.quote_value) : 'e.g. 2500'}
+                        className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                      {priceForm && Number(o.guest_count || o.guests) > 0 && (
+                        <p className="text-[10px] text-primary font-bold mt-1">
+                          = ${(Number(priceForm) / Number(o.guest_count || o.guests)).toFixed(2)} per guest
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Message to Customer</label>
+                      <textarea value={quotationMsg} onChange={e => setQuotationMsg(e.target.value)} rows={3}
+                        placeholder="e.g. Includes serving staff, cutlery, setup…"
                         className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-primary outline-none text-white text-sm resize-none" />
                     </div>
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => handleSendQuotation(o._id)} disabled={sendingQuote}
                       className="px-5 py-2 bg-primary text-white text-xs font-black rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-all">
-                      {sendingQuote ? 'Sending…' : '✓ Send Quotation Email'}
+                      {sendingQuote ? 'Sending…' : '✓ Send Quotation & Confirm'}
                     </button>
                     <button onClick={() => { setSelected(null); setPriceForm(''); setQuotationMsg(''); }}
                       className="px-4 py-2 border border-white/20 text-text-muted text-xs font-black rounded-xl hover:bg-white/5 transition-all">Cancel</button>
@@ -3224,55 +3531,65 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
 
 // ─── WASTE MANAGEMENT ─────────────────────────────────────────────────────────
 const WasteManagement = ({ ingredients }) => {
-  const [entries, setEntries] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bb_waste_log') || '[]'); } catch { return []; }
-  });
+  const [entries, setEntries] = useState([]);
   const [wasteType, setWasteType] = useState('ingredients'); // 'ingredients' | 'items'
   const [menuItems, setMenuItems] = useState([]);
   const [form, setForm] = useState({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
   const [showForm, setShowForm] = useState(false);
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = useState({ text: '', type: 'success' });
+  const [wasteLoading, setWasteLoading] = useState(true);
+
+  const loadWaste = useCallback(async () => {
+    setWasteLoading(true);
+    try { const r = await wasteAPI.getAll(); setEntries(r.data || []); }
+    catch {} finally { setWasteLoading(false); }
+  }, []);
 
   useEffect(() => {
+    loadWaste();
     menuAPI.getAll().then(r => setMenuItems(r.data || [])).catch(() => {});
-  }, []);
+  }, [loadWaste]);
 
   const REASONS = ['spoilage', 'overcooking', 'expiry', 'spillage', 'quality_reject', 'other'];
 
-  const flash = (t) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
+  const flash = (t, type = 'success') => { setMsg({ text: t, type }); setTimeout(() => setMsg({ text: '', type: 'success' }), 3000); };
 
-  const save = (list) => {
-    setEntries(list);
-    localStorage.setItem('bb_waste_log', JSON.stringify(list));
-  };
-
-  const handleAdd = (e) => {
+  const handleAdd = async (e) => {
     e.preventDefault();
-    let name, unit, cost;
+    let item_name, unit, unit_cost_at_time, ingredient_id, menu_item_id, item_type;
     if (wasteType === 'ingredients') {
       const ing = ingredients.find(i => (i._id || i.id) === form.ingredient_id);
       if (!ing) return;
-      name = ing.name; unit = ing.unit; cost = (ing.unit_cost || ing.unitCost || 0) * Number(form.quantity);
+      item_name = ing.name; unit = ing.unit;
+      unit_cost_at_time = ing.unit_cost || ing.unitCost || 0;
+      ingredient_id = ing._id || ing.id; item_type = 'ingredient';
     } else {
-      const item = menuItems.find(i => (i._id || i.id) === form.ingredient_id);
-      if (!item) return;
-      name = item.name; unit = 'pcs'; cost = (item.price || 0) * Number(form.quantity);
+      const mi = menuItems.find(i => (i._id || i.id) === form.ingredient_id);
+      if (!mi) return;
+      item_name = mi.name; unit = 'pcs';
+      unit_cost_at_time = mi.price || 0;
+      menu_item_id = mi._id || mi.id; item_type = 'menu_item';
     }
-    const entry = {
-      id: Date.now(), ingredient_id: form.ingredient_id, ingredient_name: name,
-      unit, quantity: Number(form.quantity), reason: form.reason, notes: form.notes,
-      cost, type: wasteType, date: new Date().toISOString(),
-    };
-    save([entry, ...entries]);
-    setForm({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
-    setShowForm(false);
-    flash(`Waste logged: ${name} — ${form.quantity} ${unit}`);
+    try {
+      await wasteAPI.create({
+        ingredient_id, menu_item_id, item_type, item_name,
+        quantity_wasted: Number(form.quantity), unit,
+        unit_cost_at_time, reason: form.reason, notes: form.notes,
+      });
+      setForm({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
+      setShowForm(false);
+      flash(`Waste logged: ${item_name} — ${form.quantity} ${unit}`);
+      loadWaste();
+    } catch (err) { flash('Failed to log waste: ' + (err.message || 'Error'), 'error'); }
   };
 
-  const handleDelete = (id) => save(entries.filter(e => e.id !== id));
+  const handleDelete = async (id) => {
+    try { await wasteAPI.delete(id); setEntries(prev => prev.filter(e => (e._id||e.id) !== id)); flash('Entry deleted'); }
+    catch (err) { flash('Delete failed: ' + (err.message || 'Error'), 'error'); }
+  };
 
-  const totalCost = entries.reduce((s, e) => s + (e.cost || 0), 0);
-  const byReason = REASONS.map(r => ({ reason: r, count: entries.filter(e => e.reason === r).length, cost: entries.filter(e => e.reason === r).reduce((s, e) => s + (e.cost || 0), 0) })).filter(r => r.count > 0);
+  const totalCost = entries.reduce((s, e) => s + (e.total_loss || e.cost || 0), 0);
+  const byReason = REASONS.map(r => ({ reason: r, count: entries.filter(e => e.reason === r).length, cost: entries.filter(e => e.reason === r).reduce((s, e) => s + (e.total_loss || e.cost || 0), 0) })).filter(r => r.count > 0);
 
   return (
     <div className="space-y-6 mt-10 pt-8 border-t border-white/5">
@@ -3298,7 +3615,7 @@ const WasteManagement = ({ ingredients }) => {
         </div>
       </div>
 
-      {msg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{msg}</p>}
+      {msg.text && <p className={`text-xs font-bold px-3 py-2 rounded-xl border ${msg.type === 'error' ? 'text-red-400 bg-red-500/10 border-red-500/20' : 'text-primary bg-primary/10 border-primary/20'}`}>{msg.text}</p>}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -3382,15 +3699,15 @@ const WasteManagement = ({ ingredients }) => {
               </thead>
               <tbody>
                 {entries.slice(0, 20).map(e => (
-                  <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
-                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}</td>
-                    <td className="p-3 text-white font-bold">{e.ingredient_name}</td>
-                    <td className="p-3 text-white">{e.quantity} {e.unit}</td>
-                    <td className="p-3"><span className="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-300 capitalize">{e.reason.replace('_',' ')}</span></td>
-                    <td className="p-3 text-orange-400 font-bold">${(e.cost||0).toFixed(2)}</td>
+                  <tr key={e._id || e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
+                    <td className="p-3 text-text-muted text-xs">{new Date(e.created_at || e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}</td>
+                    <td className="p-3 text-white font-bold">{e.item_name || e.ingredient_name}</td>
+                    <td className="p-3 text-white">{e.quantity_wasted || e.quantity} {e.unit}</td>
+                    <td className="p-3"><span className="text-[10px] px-2 py-1 rounded-full bg-red-500/20 text-red-300 capitalize">{(e.reason||'').replace('_',' ')}</span></td>
+                    <td className="p-3 text-orange-400 font-bold">${(e.total_loss || e.cost || 0).toFixed(2)}</td>
                     <td className="p-3 text-text-muted text-xs">{e.notes || '—'}</td>
                     <td className="p-3">
-                      <button onClick={() => handleDelete(e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+                      <button onClick={() => handleDelete(e._id || e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
                     </td>
                   </tr>
                 ))}
@@ -3499,7 +3816,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
         </button>
       </div>
 
-      {msg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{msg}</p>}
+      {msg.text && <p className={`text-xs font-bold px-3 py-2 rounded-xl border ${msg.type === 'error' ? 'text-red-400 bg-red-500/10 border-red-500/20' : 'text-primary bg-primary/10 border-primary/20'}`}>{msg.text}</p>}
 
       {/* Add Form */}
       <AnimatePresence>
@@ -3815,24 +4132,29 @@ const Overview = ({ orders, financial }) => {
 
 // ─── FINANCE CENTER ───────────────────────────────────────────────────────────
 const FinanceCenter = ({ orders }) => {
-  const [budgetEntries, setBudgetEntries] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bb_budget_entries') || '[]'); } catch { return []; }
-  });
-  const [wasteEntries, setWasteEntries] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bb_waste_log') || '[]'); } catch { return []; }
-  });
+  const [budgetEntries, setBudgetEntries] = useState([]);
+  const [wasteEntries,  setWasteEntries]  = useState([]);
   const [showBudgetForm, setShowBudgetForm] = useState(false);
-  const [budgetForm, setBudgetForm] = useState({ label: '', amount: '', type: 'expense', date: new Date().toISOString().slice(0, 10) });
-  const [msg, setMsg] = useState('');
+  const [budgetForm, setBudgetForm] = useState({ label: '', amount: '', type: 'expense', category: 'other', date: new Date().toISOString().slice(0, 10), notes: '' });
+  const [msg, setMsg] = useState({ text: '', type: 'success' });
   const [importBills, setImportBills] = useState(false);
   const [period, setPeriod] = useState('all');
+  const [loadingFinance, setLoadingFinance] = useState(true);
 
-  // Re-read waste log whenever tab becomes active
-  useEffect(() => {
-    try { setWasteEntries(JSON.parse(localStorage.getItem('bb_waste_log') || '[]')); } catch {}
+  const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: 'success' }), 3500); };
+
+  // ── Load budget + waste from DB ───────────────────────────────────────────
+  const loadFinance = useCallback(async () => {
+    setLoadingFinance(true);
+    try {
+      const [bRes, wRes] = await Promise.all([budgetAPI.getAll(), wasteAPI.getAll()]);
+      setBudgetEntries(bRes.data || []);
+      setWasteEntries(wRes.data || []);
+    } catch (err) { console.error('Finance load error:', err.message); }
+    finally { setLoadingFinance(false); }
   }, []);
 
-  const flash = (t) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
+  useEffect(() => { loadFinance(); }, [loadFinance]);
 
   const now = new Date();
 
@@ -3850,13 +4172,13 @@ const FinanceCenter = ({ orders }) => {
   const avgOrderValue = paidOrders.length > 0 ? revenue / paidOrders.length : 0;
 
   // Budget entries
-  const filteredBudget = budgetEntries.filter(e => filterByPeriod(e.date));
-  const totalExpenses = filteredBudget.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0);
-  const otherIncome = filteredBudget.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0);
+  const filteredBudget = budgetEntries.filter(e => filterByPeriod(e.date || e.created_at));
+  const totalExpenses = filteredBudget.filter(e => (e.entry_type || e.type) === 'expense').reduce((s, e) => s + (e.amount || 0), 0);
+  const otherIncome   = filteredBudget.filter(e => (e.entry_type || e.type) === 'income').reduce((s, e) => s + (e.amount || 0), 0);
 
-  // Wastage losses — included in Finance page, deducted from profit
-  const filteredWaste = wasteEntries.filter(e => filterByPeriod(e.date));
-  const wasteLoss = filteredWaste.reduce((s, e) => s + (e.cost || 0), 0);
+  // Wastage losses — from DB (total_loss field)
+  const filteredWaste = wasteEntries.filter(e => filterByPeriod(e.created_at || e.date));
+  const wasteLoss = filteredWaste.reduce((s, e) => s + (e.total_loss || e.cost || 0), 0);
 
   // Net Profit = Revenue + Other Income - Expenses - Wastage
   const netProfit = revenue + otherIncome - totalExpenses - wasteLoss;
@@ -3864,21 +4186,31 @@ const FinanceCenter = ({ orders }) => {
   const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
   const isProfit = netProfit >= 0;
 
-  const saveBudget = (list) => {
-    setBudgetEntries(list);
-    localStorage.setItem('bb_budget_entries', JSON.stringify(list));
-  };
-
-  const handleAddBudget = (e) => {
+  const handleAddBudget = async (e) => {
     e.preventDefault();
-    const entry = { id: Date.now(), label: budgetForm.label, amount: Number(budgetForm.amount), type: budgetForm.type, date: budgetForm.date };
-    saveBudget([entry, ...budgetEntries]);
-    setBudgetForm({ label: '', amount: '', type: 'expense', date: new Date().toISOString().slice(0, 10) });
-    setShowBudgetForm(false);
-    flash(`${budgetForm.type === 'expense' ? 'Expense' : 'Income'} added: $${budgetForm.amount}`);
+    try {
+      await budgetAPI.create({
+        title:      budgetForm.label,
+        amount:     Number(budgetForm.amount),
+        entry_type: budgetForm.type,
+        category:   budgetForm.category || 'other',
+        date:       budgetForm.date,
+        notes:      budgetForm.notes || '',
+      });
+      setBudgetForm({ label: '', amount: '', type: 'expense', category: 'other', date: new Date().toISOString().slice(0, 10), notes: '' });
+      setShowBudgetForm(false);
+      flash(`${budgetForm.type === 'expense' ? 'Expense' : 'Income'} of $${budgetForm.amount} added!`);
+      loadFinance();
+    } catch (err) { flash(err.message || 'Failed to add entry', 'error'); }
   };
 
-  const deleteBudget = (id) => saveBudget(budgetEntries.filter(e => e.id !== id));
+  const deleteBudget = async (id) => {
+    try {
+      await budgetAPI.delete(id);
+      setBudgetEntries(prev => prev.filter(e => e._id !== id && e.id !== id));
+      flash('Entry deleted');
+    } catch (err) { flash(err.message || 'Failed to delete', 'error'); }
+  };
 
   // Revenue last 7 days
   const last7 = Array.from({ length: 7 }, (_, i) => {
@@ -3905,6 +4237,9 @@ const FinanceCenter = ({ orders }) => {
           <button onClick={() => setImportBills(s => !s)}
             className="flex items-center gap-2 px-5 py-3 bg-white/10 border border-white/20 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/20 transition-all">
             <FileText size={14} /> Import Bills
+          </button>
+          <button onClick={loadFinance} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} /> Refresh
           </button>
           <button onClick={() => setShowBudgetForm(s => !s)}
             className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
@@ -3984,7 +4319,7 @@ const FinanceCenter = ({ orders }) => {
         ))}
       </div>
 
-      {msg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{msg}</p>}
+      {msg.text && <p className={`text-xs font-bold px-3 py-2 rounded-xl border ${msg.type === 'error' ? 'text-red-400 bg-red-500/10 border-red-500/20' : 'text-primary bg-primary/10 border-primary/20'}`}>{msg.text}</p>}
 
       {/* NET PROFIT / LOSS Banner — styled like screenshot */}
       <div className={`rounded-3xl border p-8 relative overflow-hidden ${isProfit ? 'bg-green-900/40 border-green-700/40' : 'bg-red-900/40 border-red-700/40'}`}>
@@ -4142,15 +4477,15 @@ const FinanceCenter = ({ orders }) => {
               </thead>
               <tbody>
                 {filteredBudget.map(e => (
-                  <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
-                    <td className="p-3 text-text-muted text-xs">{new Date(e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: '2-digit' })}</td>
-                    <td className="p-3 text-white font-bold">{e.label}</td>
+                  <tr key={e._id || e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
+                    <td className="p-3 text-text-muted text-xs">{new Date(e.date || e.created_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                    <td className="p-3 text-white font-bold">{e.title || e.label}<span className="text-[10px] text-text-muted ml-2">{e.category || ''}</span></td>
                     <td className="p-3">
-                      <span className={`text-[10px] px-2 py-1 rounded-full font-black uppercase ${e.type === 'expense' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{e.type}</span>
+                      <span className={`text-[10px] px-2 py-1 rounded-full font-black uppercase ${(e.entry_type||e.type) === 'expense' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{e.entry_type || e.type}</span>
                     </td>
-                    <td className={`p-3 font-black ${e.type === 'expense' ? 'text-red-400' : 'text-green-400'}`}>{e.type === 'expense' ? '-' : '+'}${e.amount.toFixed(0)}</td>
+                    <td className={`p-3 font-black ${(e.entry_type||e.type) === 'expense' ? 'text-red-400' : 'text-green-400'}`}>{(e.entry_type||e.type) === 'expense' ? '-' : '+'}${(e.amount||0).toFixed(0)}</td>
                     <td className="p-3">
-                      <button onClick={() => deleteBudget(e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+                      <button onClick={() => deleteBudget(e._id || e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
                     </td>
                   </tr>
                 ))}
@@ -4397,12 +4732,17 @@ const RidersPanel = ({ currentUserRole }) => {
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><Truck size={28} className="text-primary" />Riders Hub</h2>
           <p className="text-text-muted text-sm mt-1">Manage delivery riders, track live deliveries and performance</p>
         </div>
-        {currentUserRole === 'owner' && (
-          <button onClick={() => setShowForm(s => !s)}
-            className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
-            <Plus size={14} /> Add Rider
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} /> Refresh
           </button>
-        )}
+          {currentUserRole === 'owner' && (
+            <button onClick={() => setShowForm(s => !s)}
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+              <Plus size={14} /> Add Rider
+            </button>
+          )}
+        </div>
       </div>
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
@@ -4424,6 +4764,32 @@ const RidersPanel = ({ currentUserRole }) => {
           </div>
         ))}
       </div>
+
+      {/* Deliveries awaiting dispatch — assigned but not yet dispatched */}
+      {deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).length > 0 && (
+        <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5">
+          <h4 className="text-sm font-black text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <Truck size={14} /> {deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).length} Order{deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).length !== 1 ? 's' : ''} Ready to Dispatch
+          </h4>
+          <div className="space-y-2">
+            {deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).map(d => (
+              <div key={d._id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-white">Order #{d.order_id?.order_number || '—'}</p>
+                  <p className="text-xs text-text-muted truncate">{d.delivery_address}</p>
+                  <p className="text-[10px] text-blue-400">Rider: {d.driver_id?.name || '—'} · Waiting for dispatch</p>
+                </div>
+                <button onClick={async () => {
+                  try { await deliveryAPI.dispatch(d._id); flash('Order dispatched! Rider can now pickup.'); load(); }
+                  catch (err) { flash(err.message || 'Failed to dispatch', 'error'); }
+                }} className="px-4 py-2 bg-blue-500 text-white text-[10px] font-black rounded-xl hover:bg-blue-600 transition-all flex items-center gap-1.5">
+                  <Truck size={12} /> Dispatch Order
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Pending deliveries needing assignment */}
       {pendingDeliveries.length > 0 && (
@@ -5118,7 +5484,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
                             <span className="text-[9px] font-bold px-2 py-1 rounded-lg bg-white/5 text-white/50 uppercase">{(o.order_type||'dine-in').replace('_','-')}</span>
                           </div>
                           <div className="w-[12%] text-sm text-white/60">{o.table_number || '—'}</div>
-                          <div className="w-[13%] text-sm font-black text-white">₹{o.total}</div>
+                          <div className="w-[13%] text-sm font-black text-white">${o.total}</div>
                           <div className="w-[15%]">
                             <span className="text-[9px] font-bold px-2 py-1 rounded-lg bg-primary/10 text-primary uppercase">{roleLabel}</span>
                           </div>
@@ -5131,7 +5497,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
                   </div>
                   <div className="px-6 py-3 bg-white/3 border-t border-white/5 flex justify-between text-xs font-bold text-text-muted">
                     <span>{staffOrders.length} orders total</span>
-                    <span className="text-primary">₹{staffOrders.reduce((s,o) => s+(o.total||0),0).toFixed(2)} handled</span>
+                    <span className="text-primary">${staffOrders.reduce((s,o) => s+(o.total||0),0).toFixed(2)} handled</span>
                   </div>
                 </div>
               )}
@@ -5154,13 +5520,14 @@ const CustomersPanel = () => {
   const [custOrders,  setCustOrders]  = useState([]);
   const [ordLoading,  setOrdLoading]  = useState(false);
 
-  useEffect(() => {
+  const loadCustomers = () => {
     setLoading(true);
     usersAPI.getCustomers()
       .then(r => setCustomers(r.data || []))
       .catch(() => setCustomers([]))
       .finally(() => setLoading(false));
-  }, []);
+  };
+  useEffect(() => { loadCustomers(); }, []);
 
   const openCustomer = async (c) => {
     setSelected(c);
@@ -5204,7 +5571,7 @@ const CustomersPanel = () => {
             {[
               { label: 'Total Orders', value: custOrders.length, color: 'text-primary' },
               { label: 'Paid Orders', value: custOrders.filter(o=>o.status==='paid').length, color: 'text-green-400' },
-              { label: 'Total Spent', value: `₹${totalSpent.toFixed(0)}`, color: 'text-yellow-400' },
+              { label: 'Total Spent', value: `$${totalSpent.toFixed(0)}`, color: 'text-yellow-400' },
               { label: 'Loyalty Pts', value: selected.loyalty_points || 0, color: 'text-blue-400' },
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-white/5 rounded-2xl px-5 py-3 text-center border border-white/5">
@@ -5240,7 +5607,7 @@ const CustomersPanel = () => {
                     <div className="w-[20%] text-xs text-white/60">{new Date(o.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'})}</div>
                     <div className="w-[15%]"><span className="text-[9px] font-bold px-2 py-1 rounded-lg bg-white/5 text-white/50 uppercase">{(o.order_type||'dine-in').replace('_','-')}</span></div>
                     <div className="w-[12%] text-sm text-white/60">{o.table_number||'—'}</div>
-                    <div className="w-[14%] text-sm font-black text-white">₹{o.total}</div>
+                    <div className="w-[14%] text-sm font-black text-white">${o.total}</div>
                     <div className="w-[15%]"><span className={`text-[9px] font-bold px-2 py-1 rounded-lg uppercase border ${STATUS_COLORS[o.status]||'bg-white/5 text-white/40 border-white/10'}`}>{STATUS_LABELS[o.status]||o.status}</span></div>
                     <div className="w-[10%] text-sm text-yellow-400 font-bold">{o.rating ? `★ ${o.rating}` : '—'}</div>
                   </div>
@@ -5248,7 +5615,7 @@ const CustomersPanel = () => {
               </div>
               <div className="px-6 py-3 bg-white/3 border-t border-white/5 flex justify-between text-xs font-bold text-text-muted">
                 <span>{custOrders.length} orders</span>
-                <span className="text-primary">₹{totalSpent.toFixed(2)} paid</span>
+                <span className="text-primary">${totalSpent.toFixed(2)} paid</span>
               </div>
             </div>
           )}
@@ -5264,6 +5631,10 @@ const CustomersPanel = () => {
           <h2 className="text-2xl font-black text-white">All Customers</h2>
           <p className="text-xs text-text-muted mt-1">{customers.length} registered customers</p>
         </div>
+        <div className="flex items-center gap-2">
+          <button onClick={loadCustomers} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} /> Refresh
+          </button>
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
           <input
@@ -5271,6 +5642,7 @@ const CustomersPanel = () => {
             placeholder="Search by name, email or phone…"
             className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/40 w-72"
           />
+        </div>
         </div>
       </div>
 
@@ -5312,6 +5684,369 @@ const CustomersPanel = () => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  MY PROFILE PANEL — Comprehensive self-profile for owner/manager/captain/chef
+// ══════════════════════════════════════════════════════════════════════════════
+const MyProfilePanel = ({ user }) => {
+  const { user: authUser, updateUser } = useAuth();
+  const [tab, setTab]                 = useState('profile');
+  const [editing, setEditing]         = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [msg, setMsg]                 = useState({ text: '', type: '' });
+  const [shiftStats, setShiftStats]   = useState({ total: 0, hours: 0, today: 0 });
+  const [orderStats, setOrderStats]   = useState({ total: 0, paid: 0 });
+
+  const [form, setForm] = useState({
+    name:  user.name  || '',
+    phone: user.phone || '',
+    dob:   user.dob   ? user.dob.split('T')[0] : '',
+    gender: user.gender || '',
+    address: user.address || '',
+    city:    user.city    || '',
+    state:   user.state   || '',
+    emergency_contact_name:  user.emergency_contact_name  || '',
+    emergency_contact_phone: user.emergency_contact_phone || '',
+  });
+  const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
+
+  const [pwForm, setPwForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const spw = f => e => setPwForm(p => ({ ...p, [f]: e.target.value }));
+
+  const flash = (text, type = 'success') => {
+    setMsg({ text, type });
+    setTimeout(() => setMsg({ text: '', type: '' }), 3500);
+  };
+
+  // Load stats
+  useEffect(() => {
+    shiftsAPI.getAll(`?user_id=${user._id}`).then(r => {
+      const s = r.data || [];
+      const today = new Date(); today.setHours(0,0,0,0);
+      const hrs = s.reduce((a, sh) => {
+        if (!sh.check_in) return a;
+        const co = sh.check_out ? new Date(sh.check_out) : new Date();
+        return a + (co - new Date(sh.check_in)) / 3600000;
+      }, 0);
+      setShiftStats({ total: s.length, hours: hrs.toFixed(1), today: s.filter(sh => sh.check_in && new Date(sh.check_in) >= today).length });
+    }).catch(() => {});
+
+    ordersAPI.getAll(`?captain_id=${user._id}`).then(r => {
+      const o = r.data || [];
+      setOrderStats({ total: o.length, paid: o.filter(x => x.status === 'paid').length });
+    }).catch(() => {});
+  }, [user._id]);
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await usersAPI.updateMe(form);
+      flash('Profile updated successfully!');
+      setEditing(false);
+      // Update name in the form in case it changed
+      setForm(p => ({ ...p }));
+    } catch (err) { flash(err.message || 'Failed to update profile', 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (pwForm.new_password !== pwForm.confirm_password) {
+      flash('New passwords do not match', 'error'); return;
+    }
+    if (pwForm.new_password.length < 6) {
+      flash('Password must be at least 6 characters', 'error'); return;
+    }
+    setSaving(true);
+    try {
+      await usersAPI.changeMyPassword({ current_password: pwForm.current_password, new_password: pwForm.new_password });
+      flash('Password changed successfully!');
+      setPwForm({ current_password: '', new_password: '', confirm_password: '' });
+    } catch (err) { flash(err.message || 'Failed to change password', 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const roleBadgeColor = {
+    owner:   'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    manager: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    captain: 'bg-green-500/20 text-green-400 border-green-500/30',
+    chef:    'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    delivery:'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+  };
+
+  const TABS = [
+    { id: 'profile',  label: 'My Profile',      icon: User },
+    { id: 'security', label: 'Password',         icon: Shield },
+    { id: 'stats',    label: 'My Stats',         icon: BarChart2 },
+  ];
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+      {/* Profile Hero Card */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8">
+        <div className="flex items-center gap-6 flex-wrap">
+          {/* Avatar */}
+          <div className="relative shrink-0">
+            <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-primary/40 shadow-xl shadow-primary/10">
+              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.name || user._id}`} alt="" className="w-full h-full" />
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-2 border-secondary flex items-center justify-center">
+              <span className="text-[7px] font-black text-white">●</span>
+            </div>
+          </div>
+
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap mb-1">
+              <h2 className="text-3xl font-black text-white">{form.name || user.name}</h2>
+              <span className={`text-xs font-black px-3 py-1 rounded-full border uppercase ${roleBadgeColor[user.role] || 'bg-white/5 text-text-muted border-white/10'}`}>
+                {user.role}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-4 mt-2 text-xs text-text-muted">
+              <span className="flex items-center gap-1.5"><Mail size={11} className="text-primary" />{user.email}</span>
+              {(form.phone || user.phone) && <span className="flex items-center gap-1.5"><Phone size={11} className="text-primary" />{form.phone || user.phone}</span>}
+              {(form.city || user.city) && <span className="flex items-center gap-1.5"><MapPin size={11} className="text-primary" />{form.city || user.city}</span>}
+            </div>
+          </div>
+
+          {/* Employee ID */}
+          <div className="text-right shrink-0">
+            <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Employee ID</p>
+            <p className="text-lg font-black text-white font-mono">BB-{(user._id || '').slice(-6).toUpperCase()}</p>
+            <p className="text-[10px] text-text-muted mt-1">Since {user.joining_date ? new Date(user.joining_date).toLocaleDateString('en-US',{month:'short',year:'numeric'}) : 'N/A'}</p>
+          </div>
+        </div>
+
+        {/* Quick stats row */}
+        <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/5">
+          {[
+            { label: 'Total Shifts',  value: shiftStats.total,          color: 'text-primary'    },
+            { label: 'Hours Worked',  value: shiftStats.hours + 'h',    color: 'text-green-400'  },
+            { label: 'Orders Served', value: orderStats.total,          color: 'text-orange-400' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-white/5 rounded-2xl p-4 text-center">
+              <p className={`text-2xl font-black ${color}`}>{value}</p>
+              <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mt-1">{label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Flash */}
+      <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-white/5 p-1.5 rounded-2xl border border-white/8 w-fit">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${tab === t.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-text-muted hover:text-white'}`}>
+            <t.icon size={13} /> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── PROFILE TAB ─────────────────────────────────────────── */}
+      {tab === 'profile' && (
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8 space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-black text-white flex items-center gap-2"><User size={18} className="text-primary" />Personal Information</h3>
+            <button onClick={() => setEditing(e => !e)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${editing ? 'bg-white/10 text-text-muted' : 'bg-primary/10 border border-primary/30 text-primary hover:bg-primary hover:text-white'}`}>
+              {editing ? <><X size={13} /> Cancel</> : <><Edit2 size={13} /> Edit Profile</>}
+            </button>
+          </div>
+
+          {editing ? (
+            <form onSubmit={handleSaveProfile} className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* Name */}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Full Name *</label>
+                  <input required value={form.name} onChange={sf('name')}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+                {/* Phone */}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Phone</label>
+                  <input value={form.phone} onChange={sf('phone')} placeholder="+1 555 000 0000"
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+                {/* DOB */}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Date of Birth</label>
+                  <input type="date" value={form.dob} onChange={sf('dob')}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+                {/* Gender */}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Gender</label>
+                  <select value={form.gender} onChange={sf('gender')}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm">
+                    <option value="">Select</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                {/* Address */}
+                <div className="md:col-span-2">
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Address</label>
+                  <input value={form.address} onChange={sf('address')} placeholder="Street address"
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+                {/* City */}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">City</label>
+                  <input value={form.city} onChange={sf('city')}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+                {/* State */}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">State</label>
+                  <input value={form.state} onChange={sf('state')}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+                {/* Emergency Contact Name */}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Emergency Contact Name</label>
+                  <input value={form.emergency_contact_name} onChange={sf('emergency_contact_name')}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+                {/* Emergency Contact Phone */}
+                <div>
+                  <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Emergency Contact Phone</label>
+                  <input value={form.emergency_contact_phone} onChange={sf('emergency_contact_phone')}
+                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={saving}
+                  className="flex items-center gap-2 px-8 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover disabled:opacity-60 transition-all">
+                  {saving ? <Loader size={13} className="animate-spin" /> : <Save size={13} />}
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+                <button type="button" onClick={() => setEditing(false)}
+                  className="px-8 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/5 transition-all">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-4">
+              {[
+                { label: 'Full Name',        value: user.name },
+                { label: 'Email',            value: user.email },
+                { label: 'Phone',            value: form.phone || user.phone || '—' },
+                { label: 'Role',             value: user.role },
+                { label: 'Employee ID',      value: `BB-${(user._id||'').slice(-6).toUpperCase()}` },
+                { label: 'Date of Birth',    value: (form.dob||user.dob) ? new Date(form.dob||user.dob).toLocaleDateString('en-US',{day:'numeric',month:'long',year:'numeric'}) : '—' },
+                { label: 'Gender',           value: (form.gender||user.gender) ? (form.gender||user.gender).charAt(0).toUpperCase()+(form.gender||user.gender).slice(1) : '—' },
+                { label: 'City',             value: form.city || user.city || '—' },
+                { label: 'State',            value: form.state || user.state || '—' },
+                { label: 'Address',          value: form.address || user.address || '—' },
+                { label: 'Emergency Contact',value: (form.emergency_contact_name||user.emergency_contact_name) || '—' },
+                { label: 'Emergency Phone',  value: (form.emergency_contact_phone||user.emergency_contact_phone) || '—' },
+                { label: 'Joining Date',     value: user.joining_date ? new Date(user.joining_date).toLocaleDateString('en-US',{day:'numeric',month:'long',year:'numeric'}) : '—' },
+                { label: 'Salary',           value: user.salary ? `$${Number(user.salary).toLocaleString()}/mo` : '—' },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-white/5 rounded-xl p-4 border border-white/5">
+                  <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1">{label}</p>
+                  <p className="font-bold text-white text-sm truncate">{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SECURITY TAB ────────────────────────────────────────── */}
+      {tab === 'security' && (
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8 space-y-6">
+          <h3 className="text-lg font-black text-white flex items-center gap-2"><Shield size={18} className="text-primary" />Change Password</h3>
+          <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
+            <div>
+              <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Current Password *</label>
+              <input type="password" required value={pwForm.current_password} onChange={spw('current_password')}
+                placeholder="Enter current password"
+                className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+            </div>
+            <div>
+              <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">New Password *</label>
+              <input type="password" required value={pwForm.new_password} onChange={spw('new_password')}
+                placeholder="At least 6 characters"
+                className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+            </div>
+            <div>
+              <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Confirm New Password *</label>
+              <input type="password" required value={pwForm.confirm_password} onChange={spw('confirm_password')}
+                placeholder="Repeat new password"
+                className={`w-full bg-bg-main border p-3 rounded-xl outline-none text-white text-sm ${pwForm.confirm_password && pwForm.new_password !== pwForm.confirm_password ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-primary'}`} />
+              {pwForm.confirm_password && pwForm.new_password !== pwForm.confirm_password && (
+                <p className="text-xs text-red-400 mt-1 font-bold">Passwords do not match</p>
+              )}
+            </div>
+            <button type="submit" disabled={saving || (pwForm.confirm_password && pwForm.new_password !== pwForm.confirm_password)}
+              className="flex items-center gap-2 px-8 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover disabled:opacity-60 transition-all">
+              {saving ? <Loader size={13} className="animate-spin" /> : <Shield size={13} />}
+              {saving ? 'Updating…' : 'Update Password'}
+            </button>
+          </form>
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mt-2">
+            <p className="text-xs font-black text-white uppercase tracking-widest mb-2">🔒 Security Tips</p>
+            <ul className="space-y-1 text-xs text-text-muted">
+              <li>• Use at least 8 characters with a mix of letters and numbers</li>
+              <li>• Never share your password with anyone</li>
+              <li>• Change your password every 90 days</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* ── STATS TAB ───────────────────────────────────────────── */}
+      {tab === 'stats' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Total Shifts',    value: shiftStats.total,       icon: UserCheck,    color: 'text-primary',    bg: 'bg-primary/10'    },
+              { label: 'Hours Logged',    value: shiftStats.hours + 'h', icon: Clock,        color: 'text-green-400',  bg: 'bg-green-500/10'  },
+              { label: 'Today\'s Shifts', value: shiftStats.today,       icon: Activity,     color: 'text-blue-400',   bg: 'bg-blue-500/10'   },
+              { label: 'Orders Handled',  value: orderStats.total,       icon: ClipboardList, color: 'text-orange-400', bg: 'bg-orange-500/10' },
+            ].map(({ label, value, icon: Icon, color, bg }) => (
+              <div key={label} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 flex items-center gap-4">
+                <div className={`w-11 h-11 rounded-xl ${bg} flex items-center justify-center shrink-0`}><Icon size={18} className={color} /></div>
+                <div>
+                  <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest">{label}</p>
+                  <p className={`text-2xl font-black ${color}`}>{value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Account info summary */}
+          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6 space-y-4">
+            <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+              <User size={15} className="text-primary" /> Account Summary
+            </h4>
+            <div className="grid md:grid-cols-3 gap-4">
+              {[
+                { label: 'Account Status', value: user.is_active !== false ? '✅ Active' : '❌ Disabled',        color: user.is_active !== false ? 'text-green-400' : 'text-red-400' },
+                { label: 'Verified Email', value: user.is_verified ? '✅ Verified' : '⏳ Pending',              color: user.is_verified ? 'text-green-400' : 'text-yellow-400' },
+                { label: 'Last Check-in',  value: user.last_checkin_at ? new Date(user.last_checkin_at).toLocaleDateString() : '—', color: 'text-white' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="bg-white/5 rounded-xl p-4 border border-white/5">
+                  <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1">{label}</p>
+                  <p className={`font-black text-sm ${color}`}>{value}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -5591,30 +6326,7 @@ const Dashboard = () => {
             {/* MY PROFILE */}
             {activeTab === 'staff' && (
               <MotionDiv key="staff" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <div className="max-w-2xl mx-auto bg-secondary/40 rounded-3xl border border-white/10 p-10 space-y-8">
-                  <div className="flex items-center gap-6">
-                    <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-primary/40">
-                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.role}`} alt="" className="w-full h-full" />
-                    </div>
-                    <div>
-                      <h2 className="text-2xl font-black text-white">{user.name}</h2>
-                      <span className="text-primary font-bold uppercase tracking-widest text-sm">{user.role}</span>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {[
-                      { label: 'Email', value: user.email },
-                      { label: 'Phone', value: user.phone || '—' },
-                      { label: 'Employee ID', value: `BB-${user._id?.slice(-6).toUpperCase()}` },
-                      { label: 'Role', value: user.role },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="bg-white/5 rounded-xl p-4">
-                        <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1">{label}</p>
-                        <p className="font-bold text-white text-sm">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <MyProfilePanel user={user} />
               </MotionDiv>
             )}
 

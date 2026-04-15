@@ -715,7 +715,7 @@ const ProfileHub = () => {
             </MotionDiv>
           )}
 
-          {/* ANNOUNCEMENTS — full content + expandable */}
+          {/* ANNOUNCEMENTS */}
           {activeTab === 'announcements' && (
             <MotionDiv key="announcements" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <h2 className="text-xl font-black mb-5">Announcements</h2>
@@ -728,38 +728,32 @@ const ProfileHub = () => {
                 <div className="space-y-4">
                   {announcements.map(a => {
                     const isExpanded = expandedAnn === a._id;
-                    const isOffer = a.title?.toLowerCase().includes('offer') || a.message?.toLowerCase().includes('off') || a.content?.toLowerCase().includes('off');
+                    const hasOffer = a.has_offer && a.offer_discount > 0;
+                    const isScheduled = a.is_scheduled && a.scheduled_date;
                     return (
                       <div key={a._id} className="bg-secondary/40 border border-white/10 rounded-2xl overflow-hidden hover:border-primary/20 transition-all">
                         <button className="w-full text-left p-5" onClick={() => setExpandedAnn(isExpanded ? null : a._id)}>
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                {isOffer && (
-                                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
-                                    🎉 Offer
+                              {/* badges row */}
+                              <div className="flex flex-wrap items-center gap-2 mb-2">
+                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/10 text-white/50">{a.priority || 'normal'}</span>
+                                {a.is_festival && a.festival_name && (
+                                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">🎊 {a.festival_name}</span>
+                                )}
+                                {hasOffer && (
+                                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
+                                    🏷 {a.offer_discount}% OFF · {a.offer_scope === 'all' ? 'All Items' : `${(a.offer_items || []).length} items`}
                                   </span>
                                 )}
-                                <h3 className="font-black text-white">{a.title}</h3>
+                                {isScheduled && (
+                                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                    🕐 {new Date(a.scheduled_date).toLocaleString()}
+                                  </span>
+                                )}
                               </div>
-                              <p className="text-sm text-white/60 mt-1">{a.message || a.content}</p>
-                              {isExpanded && a.applicable_items && a.applicable_items.length > 0 && (
-                                <div className="mt-3 pt-3 border-t border-white/10">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-2">Applicable Items</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {a.applicable_items.map((item, i) => (
-                                      <span key={i} className="text-[10px] font-bold px-2 py-1 rounded-lg bg-primary/10 border border-primary/20 text-primary">
-                                        {item}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                              {isExpanded && a.discount_percent && (
-                                <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/20 rounded-xl">
-                                  <span className="text-2xl font-black text-green-400">{a.discount_percent}% OFF</span>
-                                </div>
-                              )}
+                              <h3 className="font-black text-white text-base">{a.title}</h3>
+                              <p className="text-sm text-white/60 mt-1">{a.message}</p>
                             </div>
                             <div className="flex flex-col items-end gap-2 shrink-0">
                               <span className="text-[10px] text-white/30 font-bold whitespace-nowrap">
@@ -769,6 +763,31 @@ const ProfileHub = () => {
                             </div>
                           </div>
                         </button>
+
+                        {/* Expanded offer details */}
+                        {isExpanded && hasOffer && (
+                          <div className="px-5 pb-5 border-t border-white/5 pt-4">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-3">Offer Applies To</p>
+                            {a.offer_scope === 'all' ? (
+                              <div className="bg-white/5 rounded-xl p-3 mb-3">
+                                <p className="text-xs text-white/60 font-bold">🍽 All menu items — {a.offer_discount}% discount applied at checkout</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-2 mb-3">
+                                {(a.offer_items || []).map((item, i) => (
+                                  <div key={i} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-2.5">
+                                    <span className="text-sm text-white font-bold">{item}</span>
+                                    <span className="text-xs font-black text-green-400">{a.offer_discount}% OFF</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/20 rounded-xl">
+                              <span className="text-lg font-black text-green-400">{a.offer_discount}% OFF</span>
+                              <span className="text-xs text-white/40 font-bold">on qualifying items</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

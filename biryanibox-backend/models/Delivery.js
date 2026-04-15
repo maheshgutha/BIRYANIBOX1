@@ -33,10 +33,17 @@ const DeliverySchema = new mongoose.Schema({
   current_location:  { type: String },
   delivery_fee:      { type: Number, default: 40 },
 
+  // Captain dispatch flag — rider cannot pickup until captain marks dispatched
+  captain_dispatched:{ type: Boolean, default: false },
+  dispatched_at:     { type: Date, default: null },
+  dispatched_by:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+
   // Timestamps
   order_placed_at:   { type: Date, default: Date.now },
   accepted_at:       { type: Date },
+  assigned_at:       { type: Date },
   picked_up_at:      { type: Date },
+  in_transit_at:     { type: Date },
   delivered_at:      { type: Date },
 }, { timestamps: true });
 

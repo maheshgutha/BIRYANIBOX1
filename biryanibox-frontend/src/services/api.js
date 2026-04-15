@@ -74,6 +74,8 @@ export const usersAPI = {
   getOne:        (id)          => request(`/users/${id}`),
   create:        (body)        => request('/users',             { method: 'POST',  body: JSON.stringify(body) }),
   update:        (id, body)    => request(`/users/${id}`,       { method: 'PUT',   body: JSON.stringify(body) }),
+  updateMe:      (body)        => request('/users/me',          { method: 'PATCH', body: JSON.stringify(body) }),
+  changeMyPassword:(body)      => request('/users/me/password', { method: 'PATCH', body: JSON.stringify(body) }),
   toggleStatus:  (id, is_active, disabled_reason) =>
     request(`/users/${id}/status`, { method: 'PATCH', body: JSON.stringify({ is_active, disabled_reason }) }),
   delete:        (id)          => request(`/users/${id}`,       { method: 'DELETE' }),
@@ -106,6 +108,8 @@ export const checkoutAPI = {
 // ── RESERVATIONS ──────────────────────────────────────────────────
 export const reservationsAPI = {
   getAll:       (params = '') => request(`/reservations${params}`),
+  checkConflict:(table, date, time, excludeId='') =>
+    request(`/reservations/check-conflict?table_assigned=${encodeURIComponent(table)}&date=${encodeURIComponent(date)}&time=${encodeURIComponent(time)}&exclude_id=${excludeId}`),
   publicSearch: (name, phone, email) => request(`/reservations/public/search?name=${encodeURIComponent(name || '')}&phone=${encodeURIComponent(phone || '')}&email=${encodeURIComponent(email || '')}`),
   getOne:       (id)          => request(`/reservations/${id}`),
   create:       (body)        => request('/reservations',                   { method: 'POST',  body: JSON.stringify(body) }),
@@ -173,6 +177,7 @@ export const notificationsAPI = {
 // ── CATERING ──────────────────────────────────────────────────────
 export const cateringAPI = {
   sendQuotation: (id, body)   => request(`/catering/${id}/send-quotation`, { method: 'PATCH', body: JSON.stringify(body) }),
+  updateStatus:  (id, status) => request(`/catering/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   getAll:  ()        => request('/catering'),
   getOne:  (id)      => request(`/catering/${id}`),
   create:  (body)    => request('/catering',        { method: 'POST',  body: JSON.stringify(body) }),
@@ -187,7 +192,6 @@ export const giftCardsAPI = {
   sentCards: ()         => request('/gift-cards/sent'),
   validate:  (code)     => request(`/gift-cards/validate/${code}`),
   purchase:  (body)     => request('/gift-cards',        { method: 'POST', body: JSON.stringify(body) }),
-  claim:     (code)     => request('/gift-cards/claim',  { method: 'POST', body: JSON.stringify({ code }) }),
   redeem:    (body)     => request('/gift-cards/redeem', { method: 'POST', body: JSON.stringify(body) }),
   getOne:    (id)       => request(`/gift-cards/${id}`),
 };
@@ -221,6 +225,23 @@ export const leavesAPI = {
   delete:       (id)          => request(`/leaves/${id}`,        { method: 'DELETE' }),
 };
 
+
+// ── BUDGET ────────────────────────────────────────────
+export const budgetAPI = {
+  getAll:     (params = '') => request(`/budget${params}`),
+  getSummary: (params = '') => request(`/budget/summary${params}`),
+  create:     (body)        => request('/budget',       { method: 'POST',   body: JSON.stringify(body) }),
+  update:     (id, body)    => request(`/budget/${id}`, { method: 'PUT',    body: JSON.stringify(body) }),
+  delete:     (id)          => request(`/budget/${id}`, { method: 'DELETE' }),
+};
+
+// ── WASTE LOGS ───────────────────────────────────────────
+export const wasteAPI = {
+  getAll:  (params = '') => request(`/waste${params}`),
+  create:  (body)        => request('/waste',       { method: 'POST',   body: JSON.stringify(body) }),
+  delete:  (id)          => request(`/waste/${id}`, { method: 'DELETE' }),
+};
+
 // ── DELIVERIES ────────────────────────────────────────────────────
 export const deliveryAPI = {
   getAll:       (params = '') => request(`/deliveries${params}`),
@@ -229,9 +250,10 @@ export const deliveryAPI = {
   getStats:     ()            => request('/deliveries/stats'),
   getCompleted: ()            => request('/deliveries/completed'),
   getById:      (id)          => request(`/deliveries/${id}`),
-  accept:       (id)          => request(`/deliveries/${id}/accept`,  { method: 'POST', body: '{}' }),
-  skip:         (id)          => request(`/deliveries/${id}/skip`,    { method: 'POST', body: '{}' }),
-  reject:       (id)          => request(`/deliveries/${id}/skip`,    { method: 'POST', body: '{}' }),
+  accept:       (id)          => request(`/deliveries/${id}/accept`,   { method: 'POST', body: '{}' }),
+  skip:         (id)          => request(`/deliveries/${id}/skip`,     { method: 'POST', body: '{}' }),
+  reject:       (id)          => request(`/deliveries/${id}/skip`,     { method: 'POST', body: '{}' }),
+  dispatch:     (id)          => request(`/deliveries/${id}/dispatch`, { method: 'PATCH', body: '{}' }),
   updateStatus: (id, status, location = '') =>
     request(`/deliveries/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, current_location: location }) }),
   assign:       (id, driver_id) =>

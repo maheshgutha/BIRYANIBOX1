@@ -15,15 +15,73 @@ const transporter = nodemailer.createTransport({
 });
 
 const sendEmail = async ({ to, subject, html }) => {
-  if (!process.env.SMTP_USER) {
-    console.log(`[Email] Would send to ${to}: ${subject}`);
-    return;
-  }
+  if (!process.env.SMTP_USER) { console.log(`[Email] Would send to ${to}: ${subject}`); return; }
   try {
     await transporter.sendMail({ from: `"Biryani Box" <${process.env.SMTP_USER}>`, to, subject, html });
     console.log(`[Email] Sent to ${to}`);
   } catch (err) { console.error('[Email]', err.message); }
 };
+
+// ── Helper: parse "7:30 PM" → minutes since midnight ───────────────────────
+const timeToMinutes = (timeStr) => {
+  if (!timeStr) return null;
+  const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+  if (!m) return null;
+  let h = parseInt(m[1]), min = parseInt(m[2]);
+  const ampm = (m[3] || '').toUpperCase();
+  if (ampm === 'PM' && h < 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return h * 60 + min;
+};
+
+// ── Helper: check if a table is blocked for a given date+time (±30 min) ───
+const checkTableConflict = async (table_assigned, date, time, excludeId = null) => {
+  if (!table_assigned || !date || !time) return [];
+  const reqMins = timeToMinutes(time);
+  if (reqMins === null) return [];
+
+  // Get all confirmed (and pending) reservations for the same table on the same date
+  const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+  const dayEnd   = new Date(date); dayEnd.setHours(23, 59, 59, 999);
+
+  const filter = {
+    table_assigned: { $regex: new RegExp(`^${table_assigned.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    status: { $in: ['pending', 'confirmed'] },
+    date: { $gte: dayStart, $lte: dayEnd },
+  };
+  if (excludeId) filter._id = { $ne: excludeId };
+
+  const existing = await Reservation.find(filter);
+
+  // Find ones within ±30 minutes
+  return existing.filter(r => {
+    const rMins = timeToMinutes(r.time);
+    if (rMins === null) return false;
+    return Math.abs(rMins - reqMins) < 30; // strict less than 30 min gap
+  });
+};
+
+// ── GET /api/reservations/check-conflict — frontend calls this before confirming
+router.get('/check-conflict', protect, async (req, res, next) => {
+  try {
+    const { table_assigned, date, time, exclude_id } = req.query;
+    if (!table_assigned || !date || !time)
+      return res.json({ success: true, conflicts: [], hasConflict: false });
+
+    const conflicts = await checkTableConflict(table_assigned, new Date(date), time, exclude_id);
+    res.json({
+      success: true,
+      hasConflict: conflicts.length > 0,
+      conflicts: conflicts.map(r => ({
+        _id: r._id,
+        customer_name: r.customer_name,
+        time: r.time,
+        guests: r.guests,
+        status: r.status,
+      })),
+    });
+  } catch (err) { next(err); }
+});
 
 // ── PUBLIC search ──────────────────────────────────────────────────────────
 router.get('/public/search', async (req, res, next) => {
@@ -45,8 +103,8 @@ router.get('/', protect, async (req, res, next) => {
     const { status, date, email } = req.query;
     const filter = {};
     if (status) filter.status = status;
-    if (email) filter.email = { $regex: email, $options: 'i' };
-    if (date) { const d = new Date(date); filter.date = { $gte: d, $lt: new Date(d.getTime() + 86400000) }; }
+    if (email)  filter.email  = { $regex: email, $options: 'i' };
+    if (date)   { const d = new Date(date); filter.date = { $gte: d, $lt: new Date(d.getTime() + 86400000) }; }
     const items = await Reservation.find(filter).sort({ date: 1 });
     res.json({ success: true, count: items.length, data: items });
   } catch (err) { next(err); }
@@ -65,40 +123,23 @@ router.get('/:id', protect, async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const item = await Reservation.create({ ...req.body, status: 'pending' });
-
-    // Notify owner and manager — new reservation pending approval
     const managers = await User.find({ role: { $in: ['owner','manager'] }, is_active: true });
     await Notification.insertMany(managers.map(u => ({
       user_id: u._id, type: 'reservation', title: '📅 New Reservation Request',
       message: `${item.customer_name} wants to book for ${item.guests} guests on ${item.date} at ${item.time}. Review & confirm.`,
     })));
-
-    // Confirm email to customer (pending state)
     if (item.email) {
       await sendEmail({
         to: item.email,
         subject: 'Reservation Request Received — Biryani Box',
-        html: `
-          <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
-            <h1 style="color:#f97316;margin-bottom:4px;">Biryani Box 🍛</h1>
-            <p style="color:#888;font-size:13px;margin-bottom:28px;">Reservation Request</p>
-            <h2 style="font-size:20px;margin-bottom:8px;">Hi ${item.customer_name}!</h2>
-            <p style="color:#ccc;margin-bottom:20px;">We've received your reservation request. Our team will review and confirm it shortly.</p>
-            <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin-bottom:20px;">
-              <p style="color:#888;font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.1em;">Your Booking Details</p>
-              <table style="width:100%;font-size:14px;">
-                <tr><td style="color:#888;padding:4px 0;">Date</td><td style="text-align:right;color:#fff;">${item.date}</td></tr>
-                <tr><td style="color:#888;padding:4px 0;">Time</td><td style="text-align:right;color:#fff;">${item.time}</td></tr>
-                <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${item.guests}</td></tr>
-                <tr><td style="color:#888;padding:4px 0;">Status</td><td style="text-align:right;color:#f97316;font-weight:bold;">Pending Confirmation</td></tr>
-              </table>
-            </div>
-            <p style="color:#666;font-size:12px;">You will receive a confirmation email once our team approves your booking.</p>
-          </div>
-        `,
+        html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+          <h1 style="color:#f97316;">Biryani Box 🍛</h1>
+          <h2>Hi ${item.customer_name}!</h2>
+          <p style="color:#ccc;">We've received your reservation request. Our team will review and confirm it shortly.</p>
+          <p style="color:#f97316;font-weight:bold;">Date: ${item.date} · Time: ${item.time} · Guests: ${item.guests}</p>
+        </div>`,
       });
     }
-
     res.status(201).json({ success: true, data: item });
   } catch (err) { next(err); }
 });
@@ -115,8 +156,25 @@ router.put('/:id', protect, async (req, res, next) => {
 // ── PATCH /api/reservations/:id ───────────────────────────────────────────
 router.patch('/:id', protect, async (req, res, next) => {
   try {
+    const prev = await Reservation.findById(req.params.id);
     const item = await Reservation.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!item) return res.status(404).json({ success: false, message: 'Reservation not found' });
+    if (req.body.status === 'cancelled' && prev?.status !== 'cancelled' && item.email) {
+      await sendEmail({
+        to: item.email,
+        subject: '❌ Reservation Cancelled — Biryani Box',
+        html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+          <h1 style="color:#f97316;">Biryani Box 🍛</h1>
+          <h2>Dear ${item.customer_name},</h2>
+          <p style="color:#ccc;">We are truly sorry — your reservation has been <strong style="color:#ef4444;">cancelled</strong>.</p>
+          <div style="background:#1a0000;border-left:3px solid #ef4444;padding:16px;border-radius:8px;margin:16px 0;">
+            <p style="color:#ef4444;font-weight:bold;">We sincerely apologise for any inconvenience caused.</p>
+            <p style="color:#ccc;">Please feel free to make a new reservation — we would love to make it up to you!</p>
+          </div>
+          <p style="color:#444;">With apologies, <strong style="color:#f97316;">The Biryani Box Team</strong></p>
+        </div>`,
+      });
+    }
     res.json({ success: true, data: item });
   } catch (err) { next(err); }
 });
@@ -130,10 +188,29 @@ router.patch('/:id/status', protect, authorize('owner','manager'), async (req, r
   } catch (err) { next(err); }
 });
 
-// ── PATCH /api/reservations/:id/confirm — owner confirms + sends quotation email
+// ── PATCH /api/reservations/:id/confirm — with 30-min conflict check ──────
 router.patch('/:id/confirm', protect, authorize('owner','manager','captain'), async (req, res, next) => {
   try {
     const { quotation_message, table_assigned } = req.body;
+
+    // ── CONFLICT CHECK — block if same table booked ±30 min on same date ──
+    if (table_assigned) {
+      const pending = await Reservation.findById(req.params.id);
+      if (pending && pending.date && pending.time) {
+        const conflicts = await checkTableConflict(
+          table_assigned, pending.date, pending.time, pending._id
+        );
+        if (conflicts.length > 0) {
+          const c = conflicts[0];
+          return res.status(409).json({
+            success: false,
+            message: `Table "${table_assigned}" is already booked for ${c.customer_name} at ${c.time} (within 30 minutes of this reservation). Please choose a different table or time.`,
+            conflicts,
+          });
+        }
+      }
+    }
+
     const item = await Reservation.findByIdAndUpdate(
       req.params.id,
       { status: 'confirmed', table_assigned: table_assigned || undefined, quotation_message },
@@ -141,36 +218,29 @@ router.patch('/:id/confirm', protect, authorize('owner','manager','captain'), as
     );
     if (!item) return res.status(404).json({ success: false, message: 'Reservation not found' });
 
-    // Send confirmation email to customer
     if (item.email) {
       await sendEmail({
         to: item.email,
         subject: '✅ Reservation Confirmed — Biryani Box',
-        html: `
-          <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
-            <h1 style="color:#f97316;margin-bottom:4px;">Biryani Box 🍛</h1>
-            <p style="color:#888;font-size:13px;margin-bottom:28px;">Reservation Confirmed</p>
-            <h2 style="font-size:20px;margin-bottom:8px;">Great news, ${item.customer_name}! 🎉</h2>
-            <p style="color:#ccc;margin-bottom:20px;">Your reservation has been <strong style="color:#10b981;">confirmed</strong>. We look forward to welcoming you!</p>
-            <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin-bottom:20px;">
-              <p style="color:#888;font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.1em;">Booking Details</p>
-              <table style="width:100%;font-size:14px;">
-                <tr><td style="color:#888;padding:4px 0;">Date</td><td style="text-align:right;color:#fff;">${item.date}</td></tr>
-                <tr><td style="color:#888;padding:4px 0;">Time</td><td style="text-align:right;color:#fff;">${item.time}</td></tr>
-                <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${item.guests}</td></tr>
-                ${table_assigned ? `<tr><td style="color:#888;padding:4px 0;">Table</td><td style="text-align:right;color:#f97316;font-weight:bold;">${table_assigned}</td></tr>` : ''}
-                <tr><td style="color:#888;padding:4px 0;">Status</td><td style="text-align:right;color:#10b981;font-weight:bold;">✅ Confirmed</td></tr>
-              </table>
-            </div>
-            ${quotation_message ? `<div style="background:#1a1a1a;border-left:3px solid #f97316;border-radius:8px;padding:16px;margin-bottom:20px;"><p style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 8px;">Message from our team</p><p style="color:#ccc;font-size:14px;line-height:1.6;margin:0;">${quotation_message}</p></div>` : ''}
-            <p style="color:#666;font-size:12px;">Please arrive 5 minutes before your booking time. Looking forward to serving you!</p>
-            <p style="color:#444;font-size:12px;margin-top:20px;">— The Biryani Box Team</p>
+        html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+          <h1 style="color:#f97316;">Biryani Box 🍛</h1>
+          <h2>Great news, ${item.customer_name}! 🎉</h2>
+          <p style="color:#ccc;">Your reservation is <strong style="color:#10b981;">confirmed</strong>.</p>
+          <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin:16px 0;">
+            <table style="width:100%;font-size:14px;">
+              <tr><td style="color:#888;">Date</td><td style="text-align:right;color:#fff;">${item.date ? new Date(item.date).toLocaleDateString('en-US',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '—'}</td></tr>
+              <tr><td style="color:#888;">Time</td><td style="text-align:right;color:#fff;">${item.time || '—'}</td></tr>
+              <tr><td style="color:#888;">Guests</td><td style="text-align:right;color:#fff;">${item.guests}</td></tr>
+              ${table_assigned ? `<tr><td style="color:#888;">Table</td><td style="text-align:right;color:#f97316;font-weight:bold;">${table_assigned}</td></tr>` : ''}
+            </table>
           </div>
-        `,
+          ${quotation_message ? `<div style="background:#1a1a1a;border-left:3px solid #f97316;padding:16px;border-radius:8px;margin:16px 0;"><p style="color:#ccc;">${quotation_message}</p></div>` : ''}
+          <p style="color:#666;font-size:12px;">Please arrive 5 minutes early. Looking forward to seeing you!</p>
+          <p style="color:#444;">— The Biryani Box Team</p>
+        </div>`,
       });
     }
 
-    // Table status will be auto-set to 'reserved' 30 min before reservation time by server background job.
     res.json({ success: true, data: item, message: 'Reservation confirmed and email sent to customer.' });
   } catch (err) { next(err); }
 });

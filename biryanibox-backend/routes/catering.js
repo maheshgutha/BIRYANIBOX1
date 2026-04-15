@@ -93,8 +93,49 @@ router.put('/:id', protect, authorize('owner','manager'), async (req, res, next)
 // ── PATCH /api/catering/:id/status ────────────────────────────────────────
 router.patch('/:id/status', protect, authorize('owner','manager'), async (req, res, next) => {
   try {
-    const item = await CateringOrder.findByIdAndUpdate(req.params.id, { status: req.body.status }, { new: true });
-    if (!item) return res.status(404).json({ success: false, message: 'Not found' });
+    const { status } = req.body;
+    const existing = await CateringOrder.findById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Not found' });
+
+    // Enforce: cannot confirm without sending a quotation first
+    if (status === 'confirmed' && !existing.total_price && !existing.quotation_message) {
+      return res.status(400).json({ success: false, message: 'Please send a quotation before confirming the catering order.' });
+    }
+
+    const item = await CateringOrder.findByIdAndUpdate(req.params.id, { status }, { new: true });
+
+    // Send cancellation email with sorry note
+    if (status === 'cancelled' && existing.status !== 'cancelled') {
+      const customerEmail = item.email || item.contact_email;
+      if (customerEmail) {
+        await sendEmail({
+          to: customerEmail,
+          subject: '❌ Catering Request Cancelled — Biryani Box',
+          html: `
+            <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+              <h1 style="color:#f97316;margin-bottom:4px;">Biryani Box 🍛</h1>
+              <p style="color:#888;font-size:13px;margin-bottom:28px;">Catering Cancellation</p>
+              <h2 style="font-size:20px;margin-bottom:8px;">Dear ${item.contact_name || item.customer_name},</h2>
+              <p style="color:#ccc;margin-bottom:20px;">We are truly sorry to inform you that your catering request has been <strong style="color:#ef4444;">cancelled</strong>.</p>
+              <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin-bottom:20px;">
+                <table style="width:100%;font-size:14px;">
+                  <tr><td style="color:#888;padding:4px 0;">Event Date</td><td style="text-align:right;color:#fff;">${item.event_date || '—'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${item.guests || item.guest_count || '—'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Status</td><td style="text-align:right;color:#ef4444;font-weight:bold;">❌ Cancelled</td></tr>
+                </table>
+              </div>
+              <div style="background:#1a0000;border-left:3px solid #ef4444;border-radius:8px;padding:16px;margin-bottom:20px;">
+                <p style="color:#ef4444;font-size:13px;font-weight:bold;margin:0 0 6px;">We sincerely apologise for any inconvenience caused.</p>
+                <p style="color:#ccc;font-size:13px;line-height:1.6;margin:0;">We are sorry for the disappointment this may have caused. Our team was unable to accommodate your catering request at this time. We genuinely hope you will give us another opportunity to serve you — please reach out and we will do our best to make it right!</p>
+              </div>
+              <p style="color:#666;font-size:12px;">Please contact us if you would like to discuss alternative options or reschedule.</p>
+              <p style="color:#444;font-size:12px;margin-top:20px;">With sincere apologies,<br/><strong style="color:#f97316;">The Biryani Box Team</strong></p>
+            </div>
+          `,
+        });
+      }
+    }
+
     res.json({ success: true, data: item });
   } catch (err) { next(err); }
 });

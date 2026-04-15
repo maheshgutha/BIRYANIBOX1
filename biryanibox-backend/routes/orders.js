@@ -10,6 +10,7 @@ const RestaurantTable    = require('../models/RestaurantTable');
 const LoyaltyTransaction = require('../models/LoyaltyTransaction');
 const Notification       = require('../models/Notification');
 const Delivery           = require('../models/Delivery');
+const ChefOrderAssignment = require('../models/ChefOrderAssignment');
 const nodemailer         = require('nodemailer');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -212,6 +213,26 @@ router.get('/', protect, async (req, res, next) => {
   try {
     const { status, table, captain_id, chef_id, order_type, period, customer_id } = req.query;
     const filter = {};
+
+    // ── CUSTOMER: only see their own orders ───────────────────────────────────
+    if (req.user.role === 'customer') {
+      filter.customer_id = req.user._id;
+      if (status) filter.status = status;
+      const orders = await Order.find(filter).sort({ created_at: -1 }).limit(50);
+      const orderIds = orders.map(o => o._id);
+      const allItems = await OrderItem.find({ order_id: { $in: orderIds } })
+        .populate('menu_item_id', 'name category image_url');
+      const itemsByOrder = {};
+      allItems.forEach(item => {
+        const key = item.order_id.toString();
+        if (!itemsByOrder[key]) itemsByOrder[key] = [];
+        itemsByOrder[key].push({ _id: item._id, name: item.name || item.menu_item_id?.name || 'Item', category: item.menu_item_id?.category || '', quantity: item.quantity, unit_price: item.unit_price, price: item.unit_price });
+      });
+      const data = orders.map(o => ({ ...o.toObject(), items: itemsByOrder[o._id.toString()] || [] }));
+      return res.json({ success: true, count: data.length, data });
+    }
+
+    // ── STAFF: full query support ─────────────────────────────────────────────
     if (status) filter.status = status;
     if (table) filter.table_number = table;
     if (captain_id) filter.captain_id = captain_id;
@@ -223,7 +244,6 @@ router.get('/', protect, async (req, res, next) => {
       else if (period === 'weekly') { const w = new Date(); w.setDate(w.getDate()-7); filter.created_at = { $gte: w }; }
       else if (period === 'monthly') { const m = new Date(); m.setMonth(m.getMonth()-1); filter.created_at = { $gte: m }; }
     }
-    // Chef sees only their accepted orders + all pending
     if (req.user.role === 'chef') {
       filter.$or = [{ status: 'pending' }, { chef_id: req.user._id }];
       delete filter.chef_id;
@@ -263,11 +283,22 @@ router.get('/:id', protect, async (req, res, next) => {
 // ── POST /api/orders ───────────────────────────────────────────────────────
 router.post('/', protect, async (req, res, next) => {
   try {
-    const { items, table_number, captain_id, order_type, payment_method, customer_id, spiceness, delivery_address, delivery_notes, distance_km } = req.body;
+    const { items, table_number, order_type, payment_method, spiceness,
+            delivery_address, delivery_notes, distance_km } = req.body;
+
+    // For customers: always use their own ID as customer_id; ignore any captain_id from body
+    // For staff (POS): use the customer_id from body if provided
+    const customer_id = req.user.role === 'customer'
+      ? req.user._id
+      : (req.body.customer_id || null);
+
+    // captain_id: only trust it from staff, never from customers
+    const captain_id = req.user.role === 'customer' ? null : (req.body.captain_id || null);
+
     if (!items || !items.length) return res.status(400).json({ success: false, message: 'No items in order' });
 
-    const isTakeaway = order_type === 'takeaway' || table_number === 'Takeaway';
-    const isDelivery = order_type === 'delivery';
+    const isTakeaway  = order_type === 'takeaway' || order_type === 'pickup' || table_number === 'Takeaway';
+    const isDelivery  = order_type === 'delivery';
     const needsAddress = isDelivery;
     if (needsAddress && (!delivery_address || !delivery_address.trim()))
       return res.status(400).json({ success: false, message: 'Delivery address is required for home delivery orders.' });
@@ -310,7 +341,7 @@ router.post('/', protect, async (req, res, next) => {
       if (tableRec?.captain_id) assignedCaptainId = tableRec.captain_id;
     }
 
-    const finalOrderType = isDelivery ? 'delivery' : isTakeaway ? 'takeaway' : (order_type || 'dine-in');
+    const finalOrderType = isDelivery ? 'delivery' : isTakeaway ? 'pickup' : (order_type || 'dine-in');
 
     const order = await Order.create({
       customer_id, captain_id: assignedCaptainId, table_number,
@@ -425,6 +456,27 @@ router.patch('/:id/status', protect, async (req, res, next) => {
     if ((status === 'start_cooking' || status === 'completed_cooking') && userRole === 'chef') {
       updateData.chef_id = req.user._id;
     }
+
+    // ── Create/update ChefOrderAssignment when chef starts or completes cooking ──
+    if (status === 'start_cooking' && userRole === 'chef') {
+      const existing = await ChefOrderAssignment.findOne({ order_id: order._id, chef_id: req.user._id });
+      if (!existing) {
+        await ChefOrderAssignment.create({
+          order_id:   order._id,
+          chef_id:    req.user._id,
+          status:     'cooking',
+          started_at: new Date(),
+        });
+      } else {
+        existing.status = 'cooking'; existing.started_at = new Date(); await existing.save();
+      }
+    }
+    if (status === 'completed_cooking' && userRole === 'chef') {
+      await ChefOrderAssignment.findOneAndUpdate(
+        { order_id: order._id },
+        { status: 'done', completed_at: new Date() }
+      );
+    }
     if (status === 'served' && ['captain','manager','owner'].includes(userRole)) {
       updateData.captain_id = req.user._id;
     }
@@ -440,25 +492,28 @@ router.patch('/:id/status', protect, async (req, res, next) => {
       await LoyaltyTransaction.create({ user_id: updated.customer_id, order_id: updated._id, type: 'earn', points: totalPts, description: `Points for order #${updated.order_number}` });
     }
 
-    // ── Create Delivery record when order is PAID and needs delivery ─────
-    if (status === 'paid' && (updated.order_type === 'delivery' || updated.order_type === 'takeaway')) {
+    // ── Create Delivery record when chef starts COOKING (new flow) ──────────
+    // Delivery appears in rider dashboard as soon as cooking starts.
+    // Riders can ACCEPT it, but cannot PICKUP until captain dispatches.
+    if (status === 'start_cooking' && updated.order_type === 'delivery') {
       const alreadyExists = await Delivery.findOne({ order_id: updated._id });
       if (!alreadyExists) {
         const customer = updated.customer_id ? await User.findById(updated.customer_id).select('name phone') : null;
         await Delivery.create({
           order_id: updated._id, customer_id: updated.customer_id || null,
           customer_name: customer?.name || 'Walk-in', phone: customer?.phone || '',
-          delivery_address: updated.delivery_address || 'Counter Pickup',
+          delivery_address: updated.delivery_address || 'Address not set',
           delivery_notes: updated.delivery_notes || '',
           distance_km: updated.distance_km || 0,
           delivery_fee: updated.delivery_fee || 0,
           status: 'pending', order_placed_at: new Date(),
+          captain_dispatched: false,
         });
-        // Notify all riders
+        // Notify ALL riders immediately
         const riders = await User.find({ role: 'delivery', is_active: true });
         await Notification.insertMany(riders.map(u => ({
-          user_id: u._id, type: 'delivery', title: '🚴 New Delivery Available',
-          message: `Order #${updated.order_number} is ready for pickup — ${updated.delivery_address || 'Counter Pickup'}`,
+          user_id: u._id, type: 'delivery', title: '🍳 New Order Being Prepared',
+          message: `Order #${updated.order_number} is now cooking — accept it now to claim delivery. You can pick up once captain dispatches.`,
         })));
       }
     }
@@ -472,15 +527,15 @@ router.patch('/:id/status', protect, async (req, res, next) => {
         message: `Order #${updated.order_number} — chef started cooking`,
       })));
       // For delivery/pickup: also notify captain4 that cooking has started
-      if (updated.order_type === 'delivery' || updated.order_type === 'takeaway') {
+      if (['delivery','pickup','takeaway'].includes(updated.order_type)) {
         const allCaptains = await User.find({ role: 'captain', is_active: true });
         for (const cap of allCaptains) {
           const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
           if (!hasTables) {
             await Notification.create({
               user_id: cap._id, type: 'cooking',
-              title: '🍳 Cooking Started',
-              message: `Order #${updated.order_number} — chef has started cooking. ${updated.order_type === 'delivery' ? 'Delivery' : 'Pickup'} order.`,
+              title: '🍳 Cooking Started — Pickup/Delivery',
+              message: `Order #${updated.order_number} is now cooking. Type: ${updated.order_type}. Prepare for dispatch.`,
             });
           }
         }
@@ -503,16 +558,16 @@ router.patch('/:id/status', protect, async (req, res, next) => {
           title: '✅ Order Ready — Your Table',
           message: `Order #${updated.order_number} is ready. Table ${updated.table_number} — serve now!`,
         });
-      } else if (updated.order_type === 'delivery' || updated.order_type === 'takeaway') {
+      } else if (['delivery','pickup','takeaway'].includes(updated.order_type)) {
         // Notify captain4 (no-table captain) for pickup/delivery
-        const allCaptains = await User.find({ role: 'captain', is_active: true });
-        for (const cap of allCaptains) {
+        const allCaptains4 = await User.find({ role: 'captain', is_active: true });
+        for (const cap of allCaptains4) {
           const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
           if (!hasTables) {
             await Notification.create({
               user_id: cap._id, type: 'order_ready',
-              title: '✅ Pickup/Delivery Order Ready',
-              message: `Order #${updated.order_number} cooking done. Ready for dispatch — ${updated.order_type}.`,
+              title: '✅ Order Ready — Dispatch Now',
+              message: `Order #${updated.order_number} cooking complete. Type: ${updated.order_type}. Ready for dispatch to rider.`,
             });
           }
         }

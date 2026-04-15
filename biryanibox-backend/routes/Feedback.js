@@ -4,7 +4,6 @@ const nodemailer = require('nodemailer');
 const Feedback = require('../models/Feedback');
 const { protect, authorize } = require('../middleware/auth');
 
-// ─── Nodemailer transporter ───────────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
   host:   process.env.SMTP_HOST || 'smtp.gmail.com',
   port:   parseInt(process.env.SMTP_PORT || '587'),
@@ -12,13 +11,21 @@ const transporter = nodemailer.createTransport({
   auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
 });
 
+// Normalise 'ambiance' → 'ambience' (customer page sends 'ambiance', DB enum is 'ambience')
+const normaliseCategory = (cat) => {
+  if (!cat) return 'general';
+  if (cat === 'ambiance') return 'ambience';
+  const allowed = ['food', 'service', 'ambience', 'delivery', 'general'];
+  return allowed.includes(cat) ? cat : 'general';
+};
+
 // GET /api/feedback
 router.get('/', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
     const { is_read, category } = req.query;
     const filter = {};
     if (is_read !== undefined) filter.is_read = is_read === 'true';
-    if (category) filter.category = category;
+    if (category) filter.category = normaliseCategory(category);
     const feedback = await Feedback.find(filter)
       .populate('customer_id', 'name email')
       .populate('order_id', 'order_number')
@@ -28,12 +35,15 @@ router.get('/', protect, authorize('owner', 'manager'), async (req, res, next) =
   } catch (err) { next(err); }
 });
 
-// POST /api/feedback — customer submits feedback (email mandatory)
+// POST /api/feedback — customer submits feedback
 router.post('/', async (req, res, next) => {
   try {
     const { rating } = req.body;
     if (!rating) return res.status(400).json({ success: false, message: 'Rating is required' });
-    const feedback = await Feedback.create(req.body);
+    const feedback = await Feedback.create({
+      ...req.body,
+      category: normaliseCategory(req.body.category),
+    });
     res.status(201).json({ success: true, data: feedback });
   } catch (err) { next(err); }
 });
@@ -57,25 +67,23 @@ router.patch('/mark-all-read', protect, authorize('owner', 'manager'), async (re
   } catch (err) { next(err); }
 });
 
-// POST /api/feedback/:id/reply — owner/manager replies via email
+// POST /api/feedback/:id/reply
 router.post('/:id/reply', protect, authorize('owner', 'manager'), async (req, res, next) => {
   try {
     const { reply_message } = req.body;
     if (!reply_message) return res.status(400).json({ success: false, message: 'Reply message is required' });
-
     const feedback = await Feedback.findById(req.params.id);
     if (!feedback) return res.status(404).json({ success: false, message: 'Feedback not found' });
     if (!feedback.customer_email) return res.status(400).json({ success: false, message: 'No customer email on this feedback' });
 
-    // Send reply email
     let emailSent = false;
-    try {
-      await transporter.sendMail({
-        from:    `"Biryani Box" <${process.env.SMTP_USER}>`,
-        to:      feedback.customer_email,
-        subject: 'Response to your Biryani Box Feedback',
-        html: `
-          <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#111;color:#fff;border-radius:16px;">
+    if (process.env.SMTP_USER) {
+      try {
+        await transporter.sendMail({
+          from:    `"Biryani Box" <${process.env.SMTP_USER}>`,
+          to:      feedback.customer_email,
+          subject: 'Response to your Biryani Box Feedback',
+          html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;background:#111;color:#fff;border-radius:16px;">
             <h2 style="color:#f97316;">Biryani Box 🍛</h2>
             <p>Dear <strong>${feedback.customer_name || 'Valued Customer'}</strong>,</p>
             <p>Thank you for your feedback. Here is our response:</p>
@@ -85,12 +93,10 @@ router.post('/:id/reply', protect, authorize('owner', 'manager'), async (req, re
             <p>Your original feedback (Rating: ${'★'.repeat(feedback.rating)}):</p>
             <blockquote style="color:#888;border-left:3px solid #444;padding-left:12px;">${feedback.message || ''}</blockquote>
             <p style="color:#888;font-size:12px;margin-top:24px;">Biryani Box Management Team</p>
-          </div>
-        `,
-      });
-      emailSent = true;
-    } catch (emailErr) {
-      console.error('Reply email error:', emailErr.message);
+          </div>`,
+        });
+        emailSent = true;
+      } catch (emailErr) { console.error('Reply email error:', emailErr.message); }
     }
 
     feedback.owner_reply      = reply_message;

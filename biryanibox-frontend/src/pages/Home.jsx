@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useOrders } from '../context/useContextHooks';
-import { feedbackAPI } from '../services/api';
+import { feedbackAPI, announcementsAPI } from '../services/api';
 import { useCart } from '../context/useContextHooks';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -245,13 +245,6 @@ const MenuCategories = () => {
   const { menu } = useOrders();
 
 
-  const handleTableSelect = (t) => {
-    setSelectedTable(t);
-    setTableConfirmed(true);
-    if (t !== 'Takeaway') { setTakeawayAddress(''); setTakeawayAddrErr(false); setTakeawayDistance(''); setTakeawayNotes(''); }
-  };
-
-
   const categories = ['All', ...Array.from(new Set(menu.map(item => item.category)))];
   const currentItems = activeCategory === 'All' ? menu : menu.filter(item => item.category === activeCategory);
   const filteredItems = currentItems.filter(item => {
@@ -383,7 +376,7 @@ const MenuCategories = () => {
                 </div>
               </MotionDiv>
             )) : (
-              <div className="col-span-full py-32 text-center text-white/20 font-black uppercase tracking-[0.5em]">Awaiting Dispatch Hub Response...</div>
+              <div className="col-span-full py-32 text-center text-white/20 font-black uppercase tracking-[0.5em]">No items match your filters</div>
             )}
           </AnimatePresence>
         </div>
@@ -494,6 +487,91 @@ const Testimonials = () => (
   </section>
 );
 
+// ─── Customer Announcements ──────────────────────────────────────────────────────
+const CustomerAnnouncements = () => {
+  const [items, setItems] = React.useState([]);
+  const [busy,  setBusy]  = React.useState(true);
+  React.useEffect(() => {
+    announcementsAPI.getAll()
+      .then(r => setItems(r.data || []))
+      .catch(() => setItems([]))
+      .finally(() => setBusy(false));
+  }, []);
+  if (busy || items.length === 0) return null;
+
+  const pBorder = p => p === 'urgent' ? 'border-red-500/40 bg-red-500/5' : p === 'high' ? 'border-orange-500/40 bg-orange-500/5' : 'border-primary/20 bg-primary/5';
+  const pBadge  = p => p === 'urgent' ? 'bg-red-500/20 text-red-400 border-red-500/30' : p === 'high' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-primary/20 text-primary border-primary/30';
+  const icon    = a => a.is_festival ? '🎉' : a.has_offer ? '🎁' : a.priority === 'urgent' ? '🚨' : '📢';
+
+  return (
+    <section id="announcements" className="section-padding bg-secondary/20">
+      <div className="container max-w-5xl mx-auto">
+        <motion.div initial={{ opacity:0, y:30 }} whileInView={{ opacity:1, y:0 }} viewport={{ once:true }} className="text-center mb-12">
+          <span className="text-primary font-black uppercase tracking-[0.4em] text-[10px] mb-4 block">Latest News</span>
+          <h2 className="text-4xl md:text-5xl font-black font-heading mb-4">
+            Announcements &amp; <span className="text-primary">Offers</span>
+          </h2>
+          <p className="text-text-muted text-base max-w-xl mx-auto">Stay updated with our latest deals, events and special news.</p>
+        </motion.div>
+
+        <div className="grid gap-5 md:grid-cols-2">
+          {items.map((a, i) => (
+            <motion.div key={a._id}
+              initial={{ opacity:0, y:20 }} whileInView={{ opacity:1, y:0 }}
+              viewport={{ once:true }} transition={{ delay: i * 0.07 }}
+              className={`rounded-3xl border p-6 flex flex-col gap-4 ${pBorder(a.priority)}`}>
+
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <span className="text-3xl shrink-0">{icon(a)}</span>
+                  <div className="min-w-0">
+                    <h3 className="text-white font-black text-base leading-tight">{a.title}</h3>
+                    {a.is_festival && a.festival_name && (
+                      <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">{a.festival_name}</span>
+                    )}
+                  </div>
+                </div>
+                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full border shrink-0 ${pBadge(a.priority)}`}>
+                  {a.priority}
+                </span>
+              </div>
+
+              {/* Message */}
+              <p className="text-text-muted text-sm leading-relaxed">{a.message}</p>
+
+              {/* Offer block */}
+              {a.has_offer && (
+                <div className="bg-primary/10 border border-primary/20 rounded-2xl p-4 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-primary font-black text-2xl">{a.offer_discount}% OFF</span>
+                    <span className="text-[10px] text-text-muted font-bold uppercase tracking-wider">
+                      {a.offer_items?.includes('ALL') ? 'All Menu Items' : `${a.offer_items?.length || 0} Selected Items`}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-primary/70 font-bold">🔖 Mention this offer when ordering to redeem!</p>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="flex items-center justify-between mt-auto pt-2 border-t border-white/5">
+                <span className="text-[10px] text-text-muted">
+                  {new Date(a.created_at).toLocaleDateString('en-US',{day:'numeric',month:'short',year:'numeric'})}
+                </span>
+                {a.is_scheduled && a.scheduled_date && (
+                  <span className="text-[10px] text-yellow-400 font-bold">
+                    Active from {new Date(a.scheduled_date).toLocaleDateString('en-US',{day:'numeric',month:'short'})}
+                  </span>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 // ─── Customer Feedback ────────────────────────────────────────────────────────
 const CustomerFeedback = () => {
   const [rating, setRating] = useState(0);
@@ -508,7 +586,7 @@ const CustomerFeedback = () => {
     { value: 'general',  label: '💬 General' },
     { value: 'food',     label: '🍛 Food Quality' },
     { value: 'service',  label: '⭐ Service' },
-    { value: 'ambiance', label: '✨ Ambiance' },
+    { value: 'ambience', label: '✨ Ambience' },
     { value: 'delivery', label: '🚚 Delivery' },
   ];
 
@@ -735,6 +813,7 @@ const Home = () => {
       <WelcomeBlurb />
       <PromoGrid navigate={navigate} />
       <Testimonials />
+      <CustomerAnnouncements />
       <CustomerFeedback />
       <Contact />
       <Footer />

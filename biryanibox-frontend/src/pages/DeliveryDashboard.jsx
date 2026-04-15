@@ -1,17 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-const MotionDiv = motion.div;
-import {
-  Truck, MapPin, CheckCircle, Package, Clock, Phone, RefreshCw,
-  AlertCircle, Loader, Star, DollarSign, Activity, XCircle,
-  Home, LogOut, TrendingUp, Bell, ChefHat, Navigation, User,
-  Lock, Eye, EyeOff, Save, ToggleLeft, ToggleRight, History,
-} from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { deliveryAPI, shiftsAPI_ext, usersAPI } from '../services/api';
 import { useAuth } from '../context/useContextHooks';
+import { useNavigate } from 'react-router-dom';
+import { deliveryAPI, notificationsAPI } from '../services/api';
+import {
+  Package, MapPin, Clock, CheckCircle, XCircle, LogOut, Bell, RefreshCw,
+  Truck, DollarSign, TrendingUp, ChevronRight, Loader,
+  Navigation, Phone, User, Activity, CheckSquare, ArrowRight, Info,
+} from 'lucide-react';
 
-const useAutoRefresh = (cb, ms = 12000) => {
+const useAutoRefresh = (cb, ms = 15000) => {
   const ref = useRef(cb);
   useEffect(() => { ref.current = cb; }, [cb]);
   useEffect(() => {
@@ -20,594 +18,391 @@ const useAutoRefresh = (cb, ms = 12000) => {
   }, [ms]);
 };
 
-const fmt = {
-  time:     (d) => new Date(d).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
-  currency: (n) => `$${(n || 0).toFixed(2)}`,
+const STATUS_CONFIG = {
+  pending:    { label: 'Available',  color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30', dot: 'bg-yellow-400' },
+  assigned:   { label: 'Accepted',   color: 'text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/30',   dot: 'bg-blue-400' },
+  picked_up:  { label: 'Picked Up',  color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30', dot: 'bg-orange-400' },
+  in_transit: { label: 'In Transit', color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/30', dot: 'bg-purple-400' },
+  delivered:  { label: 'Delivered',  color: 'text-green-400',  bg: 'bg-green-500/10 border-green-500/30',  dot: 'bg-green-400' },
+  failed:     { label: 'Failed',     color: 'text-red-400',    bg: 'bg-red-500/10 border-red-500/30',    dot: 'bg-red-400' },
 };
 
-const STATUS = {
-  pending:    { label: 'Waiting for pickup',  color: '#f59e0b', bg: 'rgba(245,158,11,0.12)'  },
-  assigned:   { label: 'Accepted',            color: '#3b82f6', bg: 'rgba(59,130,246,0.12)'  },
-  picked_up:  { label: 'Picked Up',           color: '#e8890c', bg: 'rgba(232,137,12,0.12)'  },
-  in_transit: { label: 'On the Way',          color: '#10b981', bg: 'rgba(16,185,129,0.12)'  },
-  delivered:  { label: 'Delivered',           color: '#10b981', bg: 'rgba(16,185,129,0.08)'  },
-  failed:     { label: 'Failed',              color: '#ef4444', bg: 'rgba(239,68,68,0.1)'    },
-};
-
-const STEPS   = ['assigned', 'picked_up', 'in_transit', 'delivered'];
-const SLABELS = ['Accepted', 'Picked Up', 'En Route', 'Delivered'];
-
-const NEXT = {
-  assigned:   { status: 'picked_up',  label: 'Mark Picked Up',   icon: Package    },
-  picked_up:  { status: 'in_transit', label: 'Start Delivery',   icon: Truck      },
-  in_transit: { status: 'delivered',  label: 'Mark Delivered',   icon: CheckCircle },
-};
-
-// ── Components ───────────────────────────────────────────────────────────────
-const Stat = ({ label, value, icon: Icon, color = '#e8890c' }) => (
-  <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '16px 18px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666' }}>{label}</span>
-      <div style={{ width: 28, height: 28, borderRadius: 8, background: `${color}18`, border: `1px solid ${color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Icon size={13} color={color} />
-      </div>
+const NotifBell = () => {
+  const [open, setOpen] = useState(false);
+  const [notifs, setNotifs] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const ref = useRef(null);
+  const load = useCallback(async () => {
+    try { const r = await notificationsAPI.getAll(); setNotifs(r.data || []); setUnread(r.unreadCount || 0); } catch {}
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load, 20000);
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => { setOpen(o => !o); if (!open) load(); }}
+        className="relative w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/50 hover:text-orange-400 transition-all">
+        <Bell size={16} />
+        {unread > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[#0a0a0a]">{unread > 9 ? '9+' : unread}</span>}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+            className="absolute right-0 top-full mt-2 w-80 bg-[#161616] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <span className="text-xs font-black uppercase tracking-widest text-white/60">Notifications</span>
+              {unread > 0 && <button onClick={() => { notificationsAPI.markAllRead(); setUnread(0); }} className="text-[10px] text-orange-400 font-bold">Mark all read</button>}
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {notifs.length === 0 ? <div className="py-8 text-center text-white/30 text-xs">No notifications</div> :
+                notifs.slice(0, 15).map(n => (
+                  <div key={n._id} className={`px-4 py-3 border-b border-white/5 hover:bg-white/5 ${!n.is_read ? 'bg-orange-500/5' : ''}`}>
+                    <p className={`text-xs font-bold ${!n.is_read ? 'text-white' : 'text-white/50'}`}>{n.title}</p>
+                    <p className="text-[10px] text-white/40 mt-0.5 leading-relaxed">{n.message}</p>
+                  </div>
+                ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
-    <div style={{ fontSize: 24, fontWeight: 800, color }}>{value}</div>
+  );
+};
+
+const StatCard = ({ icon: Icon, label, value, color = 'text-orange-400' }) => (
+  <div className="bg-[#111] border border-white/8 rounded-2xl p-4 flex items-center gap-3">
+    <div className={`w-11 h-11 rounded-xl bg-white/5 flex items-center justify-center ${color}`}><Icon size={18} /></div>
+    <div>
+      <p className="text-xl font-black text-white">{value}</p>
+      <p className="text-xs text-white/40 font-semibold">{label}</p>
+    </div>
   </div>
 );
 
-// Available order card — shown when cooking is complete
-const AvailableCard = ({ delivery, onAccept, onSkip, busy }) => {
+const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onDeliver, onFail, actLoading }) => {
   const order = delivery.order_id || {};
-  const fee   = delivery.delivery_fee || 40;
-  // Gate: rider can only ACCEPT once cooking is complete
-  const cookingDone = order.status === 'completed_cooking' || order.status === 'served' || order.status === 'paid';
-  const canAccept   = cookingDone && !busy;
+  const cfg = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
+  const canAccept    = delivery.status === 'pending';
+  const canPickup    = delivery.status === 'assigned' && delivery.captain_dispatched;
+  const waitDispatch = delivery.status === 'assigned' && !delivery.captain_dispatched;
+  const canDeliver   = delivery.status === 'picked_up' || delivery.status === 'in_transit';
 
   return (
-    <MotionDiv initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-      style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${cookingDone ? 'rgba(16,185,129,0.4)' : 'rgba(232,137,12,0.25)'}`, borderRadius: 16, padding: 18, marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#e8890c' }}>
-            #{order.order_number || delivery._id?.slice(-6).toUpperCase()}
+    <motion.div layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+      className={`bg-[#111] border rounded-2xl overflow-hidden ${delivery.status === 'pending' ? 'border-yellow-500/30' : delivery.status === 'assigned' ? 'border-blue-500/30' : 'border-white/8'}`}>
+      <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${cfg.dot} animate-pulse`} />
+          <span className="text-white font-bold text-sm">Order #{order.order_number || '—'}</span>
+        </div>
+        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
+      </div>
+      <div className="px-5 py-4 space-y-2.5">
+        <div className="flex items-start gap-2">
+          <MapPin size={13} className="text-orange-400 mt-0.5 flex-shrink-0" />
+          <span className="text-white/70 text-sm leading-relaxed">{delivery.delivery_address || order.delivery_address || '—'}</span>
+        </div>
+        {delivery.customer_name && (
+          <div className="flex items-center gap-2">
+            <User size={13} className="text-white/30" />
+            <span className="text-white/50 text-sm">{delivery.customer_name}</span>
+            {delivery.phone && <a href={`tel:${delivery.phone}`} className="flex items-center gap-1 text-orange-400 text-xs hover:underline ml-1"><Phone size={10} />{delivery.phone}</a>}
           </div>
-          <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>{fmt.time(delivery.order_placed_at || delivery.created_at)}</div>
-          <div style={{ fontSize: 10, color: '#555', marginTop: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {delivery.order_type === 'delivery' ? '🛵 Home Delivery' : '📦 Pickup'}
+        )}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-1.5">
+            <DollarSign size={11} className="text-green-400" />
+            <span className="text-green-400 font-black text-sm">${delivery.delivery_fee || 0}</span>
           </div>
+          {delivery.distance_km > 0 && <span className="text-white/30 text-xs flex items-center gap-1"><Navigation size={10} />{delivery.distance_km} km</span>}
         </div>
-        {/* Cooking status badge */}
-        <div style={{
-          background: cookingDone ? 'rgba(16,185,129,0.15)' : 'rgba(234,179,8,0.15)',
-          border: `1px solid ${cookingDone ? 'rgba(16,185,129,0.4)' : 'rgba(234,179,8,0.4)'}`,
-          borderRadius: 20, padding: '5px 11px', fontSize: 10, fontWeight: 700,
-          color: cookingDone ? '#10b981' : '#eab308', letterSpacing: '0.05em',
-        }}>
-          {cookingDone ? '✅ READY FOR PICKUP' : '🍳 COOKING...'}
-        </div>
+        {order.items?.length > 0 && (
+          <div className="bg-white/3 rounded-xl px-3 py-2">
+            <p className="text-[10px] text-white/30 font-bold mb-0.5">Items</p>
+            <p className="text-xs text-white/60">{order.items.slice(0,3).map(i=>`${i.name} x${i.quantity}`).join(', ')}{order.items.length>3?` +${order.items.length-3} more`:''}</p>
+          </div>
+        )}
+        {waitDispatch && (
+          <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-xl px-3 py-2">
+            <Info size={13} className="text-blue-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-blue-300">Order accepted. Waiting for captain to dispatch — pickup enabled once dispatched.</p>
+          </div>
+        )}
+        {canPickup && (
+          <div className="flex items-start gap-2 bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2">
+            <CheckCircle size={13} className="text-green-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-green-300">Captain dispatched! Head to restaurant and pick up the order now.</p>
+          </div>
+        )}
       </div>
-
-      {(delivery.delivery_address || order.delivery_address) && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 10, background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 10 }}>
-          <MapPin size={13} color="#888" style={{ marginTop: 2, flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: '#aaa', lineHeight: 1.5 }}>
-            {delivery.delivery_address || order.delivery_address}
-          </span>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <span style={{ fontSize: 11, color: '#888' }}>
-          Total: <strong style={{ color: '#fff' }}>{fmt.currency(order.total || 0)}</strong>
-        </span>
-        <span style={{ fontSize: 13, fontWeight: 800, color: '#e8890c' }}>
-          Delivery Fee: {fmt.currency(fee)}
-        </span>
+      <div className="px-5 pb-4 flex flex-wrap gap-2">
+        {canAccept && (
+          <>
+            <button onClick={() => onAccept(delivery._id)} disabled={actLoading}
+              className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-black py-2.5 px-4 rounded-xl transition-all disabled:opacity-50">
+              <CheckSquare size={13} /> Accept Delivery
+            </button>
+            <button onClick={() => onSkip(delivery._id)} disabled={actLoading}
+              className="px-4 py-2.5 bg-white/5 border border-white/10 text-white/50 text-xs font-black rounded-xl hover:bg-white/10 transition-all">Skip</button>
+          </>
+        )}
+        {canPickup && (
+          <button onClick={() => onPickup(delivery._id)} disabled={actLoading}
+            className="flex-1 flex items-center justify-center gap-2 bg-purple-500 hover:bg-purple-600 text-white text-xs font-black py-2.5 px-4 rounded-xl transition-all disabled:opacity-50">
+            <Package size={13} /> Mark Picked Up
+          </button>
+        )}
+        {canDeliver && (
+          <>
+            <button onClick={() => onDeliver(delivery._id)} disabled={actLoading}
+              className="flex-1 flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white text-xs font-black py-2.5 px-4 rounded-xl transition-all disabled:opacity-50">
+              <CheckCircle size={13} /> Mark Delivered
+            </button>
+            <button onClick={() => onFail(delivery._id)} disabled={actLoading}
+              className="px-4 py-2.5 bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-black rounded-xl hover:bg-red-500 hover:text-white transition-all">Failed</button>
+          </>
+        )}
       </div>
-
-      {!cookingDone && (
-        <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(234,179,8,0.08)', borderRadius: 10, border: '1px solid rgba(234,179,8,0.2)' }}>
-          <p style={{ fontSize: 11, color: '#eab308', margin: 0, fontWeight: 600 }}>
-            ⏳ Waiting for kitchen to finish cooking. You can accept once it's ready.
-          </p>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => onSkip(delivery._id)} disabled={busy}
-          style={{ flex: 1, padding: '10px 0', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 12, color: '#ef4444', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-          Skip
-        </button>
-        <button
-          onClick={() => canAccept && onAccept(delivery._id)}
-          disabled={!canAccept}
-          title={!cookingDone ? 'Wait for cooking to complete' : ''}
-          style={{
-            flex: 2, padding: '10px 0', borderRadius: 12, fontWeight: 800, fontSize: 12, letterSpacing: '0.05em',
-            cursor: canAccept ? 'pointer' : 'not-allowed',
-            background: canAccept ? '#e8890c' : 'rgba(255,255,255,0.08)',
-            border: 'none',
-            color: canAccept ? '#fff' : '#555',
-          }}>
-          {busy ? '⏳ Processing...' : cookingDone ? 'Accept Order →' : '⏳ Wait for Kitchen'}
-        </button>
-      </div>
-    </MotionDiv>
+    </motion.div>
   );
 };
 
-// Active delivery tracker
-const ActiveDelivery = ({ delivery, onUpdate, busy }) => {
-  const order  = delivery.order_id || {};
-  const status = delivery.status;
-  const sc     = STATUS[status] || STATUS.assigned;
-  const next   = NEXT[status];
-  const step   = STEPS.indexOf(status);
-
-  return (
-    <div style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${sc.color}40`, borderRadius: 16, padding: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 800, color: sc.color }}>#{order.order_number}</div>
-          <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>Active delivery</div>
-        </div>
-        <div style={{ background: sc.bg, border: `1px solid ${sc.color}40`, borderRadius: 20, padding: '4px 12px', fontSize: 10, fontWeight: 700, color: sc.color }}>
-          {sc.label}
-        </div>
-      </div>
-
-      {/* Progress */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 18 }}>
-        {STEPS.map((s, i) => (
-          <React.Fragment key={s}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: i <= step ? '#e8890c' : 'rgba(255,255,255,0.06)', border: `2px solid ${i <= step ? '#e8890c' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
-                {i < step ? <CheckCircle size={14} color="#fff" /> : <span style={{ fontSize: 9, fontWeight: 800, color: i === step ? '#fff' : '#444' }}>{i + 1}</span>}
-              </div>
-              <span style={{ fontSize: 8, color: i <= step ? '#e8890c' : '#444', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>{SLABELS[i]}</span>
-            </div>
-            {i < STEPS.length - 1 && <div style={{ flex: 1, height: 2, background: i < step ? '#e8890c' : 'rgba(255,255,255,0.08)', marginBottom: 18 }} />}
-          </React.Fragment>
-        ))}
-      </div>
-
-      {order.delivery_address && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 10, marginBottom: 10 }}>
-          <MapPin size={13} color="#888" style={{ flexShrink: 0, marginTop: 2 }} />
-          <span style={{ fontSize: 12, color: '#aaa', lineHeight: 1.5 }}>{order.delivery_address}</span>
-        </div>
-      )}
-
-      {/* Google Maps navigation button */}
-      {order.delivery_address && (
-        <a
-          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`}
-          target="_blank" rel="noopener noreferrer"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 0', marginBottom: 12, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)', borderRadius: 12, color: '#3b82f6', fontWeight: 800, fontSize: 12, textDecoration: 'none', cursor: 'pointer' }}>
-          📍 Navigate with Google Maps
-        </a>
-      )}
-
-      {next && (
-        <button onClick={() => onUpdate(delivery._id, next.status)} disabled={busy}
-          style={{ width: '100%', padding: '14px 0', background: '#e8890c', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <next.icon size={16} />
-          {busy ? 'Updating…' : next.label}
-        </button>
-      )}
-    </div>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// MAIN
-// ════════════════════════════════════════════════════════════════════════════
-const DeliveryDashboard = () => {
+export default function DeliveryDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [tab,       setTab]       = useState('available'); // 'available' | 'active' | 'history' | 'profile'
-  const [history,   setHistory]   = useState([]);
-  const [histLoading,setHistLoading] = useState(false);
+  const [tab, setTab]           = useState('available');
   const [available, setAvailable] = useState([]);
-  const [active,    setActive]    = useState(null);
-  const [allActive,  setAllActive]  = useState([]);
-  const [stats,     setStats]     = useState(null);
-  const [busy,      setBusy]      = useState(false);
-  const [loading,   setLoading]   = useState(true);
-  const [isCheckedIn, setIsCheckedIn] = useState(false);
-  const [checkinBusy, setCheckinBusy] = useState(false);
-  const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
-  const [passForm,    setPassForm]    = useState({ current_password: '', new_password: '', confirm: '' });
-  const [showPass,    setShowPass]    = useState(false);
-  const [profileMsg,  setProfileMsg]  = useState('');
-  const [profBusy,    setProfBusy]    = useState(false);
+  const [myActive, setMyActive]   = useState(null);
+  const [completed, setCompleted] = useState([]);
+  const [stats, setStats]         = useState({});
+  const [actLoading, setActLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [flash, setFlash]         = useState({ text: '', type: '' });
 
-  // Check-in status on mount — check both user object and server
-  useEffect(() => {
-    if (user) {
-      setProfileForm({ name: user.name || '', phone: user.phone || '' });
-      // First set from user object, then verify with server
-      const localState = user.is_checked_in || false;
-      setIsCheckedIn(localState);
-      // Always verify actual status from server
-      shiftsAPI_ext?.checkinStatus?.()
-        .then(r => {
-          const serverState = r.data?.is_checked_in ?? r.data?.active ?? false;
-          setIsCheckedIn(serverState);
-        })
-        .catch(() => {
-          // If API fails, keep local state and try active shift check
-          shiftsAPI_ext?.checkin?.()
-            .then(() => setIsCheckedIn(true))
-            .catch(e => {
-              const msg = (e.message || '').toLowerCase();
-              if (msg.includes('already') || msg.includes('active')) setIsCheckedIn(true);
-            });
-        });
-    }
-  }, [user]);
+  const showFlash = (text, type = 'success') => {
+    setFlash({ text, type });
+    setTimeout(() => setFlash({ text: '', type: '' }), 3500);
+  };
 
-  const loadData = useCallback(async () => {
-    if (!isCheckedIn) return;
+  const loadAll = useCallback(async () => {
     try {
-      const [avRes, actRes, stRes] = await Promise.allSettled([
-        deliveryAPI.getAll('?status=pending'),  // ALL pending deliveries shown to all riders
+      const [avail, active, done, st] = await Promise.allSettled([
+        deliveryAPI.getAvailable(),
         deliveryAPI.getMyActive(),
-        deliveryAPI.getAll('?status=assigned,picked_up,in_transit').catch(() => ({ data: [] })),
+        deliveryAPI.getCompleted(),
         deliveryAPI.getStats(),
       ]);
-      if (avRes.status === 'fulfilled')  setAvailable(avRes.value.data  || []);
-      if (actRes.status === 'fulfilled') setActive(actRes.value.data    || null);
-      // Also set all-active list for multi-order display
-      try {
-        const allActD = await deliveryAPI.getAll('?status=pending').catch(()=>({data:[]}));
-        // Filter to only this rider's assigned/in-progress orders
-        const myActive = (allActD.data||[]).filter(d => d.driver_id && (d.driver_id._id || d.driver_id) === user?._id?.toString());
-        setAllActive(myActive.length ? myActive : (actRes.value.data ? [actRes.value.data] : []));
-      } catch {}
-      if (stRes.status === 'fulfilled')  setStats(stRes.value.data      || null);
-    } finally { setLoading(false); }
-  }, [isCheckedIn]);
-
-  const loadHistory = useCallback(async () => {
-    setHistLoading(true);
-    try {
-      const r = await deliveryAPI.getCompleted();
-      setHistory(r.data || []);
-    } catch { setHistory([]); }
-    finally { setHistLoading(false); }
+      if (avail.status === 'fulfilled')  setAvailable(avail.value.data || []);
+      if (active.status === 'fulfilled') setMyActive(active.value.data || null);
+      if (done.status === 'fulfilled')   setCompleted(done.value.data || []);
+      if (st.status === 'fulfilled')     setStats(st.value.data || {});
+    } catch {}
   }, []);
 
-  useEffect(() => { if (tab === 'history') loadHistory(); }, [tab, loadHistory]);
+  useEffect(() => { loadAll(); }, [loadAll]);
+  useAutoRefresh(loadAll, 12000);
 
-  useEffect(() => { if (isCheckedIn) { setLoading(true); loadData(); } else { setLoading(false); } }, [isCheckedIn]);
-  useAutoRefresh(loadData, 12000);
-
-  const handleCheckin = async () => {
-    setCheckinBusy(true);
-    try {
-      await shiftsAPI_ext.checkin();
-      setIsCheckedIn(true);
-    } catch (err) {
-      // If already checked in on server, just update local state — no alert needed
-      const msg = (err.message || '').toLowerCase();
-      if (msg.includes('already checked in') || msg.includes('already') || msg.includes('active shift')) {
-        setIsCheckedIn(true);
-      } else {
-        alert(err.message || 'Check-in failed. Please try again.');
-      }
-    } finally { setCheckinBusy(false); }
-  };
-
-  const handleCheckout = async () => {
-    setCheckinBusy(true);
-    try {
-      await shiftsAPI_ext.checkout();
-      setIsCheckedIn(false);
-      setAvailable([]); setActive(null);
-    } catch (err) { alert(err.message); }
-    finally { setCheckinBusy(false); }
-  };
+  const refresh = async () => { setRefreshing(true); await loadAll(); setRefreshing(false); };
 
   const handleAccept = async (id) => {
-    setBusy(true);
-    try {
-      await deliveryAPI.accept(id);
-      await loadData();   // Reload — this delivery now disappears from available list
-      setTab('active');   // Switch to My Delivery tab automatically
-    } catch (err) { alert(err.message || 'Could not accept delivery. It may have already been taken.'); }
-    finally { setBusy(false); }
+    setActLoading(true);
+    try { await deliveryAPI.accept(id); showFlash('✅ Accepted! Wait for captain to dispatch before pickup.'); await loadAll(); setTab('active'); }
+    catch (e) { showFlash(e.message || 'Failed to accept', 'error'); }
+    finally { setActLoading(false); }
   };
-
   const handleSkip = async (id) => {
-    try { await deliveryAPI.skip(id); await loadData(); } catch {}
+    try { await deliveryAPI.skip(id); await loadAll(); }
+    catch (e) { showFlash(e.message || 'Error', 'error'); }
+  };
+  const handlePickup = async (id) => {
+    setActLoading(true);
+    try { await deliveryAPI.updateStatus(id, 'picked_up'); showFlash('📦 Picked up! Deliver to customer.'); await loadAll(); }
+    catch (e) { showFlash(e.message || 'Failed', 'error'); }
+    finally { setActLoading(false); }
+  };
+  const handleDeliver = async (id) => {
+    setActLoading(true);
+    try { await deliveryAPI.updateStatus(id, 'delivered'); showFlash('🎉 Delivery completed! Well done.'); await loadAll(); setTab('done'); }
+    catch (e) { showFlash(e.message || 'Failed', 'error'); }
+    finally { setActLoading(false); }
+  };
+  const handleFail = async (id) => {
+    setActLoading(true);
+    try { await deliveryAPI.updateStatus(id, 'failed'); showFlash('Delivery marked as failed.', 'error'); await loadAll(); }
+    catch (e) { showFlash(e.message || 'Failed', 'error'); }
+    finally { setActLoading(false); }
   };
 
-  const handleUpdate = async (id, status) => {
-    setBusy(true);
-    try {
-      await deliveryAPI.updateStatus(id, status);
-      await loadData();
-    } catch (err) { alert(err.message); }
-    finally { setBusy(false); }
-  };
-
-  const handleSaveProfile = async (e) => {
-    e.preventDefault(); setProfBusy(true); setProfileMsg('');
-    try {
-      await usersAPI.update(user.id, { name: profileForm.name, phone: profileForm.phone });
-      setProfileMsg('Profile updated!');
-    } catch { setProfileMsg('Update failed'); }
-    finally { setProfBusy(false); }
-  };
-
-  const handleChangePass = async (e) => {
-    e.preventDefault();
-    if (passForm.new_password !== passForm.confirm) { setProfileMsg('Passwords do not match'); return; }
-    setProfBusy(true); setProfileMsg('');
-    try {
-      await usersAPI.changePassword(user.id, { current_password: passForm.current_password, new_password: passForm.new_password });
-      setProfileMsg('Password updated!');
-      setPassForm({ current_password: '', new_password: '', confirm: '' });
-    } catch (err) { setProfileMsg(err.message || 'Failed'); }
-    finally { setProfBusy(false); }
-  };
-
-  const S = { background: '#0a0a0a', minHeight: '100vh', color: '#fff', fontFamily: 'inherit', padding: '0 0 32px' };
-  const primary = '#e8890c';
+  const TABS = [
+    { id: 'available', label: 'Available', count: available.length },
+    { id: 'active',    label: 'Active',    count: myActive ? 1 : 0 },
+    { id: 'done',      label: 'History',   count: null },
+    { id: 'stats',     label: 'Stats',     count: null },
+  ];
 
   return (
-    <div style={S}>
-      {/* Header */}
-      <div style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 900, color: primary, letterSpacing: '-0.01em' }}>BIRYANIBOX</div>
-          <div style={{ fontSize: 10, color: '#555', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Rider Portal</div>
-          {user?.id && (
-            <div style={{ fontSize: 9, color: primary, fontWeight: 700, letterSpacing: '0.1em', marginTop: 2 }}>
-              RIDER ID: RDR-{(user.id || '').slice(-6).toUpperCase()}
+    <div className="min-h-screen bg-[#0a0a0a] text-white">
+      <header className="sticky top-0 z-40 bg-[#0a0a0a]/95 backdrop-blur border-b border-white/8">
+        <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center"><Truck size={16} className="text-white" /></div>
+            <div>
+              <p className="text-white font-black text-sm leading-none">Rider Hub</p>
+              <p className="text-orange-400 text-[10px] font-bold uppercase tracking-widest">{user?.name || 'Rider'}</p>
             </div>
-          )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={refresh} disabled={refreshing}
+              className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/50 hover:text-orange-400 transition-all">
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+            <NotifBell />
+            <button onClick={() => { logout(); navigate('/login'); }}
+              className="w-9 h-9 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all">
+              <LogOut size={14} />
+            </button>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Check-in / Checkout toggle */}
-          <button onClick={isCheckedIn ? handleCheckout : handleCheckin} disabled={checkinBusy}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 20, border: `1px solid ${isCheckedIn ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.15)'}`, background: isCheckedIn ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)', color: isCheckedIn ? '#10b981' : '#888', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-            {isCheckedIn ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
-            {checkinBusy ? '...' : isCheckedIn ? 'Checked In' : 'Check In'}
-          </button>
-          <button onClick={() => { logout(); navigate('/login'); }}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', borderRadius: 20, border: '1px solid rgba(239,68,68,0.25)', background: 'rgba(239,68,68,0.08)', color: '#ef4444', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-            <LogOut size={13} /> Sign Out
-          </button>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 pb-10">
+        <AnimatePresence>
+          {flash.text && (
+            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className={`mt-4 rounded-xl px-4 py-3 text-sm font-bold flex items-center gap-2 ${flash.type === 'error' ? 'bg-red-500/10 border border-red-500/30 text-red-400' : 'bg-green-500/10 border border-green-500/30 text-green-400'}`}>
+              {flash.type === 'error' ? <XCircle size={15} /> : <CheckCircle size={15} />} {flash.text}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="grid grid-cols-2 gap-3 mt-5">
+          <StatCard icon={DollarSign} label="Today's Earnings"   value={`$${(stats.today_earnings||0).toFixed(2)}`} color="text-green-400" />
+          <StatCard icon={Truck}      label="Today's Deliveries" value={stats.today_deliveries||0} color="text-orange-400" />
+        </div>
+
+        {myActive && (
+          <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+            className="mt-3 bg-orange-500/10 border border-orange-500/30 rounded-2xl px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse" />
+              <span className="text-sm font-bold text-orange-300">Active delivery in progress</span>
+            </div>
+            <button onClick={() => setTab('active')} className="text-orange-400 text-xs font-black flex items-center gap-1 hover:text-orange-300">
+              View <ArrowRight size={12} />
+            </button>
+          </motion.div>
+        )}
+
+        <div className="flex gap-1 bg-white/5 p-1.5 rounded-2xl mt-4 border border-white/8">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${tab === t.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'text-white/40 hover:text-white'}`}>
+              {t.label}
+              {t.count !== null && t.count > 0 && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-black ${tab === t.id ? 'bg-white/20' : 'bg-orange-500 text-white'}`}>{t.count}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 space-y-4">
+          {tab === 'available' && (
+            <AnimatePresence mode="popLayout">
+              {available.length === 0 ? (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-20">
+                  <Truck size={40} className="mx-auto mb-3 text-white/10" />
+                  <p className="text-white/30 font-bold text-sm">No available deliveries</p>
+                  <p className="text-white/20 text-xs mt-1">New orders appear here when chef starts cooking</p>
+                </motion.div>
+              ) : available.map(d => (
+                <DeliveryCard key={d._id} delivery={d} onAccept={handleAccept} onSkip={handleSkip}
+                  onPickup={handlePickup} onDeliver={handleDeliver} onFail={handleFail} actLoading={actLoading} />
+              ))}
+            </AnimatePresence>
+          )}
+
+          {tab === 'active' && (
+            <AnimatePresence mode="popLayout">
+              {!myActive ? (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20">
+                  <Package size={40} className="mx-auto mb-3 text-white/10" />
+                  <p className="text-white/30 font-bold text-sm">No active delivery</p>
+                  <p className="text-white/20 text-xs mt-1">Accept an order from the Available tab</p>
+                </motion.div>
+              ) : (
+                <DeliveryCard key={myActive._id} delivery={myActive} onAccept={handleAccept} onSkip={handleSkip}
+                  onPickup={handlePickup} onDeliver={handleDeliver} onFail={handleFail} actLoading={actLoading} />
+              )}
+            </AnimatePresence>
+          )}
+
+          {tab === 'done' && (
+            <AnimatePresence mode="popLayout">
+              {completed.length === 0 ? (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20">
+                  <CheckCircle size={40} className="mx-auto mb-3 text-white/10" />
+                  <p className="text-white/30 font-bold text-sm">No completed deliveries yet</p>
+                </motion.div>
+              ) : completed.map(d => {
+                const o = d.order_id || {};
+                return (
+                  <motion.div key={d._id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="bg-[#111] border border-white/8 rounded-2xl p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-green-500/10 rounded-xl flex items-center justify-center">
+                        <CheckCircle size={16} className="text-green-400" />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold text-sm">Order #{o.order_number || '—'}</p>
+                        <p className="text-white/40 text-xs">{(d.delivery_address || '').slice(0, 40)}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-green-400 font-black">${d.delivery_fee || 0}</p>
+                      <p className="text-white/30 text-[10px]">{d.delivered_at ? new Date(d.delivered_at).toLocaleDateString() : '—'}</p>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          )}
+
+          {tab === 'stats' && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <StatCard icon={Truck}      label="Total Deliveries" value={stats.total_deliveries||0} color="text-orange-400" />
+                <StatCard icon={DollarSign} label="Total Earnings"   value={`$${(stats.total_earnings||0).toFixed(2)}`} color="text-green-400" />
+                <StatCard icon={Activity}   label="Today's Trips"    value={stats.today_deliveries||0} color="text-blue-400" />
+                <StatCard icon={TrendingUp} label="Today's Earnings" value={`$${(stats.today_earnings||0).toFixed(2)}`} color="text-purple-400" />
+              </div>
+              <div className="bg-[#111] border border-white/8 rounded-2xl p-5">
+                <p className="text-xs font-black uppercase tracking-widest text-white/40 mb-4">How Delivery Works</p>
+                <div className="space-y-3">
+                  {[
+                    { icon: '🍳', title: 'Chef starts cooking',   desc: 'Order appears in Available tab for all riders' },
+                    { icon: '✋', title: 'You accept it',          desc: 'Order reserved for you — hidden from others' },
+                    { icon: '📦', title: 'Captain dispatches',    desc: 'Captain confirms order packed & ready' },
+                    { icon: '🏍️', title: 'You pick up',           desc: 'Head to restaurant, collect the order' },
+                    { icon: '🏠', title: 'Deliver to customer',   desc: 'Mark delivered to complete and earn fee' },
+                  ].map((s, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center text-base flex-shrink-0">{s.icon}</div>
+                      <div>
+                        <p className="text-white text-sm font-bold">{s.title}</p>
+                        <p className="text-white/40 text-xs">{s.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
         </div>
       </div>
-
-      {/* CHECK-IN GATE */}
-      {!isCheckedIn && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '70vh', padding: '0 24px', textAlign: 'center' }}>
-          <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(232,137,12,0.12)', border: '2px solid rgba(232,137,12,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
-            <Lock size={32} color={primary} />
-          </div>
-          <h2 style={{ fontSize: 22, fontWeight: 900, marginBottom: 10 }}>Check In to Start</h2>
-          <p style={{ color: '#666', fontSize: 14, marginBottom: 28, maxWidth: 280, lineHeight: 1.6 }}>You must check in before you can see and accept delivery orders.</p>
-          <button onClick={handleCheckin} disabled={checkinBusy}
-            style={{ padding: '16px 40px', background: primary, border: 'none', borderRadius: 50, color: '#fff', fontWeight: 900, fontSize: 14, cursor: 'pointer', letterSpacing: '0.05em' }}>
-            {checkinBusy ? 'Checking In…' : 'Check In Now'}
-          </button>
-        </div>
-      )}
-
-      {/* DASHBOARD (only when checked in) */}
-      {isCheckedIn && (
-        <div style={{ padding: '20px 16px 0' }}>
-
-          {/* Stats */}
-          {stats && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
-              <Stat label="Today"    value={stats.today_deliveries}                    icon={Truck}     />
-              <Stat label="Total"    value={stats.total_deliveries}                    icon={CheckCircle} color="#10b981" />
-              <Stat label="Today $" value={fmt.currency(stats.today_earnings)}        icon={DollarSign} />
-              <Stat label="Total $"  value={fmt.currency(stats.total_earnings)}        icon={TrendingUp}  color="#3b82f6" />
-            </div>
-          )}
-
-          {/* Active order alert */}
-          {active && tab !== 'active' && (
-            <MotionDiv initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-              onClick={() => setTab('active')}
-              style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 12, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Activity size={14} color="#3b82f6" />
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#3b82f6' }}>Active delivery in progress</span>
-              </div>
-              <span style={{ fontSize: 10, color: '#3b82f6' }}>View →</span>
-            </MotionDiv>
-          )}
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
-            {[['available', Package, 'Available'], ['active', Truck, 'My Delivery'], ['history', CheckCircle, 'History'], ['profile', User, 'Profile']].map(([t, Icon, label]) => (
-              <button key={t} onClick={() => setTab(t)}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', borderRadius: 12, border: `1px solid ${tab === t ? primary : 'rgba(255,255,255,0.08)'}`, background: tab === t ? `${primary}18` : 'rgba(255,255,255,0.03)', color: tab === t ? primary : '#666', fontWeight: 700, fontSize: 11, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                <Icon size={13} />{label}
-                {t === 'available' && available.length > 0 && (
-                  <span style={{ background: primary, color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{available.length}</span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-              <Loader size={28} color={primary} style={{ animation: 'spin 1s linear infinite' }} />
-            </div>
-          ) : (
-            <>
-              {/* AVAILABLE ORDERS — only cooking-complete orders */}
-              {tab === 'available' && (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <h3 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888' }}>
-                      Available Orders ({available.length})
-                    </h3>
-                    <button onClick={loadData} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
-                      <RefreshCw size={12} /> Refresh
-                    </button>
-                  </div>
-
-                  {available.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                      <ChefHat size={36} color="#333" style={{ margin: '0 auto 16px' }} />
-                      <p style={{ color: '#555', fontWeight: 700, fontSize: 13 }}>No orders ready for pickup</p>
-                      <p style={{ color: '#444', fontSize: 11, marginTop: 6 }}>Orders will appear here once cooking is complete</p>
-                    </div>
-                  ) : (
-                    available.map(d => (
-                      <AvailableCard key={d._id} delivery={d} onAccept={handleAccept} onSkip={handleSkip} busy={busy} />
-                    ))
-                  )}
-                </div>
-              )}
-
-              {/* ACTIVE DELIVERIES — show all active */}
-              {tab === 'active' && (
-                <div>
-                  <h3 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888', marginBottom: 14 }}>My Active Deliveries</h3>
-                  {!active ? (
-                    <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                      <Truck size={36} color="#333" style={{ margin: '0 auto 16px' }} />
-                      <p style={{ color: '#555', fontWeight: 700, fontSize: 13 }}>No active delivery</p>
-                      <p style={{ color: '#444', fontSize: 11, marginTop: 6 }}>Accept an order from Available tab</p>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                      {/* Show primary active delivery */}
-                      <ActiveDelivery delivery={active} onUpdate={handleUpdate} busy={busy} />
-                      {/* Show any additional active deliveries */}
-                      {allActive.filter(d => d._id !== active._id && ['assigned','picked_up','in_transit'].includes(d.status)).map(d => (
-                        <ActiveDelivery key={d._id} delivery={d} onUpdate={handleUpdate} busy={busy} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* HISTORY */}
-              {tab === 'history' && (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <h3 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888' }}>
-                      Delivery History
-                    </h3>
-                    <button onClick={loadHistory} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <RefreshCw size={11} /> Refresh
-                    </button>
-                  </div>
-                  {histLoading ? (
-                    <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                      <Loader size={24} color={primary} />
-                    </div>
-                  ) : history.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                      <CheckCircle size={36} color="#333" style={{ margin: '0 auto 12px' }} />
-                      <p style={{ color: '#555', fontWeight: 700, fontSize: 13 }}>No deliveries completed yet</p>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {/* Summary */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
-                        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '14px 16px' }}>
-                          <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 6 }}>Total Delivered</p>
-                          <p style={{ fontSize: 22, fontWeight: 900, color: primary }}>{history.length}</p>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '14px 16px' }}>
-                          <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 6 }}>Total Earned</p>
-                          <p style={{ fontSize: 22, fontWeight: 900, color: '#10b981' }}>₹{history.reduce((s, d) => s + (d.delivery_fee || 0), 0).toLocaleString('en-IN')}</p>
-                        </div>
-                      </div>
-                      {/* History cards */}
-                      {history.map(d => {
-                        const order = d.order_id || {};
-                        return (
-                          <div key={d._id} style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 14, padding: '14px 16px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                              <div>
-                                <p style={{ fontSize: 13, fontWeight: 800, color: '#10b981' }}>#{order.order_number || 'N/A'}</p>
-                                <p style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
-                                  {d.delivered_at ? new Date(d.delivered_at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
-                                </p>
-                              </div>
-                              <div style={{ textAlign: 'right' }}>
-                                <p style={{ fontSize: 14, fontWeight: 900, color: primary }}>+₹{d.delivery_fee || 0}</p>
-                                <p style={{ fontSize: 10, color: '#555', marginTop: 2 }}>Delivery fee</p>
-                              </div>
-                            </div>
-                            {d.delivery_address && (
-                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 10px' }}>
-                                <MapPin size={11} color="#888" style={{ marginTop: 2, flexShrink: 0 }} />
-                                <span style={{ fontSize: 11, color: '#888', lineHeight: 1.4 }}>{d.delivery_address}</span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* PROFILE */}
-              {tab === 'profile' && (
-                <div>
-                  <h3 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888', marginBottom: 14 }}>Update Profile</h3>
-                  {profileMsg && (
-                    <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 14, background: profileMsg.includes('!') ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${profileMsg.includes('!') ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, color: profileMsg.includes('!') ? '#10b981' : '#ef4444', fontSize: 12, fontWeight: 700 }}>
-                      {profileMsg}
-                    </div>
-                  )}
-                  <form onSubmit={handleSaveProfile} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 16, marginBottom: 16 }}>
-                    <p style={{ fontSize: 12, fontWeight: 800, marginBottom: 14, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Personal Info</p>
-                    {[['Name', 'name', 'text', 'Your name'], ['Phone', 'phone', 'tel', '+91 98765 43210']].map(([label, field, type, ph]) => (
-                      <div key={field} style={{ marginBottom: 12 }}>
-                        <label style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', display: 'block', marginBottom: 6 }}>{label}</label>
-                        <input type={type} value={profileForm[field]} onChange={e => setProfileForm(p => ({ ...p, [field]: e.target.value }))} placeholder={ph}
-                          style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '10px 14px', color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-                      </div>
-                    ))}
-                    <button type="submit" disabled={profBusy}
-                      style={{ width: '100%', padding: '12px', background: primary, border: 'none', borderRadius: 10, color: '#fff', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
-                      {profBusy ? 'Saving…' : 'Save Profile'}
-                    </button>
-                  </form>
-
-                  <form onSubmit={handleChangePass} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 16 }}>
-                    <p style={{ fontSize: 12, fontWeight: 800, marginBottom: 14, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Change Password</p>
-                    {[['Current Password', 'current_password'], ['New Password', 'new_password'], ['Confirm New Password', 'confirm']].map(([label, field]) => (
-                      <div key={field} style={{ marginBottom: 12 }}>
-                        <label style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', display: 'block', marginBottom: 6 }}>{label}</label>
-                        <input type={showPass ? 'text' : 'password'} value={passForm[field]} onChange={e => setPassForm(p => ({ ...p, [field]: e.target.value }))}
-                          style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '10px 14px', color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-                      </div>
-                    ))}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={showPass} onChange={e => setShowPass(e.target.checked)} />
-                      <span style={{ fontSize: 11, color: '#555', fontWeight: 600 }}>Show passwords</span>
-                    </label>
-                    <button type="submit" disabled={profBusy}
-                      style={{ width: '100%', padding: '12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#aaa', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
-                      {profBusy ? 'Updating…' : 'Update Password'}
-                    </button>
-                  </form>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
-};
-
-export default DeliveryDashboard;
+}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { OrderContext } from './contexts';
 import { menuAPI, ingredientsAPI, ordersAPI, normalizeIngredient, normalizeOrder } from '../services/api';
+import { MOCK_MENU } from './menuData';
 
 export const OrderProvider = ({ children }) => {
   const [orders, setOrders] = useState([]);
@@ -9,12 +10,24 @@ export const OrderProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [customerNotification, setCustomerNotification] = useState(null);
 
-  // FIX 3: Normalize menu items so id, available, stock and category are always set.
-  // Without this: duplicate empty keys in AnimatePresence, POS shows blank grid,
-  // and addToCart is silently blocked by undefined available/stock checks.
+  // ── Helper: get current user role from localStorage ────────────────────────
+  const getUserRole = () => {
+    try {
+      const u = JSON.parse(localStorage.getItem('bb_user') || 'null');
+      return u?.role || null;
+    } catch { return null; }
+  };
+  const getUserId = () => {
+    try {
+      const u = JSON.parse(localStorage.getItem('bb_user') || 'null');
+      return u?._id || u?.id || null;
+    } catch { return null; }
+  };
+
+  // Load menu — public, no auth required
   useEffect(() => {
     menuAPI.getAll().then(res => {
-      setMenu((res.data || []).map(item => ({
+      const items = (res.data || []).map(item => ({
         ...item,
         id: item._id || item.id,
         available: item.is_available ?? item.available ?? true,
@@ -22,36 +35,56 @@ export const OrderProvider = ({ children }) => {
         category: item.category
           ? item.category.charAt(0).toUpperCase() + item.category.slice(1)
           : 'Biryani',
-      })));
-    }).catch(console.error);
+      }));
+      setMenu(items.length > 0 ? items : MOCK_MENU);
+    }).catch(() => {
+      // Backend unavailable — use local menu data so customers can still browse
+      setMenu(MOCK_MENU);
+    });
   }, []);
 
-  // Load ingredients from API
+  // Load ingredients — only for staff (customers don't need ingredient data)
   useEffect(() => {
     const token = localStorage.getItem('bb_token');
-    if (!token) return;
+    const role = getUserRole();
+    if (!token || role === 'customer') return;
     ingredientsAPI.getAll().then(res => {
       setIngredients(res.data.map(normalizeIngredient));
-    }).catch(console.error);
+    }).catch(() => {});
   }, []);
 
-  // Load orders from API
+  // Load orders — role-aware:
+  //   customers  → GET /api/orders/history/:id  (their own orders only)
+  //   staff      → GET /api/orders              (all orders for dashboard)
   const loadOrders = useCallback(() => {
     const token = localStorage.getItem('bb_token');
     if (!token) return;
-    ordersAPI.getAll().then(res => {
-      setOrders(res.data.map(normalizeOrder));
-    }).catch(console.error);
+
+    const role   = getUserRole();
+    const userId = getUserId();
+
+    if (role === 'customer') {
+      // Customers only see their own orders — use the dedicated history endpoint
+      if (!userId) return;
+      ordersAPI.history(userId).then(res => {
+        setOrders((res.data || []).map(normalizeOrder));
+      }).catch(() => {});
+    } else {
+      // Staff see all orders for the dashboard
+      ordersAPI.getAll().then(res => {
+        setOrders(res.data.map(normalizeOrder));
+      }).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
     loadOrders();
-    // Poll every 10 seconds so all dashboards stay in sync when customer places order
+    // Poll every 10 seconds so dashboards stay in sync
     const interval = setInterval(loadOrders, 10000);
     return () => clearInterval(interval);
   }, [loadOrders]);
 
-  // Coupon system (kept local — no backend coupon table)
+  // Coupon system (kept local)
   const [coupons, setCoupons] = useState(() => {
     const saved = localStorage.getItem('bb_coupons');
     if (saved) return JSON.parse(saved);
@@ -66,7 +99,7 @@ export const OrderProvider = ({ children }) => {
   useEffect(() => { localStorage.setItem('bb_coupons', JSON.stringify(coupons)); }, [coupons]);
 
   const availableCoupons = coupons.filter(c => !c.usedDate);
-  const usedCoupons = coupons.filter(c => !!c.usedDate);
+  const usedCoupons      = coupons.filter(c => !!c.usedDate);
   const deleteUsedCoupons = () => setCoupons(prev => prev.filter(c => !c.usedDate));
   const applyCoupon = (code) => {
     const found = coupons.find(c => c.code === code && !c.usedDate);
@@ -78,36 +111,42 @@ export const OrderProvider = ({ children }) => {
 
   const dismissCustomerNotification = () => setCustomerNotification(null);
 
-  // Create order via API
+  // ── Create order via API ────────────────────────────────────────────────────
+  // BUG FIX: Do NOT send captain_id for customers — that's a staff-only field.
+  // The backend auto-assigns the captain based on the table.
   const createOrder = async (cart, table, captain, customerName = null, deliveryParams = {}) => {
     try {
       const user = JSON.parse(localStorage.getItem('bb_user') || 'null');
-      const { delivery_address, delivery_notes, distance_km } = deliveryParams;
-      const isDelivery = table === 'Takeaway' || deliveryParams.order_type === 'delivery';
+      const { delivery_address, delivery_notes, distance_km, order_type } = deliveryParams;
+
+      const isDelivery = order_type === 'delivery' ||
+                         (table && String(table).toLowerCase() === 'takeaway' && order_type === 'delivery');
+      const isPickup   = order_type === 'pickup' || order_type === 'takeaway';
+
       const payload = {
-        items: cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
-        table_number:    table,
-        captain_id:      user?._id,
-        order_type:      isDelivery ? 'delivery' : 'dine-in',
-        customer_id:     user?.role === 'customer' ? user._id : undefined,
+        items:        cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
+        table_number: table,
+        // captain_id intentionally omitted for customers — backend auto-assigns
+        order_type:   isDelivery ? 'delivery' : isPickup ? 'pickup' : 'dine-in',
+        customer_id:  user?.role === 'customer' ? (user._id || user.id) : undefined,
         delivery_address: delivery_address || undefined,
         delivery_notes:   delivery_notes   || undefined,
         distance_km:      distance_km      || undefined,
       };
-      const res = await ordersAPI.create(payload);
+
+      const res      = await ordersAPI.create(payload);
       const newOrder = normalizeOrder(res.data);
       newOrder.items = cart;
       newOrder.isNew = true;
       setOrders(prev => [newOrder, ...prev]);
       setCustomerNotification({
-        orderId: newOrder.id,
-        items: cart,
-        total: newOrder.total,
+        orderId:   newOrder.id,
+        items:     cart,
+        total:     newOrder.total,
         table,
         captain,
         timestamp: newOrder.timestamp,
       });
-      // Refresh ingredients
       ingredientsAPI.getAll().then(r => setIngredients(r.data.map(normalizeIngredient))).catch(() => {});
       return { success: true, orderId: newOrder.id };
     } catch (err) {
@@ -119,9 +158,7 @@ export const OrderProvider = ({ children }) => {
     try {
       await ordersAPI.updateStatus(orderId, status);
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status, isNew: false } : o));
-    } catch (err) {
-      console.error('updateOrderStatus error:', err.message);
-    }
+    } catch (err) { console.error('updateOrderStatus error:', err.message); }
   };
 
   const acknowledgeOrder = (orderId) => {
@@ -132,36 +169,28 @@ export const OrderProvider = ({ children }) => {
     try {
       await ordersAPI.delete(orderId);
       setOrders(prev => prev.filter(o => o.id !== orderId));
-    } catch (err) {
-      console.error('deleteOrder error:', err.message);
-    }
+    } catch (err) { console.error('deleteOrder error:', err.message); }
   };
 
   const updateMenuStock = async (itemId, stock) => {
     try {
       await menuAPI.updateStock(itemId, stock);
       setMenu(prev => prev.map(m => m.id === itemId ? { ...m, stock } : m));
-    } catch (err) {
-      console.error('updateMenuStock error:', err.message);
-    }
+    } catch (err) { console.error('updateMenuStock error:', err.message); }
   };
 
   const toggleMenuAvailability = async (itemId) => {
     try {
       const res = await menuAPI.toggleAvailability(itemId);
       setMenu(prev => prev.map(m => m.id === itemId ? { ...m, available: res.data.is_available, is_available: res.data.is_available } : m));
-    } catch (err) {
-      console.error('toggleMenuAvailability error:', err.message);
-    }
+    } catch (err) { console.error('toggleMenuAvailability error:', err.message); }
   };
 
   const updateIngredientStock = async (ingredientId, amount) => {
     try {
       await ingredientsAPI.updateStock(ingredientId, amount);
       setIngredients(prev => prev.map(ing => ing.id === ingredientId ? { ...ing, stock: amount } : ing));
-    } catch (err) {
-      console.error('updateIngredientStock error:', err.message);
-    }
+    } catch (err) { console.error('updateIngredientStock error:', err.message); }
   };
 
   const importIngredientsCSV = (data) => setIngredients(data);
@@ -171,7 +200,7 @@ export const OrderProvider = ({ children }) => {
     try {
       const res = await ordersAPI.financials();
       return {
-        revenue: res.data.revenue,
+        revenue:      res.data.revenue,
         costOfGoods:  res.data.costOfGoods,
         profit:       res.data.profit,
         profitMargin: res.data.profitMargin,
@@ -185,11 +214,11 @@ export const OrderProvider = ({ children }) => {
   const getReorderForecast = () =>
     ingredients.map(ing => ({
       ...ing,
-      needsReorder: ing.stock < ing.minStock,
-      avgDailyUsage: 5,
-      projectedRunDays: ing.stock / 5,
-      daysUntilReorder: (ing.stock / 5) - (ing.reorderLeadDays || 3),
-      daysRemaining: ing.stock / 5,
+      needsReorder:      ing.stock < ing.minStock,
+      avgDailyUsage:     5,
+      projectedRunDays:  ing.stock / 5,
+      daysUntilReorder:  (ing.stock / 5) - (ing.reorderLeadDays || 3),
+      daysRemaining:     ing.stock / 5,
     }));
 
   return (

@@ -9,19 +9,24 @@ const OrderSchema = new mongoose.Schema({
   table_number:   { type: String, maxlength: 10 },
   total:          { type: Number, required: true, min: 0 },
 
-  // pending → start_cooking → completed_cooking → served → paid | cancelled
+  // pending_confirmation (dine-in awaiting owner/manager approval within 10 min)
+  // → pending → start_cooking → completed_cooking → served → paid | cancelled
   status: {
     type: String,
-    enum: ['pending', 'start_cooking', 'completed_cooking', 'served', 'paid', 'cancelled'],
+    enum: ['pending_confirmation', 'pending', 'start_cooking', 'completed_cooking', 'served', 'paid', 'cancelled'],
     default: 'pending',
   },
+
+  // For dine-in 10-min confirmation window
+  confirmation_expires_at: { type: Date },
+
   order_type:     { type: String, enum: ['dine-in', 'delivery', 'takeaway', 'pickup'], default: 'dine-in' },
   payment_method: { type: String, enum: ['upi', 'card', 'cash', 'gift_card'] },
   spiceness:      { type: String, enum: ['mild', 'medium', 'hot', 'extra_hot'], default: 'medium' },
   rating:         { type: Number, min: 1, max: 5 },
   feedback:       { type: String },
 
-  // Delivery fields — populated when order_type is 'delivery' or 'takeaway'
+  // Delivery fields
   delivery_address:  { type: String },
   delivery_notes:    { type: String },
   distance_km:       { type: Number, min: 0 },

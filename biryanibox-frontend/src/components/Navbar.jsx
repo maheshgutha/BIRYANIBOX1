@@ -55,16 +55,44 @@ const Navbar = () => {
   };
 
   const navLinks = [
-    { name: 'Home',         href: '/'                    },
-    { name: 'Menu',         href: '/#menu'               },
-    { name: 'Reservations', href: '/reservations'        },
-    { name: 'Gift Cards',   href: '/gift-cards'          },
-    { name: 'Catering',     href: '/catering'            },
+    { name: 'Home',         href: '/'             },
+    { name: 'Menu',         href: '/#menu'        },
+    { name: 'Reservations', href: '/reservations' },
+    { name: 'Gift Cards',   href: '/gift-cards'   },
+    { name: 'Catering',     href: '/catering'     },
   ];
 
   const handleNavClick = (href) => {
-    if (href.includes('#') && window.location.pathname === '/') {
-      document.getElementById(href.split('#')[1])?.scrollIntoView({ behavior: 'smooth' });
+    if (href === '/') {
+      // HOME — always scroll to top from anywhere on the page
+      if (window.location.pathname !== '/') {
+        navigate('/');
+        setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } else if (href === '/#menu') {
+      // MENU — reset category filter to "All", then scroll to menu section
+      if (window.location.pathname !== '/') {
+        navigate('/');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('bb_menu_reset'));
+          document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
+        }, 400);
+      } else {
+        window.dispatchEvent(new CustomEvent('bb_menu_reset'));
+        document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
+      }
+    } else if (href.startsWith('/#')) {
+      const sectionId = href.split('#')[1];
+      if (window.location.pathname === '/') {
+        document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        navigate('/');
+        setTimeout(() => {
+          document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
+        }, 400);
+      }
     } else {
       navigate(href);
     }

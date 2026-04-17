@@ -130,6 +130,10 @@ const Catering = () => {
     e.preventDefault();
     setFormError('');
 
+    if (!formData.customer_name.trim()) { setFormError('Name is required.'); return; }
+    if (!formData.email.trim())         { setFormError('Email address is required.'); return; }
+    if (!formData.phone.trim())         { setFormError('Mobile number is required.'); return; }
+
     const menuSelections = builderMode === 'packages' && selectedPackage
       ? `Package: ${selectedPackage.name} | Items: ${selectedPackage.items.join(', ')}`
       : selectedItemNames.length > 0
@@ -367,6 +371,7 @@ const Catering = () => {
             ))}
 
             <input type="date" required value={formData.event_date} onChange={sf('event_date')}
+              min={new Date().toISOString().split('T')[0]}
               className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-primary transition-all" />
 
             <input type="number" placeholder="Number of Guests *" min="10" required value={formData.guest_count} onChange={sf('guest_count')}

@@ -34,6 +34,7 @@ const useAutoRefresh = (callback, intervalMs = 30000) => {
 
 // ─── Status config ───────────────────────────────────────────────────────────
 const STATUS_COLORS = {
+  pending_confirmation: 'bg-yellow-500/20 text-yellow-300 border-yellow-400/40',
   pending:           'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
   start_cooking:     'bg-orange-500/10 text-orange-400 border-orange-500/20',
   completed_cooking: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
@@ -43,6 +44,7 @@ const STATUS_COLORS = {
 };
 
 const STATUS_LABELS = {
+  pending_confirmation: '⏰ Awaiting Confirm',
   pending:           'Pending',
   start_cooking:     'Cooking',
   completed_cooking: 'Ready',
@@ -365,7 +367,7 @@ const CookDurationCell = ({ order }) => {
   return <span className="text-text-muted text-[11px]">—</span>;
 };
 
-const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors, captainTableNumbers }) => {
+const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, statusColors, captainTableNumbers }) => {
   // Which statuses can this role trigger?
   const chefStatuses     = ['start_cooking', 'completed_cooking'];
   const captainStatuses  = ['served', 'paid'];
@@ -387,6 +389,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors, capt
   };
 
   const canAdvance = (order) => {
+    if (order.status === 'pending_confirmation') return false; // handled via accept/reject buttons
     const next = TRANSITIONS[order.status];
     if (!next) return false;
     if (user.role === 'chef') return chefStatuses.includes(next);
@@ -450,6 +453,19 @@ const OrderTable = ({ orders, user, onStatusUpdate, onDelete, statusColors, capt
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    {/* ── pending_confirmation: Accept / Reject (owner + manager only) ── */}
+                    {ord.status === 'pending_confirmation' && ['owner', 'manager'].includes(user.role) && onConfirmOrder && (
+                      <>
+                        <button onClick={() => onConfirmOrder(id, 'accept')}
+                          className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-green-500 hover:text-white transition-all">
+                          ✓ Accept
+                        </button>
+                        <button onClick={() => onConfirmOrder(id, 'reject')}
+                          className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-red-500 hover:text-white transition-all">
+                          ✗ Reject
+                        </button>
+                      </>
+                    )}
                     {canAdvance(ord) && isCaptainOrderInZone(ord) && (
                       <button onClick={() => onStatusUpdate(id, TRANSITIONS[ord.status])}
                         className="px-3 py-1.5 bg-primary text-white rounded-lg text-[10px] font-black uppercase hover:bg-primary-hover transition-all">
@@ -3973,45 +3989,33 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
 };
 
 // ─── ORDER BOOKING (live orders panel + POS) ─────────────────────────────────
-const OrderBookingPanel = ({ orders, user, updateOrderStatus, deleteOrder, captainTableNumbers }) => {
+const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, deleteOrder, captainTableNumbers }) => {
   const [filterStatus, setFilterStatus] = useState('all');
+  const filtered = filterStatus === 'all' ? orders : orders.filter(o => o.status === filterStatus);
 
-  // For captains: only show orders from their assigned tables (+ delivery/pickup for captain4)
-  const zoneOrders = (() => {
-    if (user.role !== 'captain') return orders; // owners/managers see all
-    const isDeliveryCaptain = !captainTableNumbers || captainTableNumbers.length === 0;
-    if (isDeliveryCaptain) {
-      // Captain 4 sees delivery and pickup orders only
-      return orders.filter(o => ['delivery', 'pickup', 'takeaway'].includes(o.order_type));
-    }
-    // Regular captain: see their zone tables + any pending that haven't been assigned yet
-    return orders.filter(o => {
-      if (['delivery', 'pickup', 'takeaway'].includes(o.order_type)) return false; // not their job
-      const tNum = parseInt(o.table_number);
-      return captainTableNumbers.includes(tNum);
-    });
-  })();
-
-  const filtered = filterStatus === 'all' ? zoneOrders : zoneOrders.filter(o => o.status === filterStatus);
+  // Count orders needing confirmation
+  const pendingConfirmCount = orders.filter(o => o.status === 'pending_confirmation').length;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><OrderIcon size={28} className="text-primary" />Live Orders</h2>
-          <p className="text-text-muted text-sm mt-1">{orders.length} orders</p>
+          <p className="text-text-muted text-sm mt-1">{orders.length} orders
+            {pendingConfirmCount > 0 && <span className="ml-2 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-full text-[10px] font-black animate-pulse">⏰ {pendingConfirmCount} awaiting confirmation</span>}
+          </p>
         </div>
         <div className="flex flex-wrap gap-1 bg-white/5 p-1.5 rounded-xl border border-white/5">
-          {['all', 'pending', 'start_cooking', 'completed_cooking', 'served', 'paid'].map(s => (
+          {['all', 'pending_confirmation', 'pending', 'start_cooking', 'completed_cooking', 'served', 'paid'].map(s => (
             <button key={s} onClick={() => setFilterStatus(s)}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filterStatus === s ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
-              {STATUS_LABELS[s] || s}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filterStatus === s ? 'bg-primary text-white' : 'text-text-muted hover:text-white'} ${s === 'pending_confirmation' && pendingConfirmCount > 0 ? 'border border-yellow-500/40' : ''}`}>
+              {s === 'pending_confirmation' ? `⏰ Confirm${pendingConfirmCount > 0 ? ` (${pendingConfirmCount})` : ''}` : (STATUS_LABELS[s] || s)}
             </button>
           ))}
         </div>
       </div>
       <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
-        <OrderTable orders={filtered} user={user} onStatusUpdate={updateOrderStatus} onDelete={deleteOrder} statusColors={STATUS_COLORS} captainTableNumbers={captainTableNumbers} />
+        <OrderTable orders={filtered} user={user} onStatusUpdate={updateOrderStatus} onConfirmOrder={confirmOrder} onDelete={deleteOrder} statusColors={STATUS_COLORS} captainTableNumbers={captainTableNumbers} />
       </div>
     </div>
   );
@@ -4157,39 +4161,8 @@ const FinanceCenter = ({ orders }) => {
   const [importBills, setImportBills] = useState(false);
   const [period, setPeriod] = useState('all');
   const [loadingFinance, setLoadingFinance] = useState(true);
-  const [billImportResults, setBillImportResults] = useState([]);
 
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: 'success' }), 3500); };
-
-  // ── Import Bills: each uploaded file becomes one expense entry ─────────────
-  const handleBillFiles = async (files) => {
-    if (!files.length) return;
-    const results = [];
-    for (const file of files) {
-      const nameParts = file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
-      const title = nameParts.charAt(0).toUpperCase() + nameParts.slice(1);
-      // Guess amount from filename (e.g. "electric_bill_250" → 250)
-      const amountMatch = file.name.match(/(\d+(?:\.\d+)?)/);
-      const amount = amountMatch ? parseFloat(amountMatch[1]) : 0;
-      try {
-        await budgetAPI.create({
-          title,
-          amount: amount > 0 ? amount : 1,
-          entry_type: 'expense',
-          category: 'other',
-          date: new Date().toISOString().slice(0, 10),
-          notes: `Imported from file: ${file.name}`,
-        });
-        results.push({ name: file.name, ok: true, amount: amount > 0 ? amount : 1 });
-      } catch (err) {
-        results.push({ name: file.name, ok: false, error: err.message || 'Failed' });
-      }
-    }
-    setBillImportResults(results);
-    loadFinance();
-    const ok = results.filter(r => r.ok).length;
-    flash(`${ok} of ${files.length} bill${files.length > 1 ? 's' : ''} imported as expense entries!`, ok === files.length ? 'success' : 'error');
-  };
 
   // ── Load budget + waste from DB ───────────────────────────────────────────
   const loadFinance = useCallback(async () => {
@@ -4306,36 +4279,12 @@ const FinanceCenter = ({ orders }) => {
               <button onClick={() => setImportBills(false)} className="text-text-muted hover:text-white"><X size={16} /></button>
             </div>
             <p className="text-sm text-text-muted mb-4">Upload supplier or utility bills — each becomes a budget expense entry automatically.</p>
-            <div
-              className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center cursor-pointer hover:border-primary/40 transition-colors"
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => {
-                e.preventDefault();
-                const files = Array.from(e.dataTransfer.files);
-                handleBillFiles(files);
-              }}
-            >
+            <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
               <FileText size={32} className="mx-auto mb-3 text-text-muted opacity-40" />
               <p className="text-sm text-text-muted font-bold">Drag & drop bills here or click to browse</p>
-              <p className="text-[10px] text-text-muted mt-1">PDF, JPG, PNG — each file becomes an expense entry</p>
-              <label className="mt-4 inline-block px-5 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase hover:bg-primary-hover cursor-pointer transition-all">
-                Browse Files
-                <input type="file" accept=".pdf,.jpg,.jpeg,.png" multiple className="hidden"
-                  onChange={e => handleBillFiles(Array.from(e.target.files))} />
-              </label>
+              <p className="text-[10px] text-text-muted mt-1">PDF, JPG, PNG supported</p>
+              <button className="mt-4 px-5 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase hover:bg-primary-hover">Browse Files</button>
             </div>
-            {billImportResults.length > 0 && (
-              <div className="mt-4 space-y-2">
-                <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Imported Entries</p>
-                {billImportResults.map((r, i) => (
-                  <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-xl border text-xs ${r.ok ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
-                    {r.ok ? '✓' : '✗'} {r.name}
-                    {r.ok && <span className="text-text-muted ml-auto">${r.amount} expense added</span>}
-                    {!r.ok && <span className="text-text-muted ml-auto">{r.error}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -6199,12 +6148,22 @@ const Dashboard = () => {
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
+  // Accept / Reject a dine-in pending_confirmation order (owner + manager only)
+  const confirmOrder = useCallback(async (id, action) => {
+    try {
+      await ordersAPI.confirmOrder(id, action);
+      handleRefresh();
+    } catch (err) {
+      console.error('[confirmOrder]', err.message);
+    }
+  }, [handleRefresh]);
+
   // Role-aware status update: chef can only do start_cooking / completed_cooking
   // captain/manager/owner can do served / paid
   const updateOrderStatus = useCallback(async (id, status) => {
     const CHEF_OK    = ['start_cooking', 'completed_cooking'];
     const CAPTAIN_OK = ['served', 'paid', 'cancelled'];
-    if (user.role === 'chef' && !CHEF_OK.includes(status)) return;
+    if (user.role === 'chef'    && !CHEF_OK.includes(status))    return;
     if (user.role === 'captain' && !CAPTAIN_OK.includes(status)) return;
     await ctxUpdateStatus(id, status);
   }, [user.role, ctxUpdateStatus]);
@@ -6276,7 +6235,7 @@ const Dashboard = () => {
             {activeTab === 'orders' && (
               <MotionDiv key="orders" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} deleteOrder={deleteOrder} captainTableNumbers={captainTableNumbers} />
+                <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} confirmOrder={confirmOrder} deleteOrder={deleteOrder} captainTableNumbers={captainTableNumbers} />
               </MotionDiv>
             )}
 

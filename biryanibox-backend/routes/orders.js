@@ -126,6 +126,10 @@ router.get('/financials', protect, authorize('owner', 'manager'), async (req, re
 // ── GET /api/orders/history/:customerId ───────────────────────────────────
 router.get('/history/:customerId', protect, async (req, res, next) => {
   try {
+    // Customers can only retrieve their own order history
+    if (req.user.role === 'customer' && req.user._id.toString() !== req.params.customerId) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
     const orders = await Order.find({ customer_id: req.params.customerId }).sort({ created_at: -1 });
     const result = [];
     for (const o of orders) {
@@ -148,9 +152,13 @@ router.get('/history/:customerId', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── GET /api/orders/live/:customerId — ALL active orders for customer ─────
+// ── GET /api/orders/live/:customerId — ALL active orders for THIS customer ─
 router.get('/live/:customerId', protect, async (req, res, next) => {
   try {
+    // Customers can only see their own live orders
+    if (req.user.role === 'customer' && req.user._id.toString() !== req.params.customerId) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
     const orders = await Order.find({
       customer_id: req.params.customerId,
       status: { $nin: ['paid', 'cancelled', 'served', 'delivered'] },
@@ -343,11 +351,17 @@ router.post('/', protect, async (req, res, next) => {
 
     const finalOrderType = isDelivery ? 'delivery' : isTakeaway ? 'pickup' : (order_type || 'dine-in');
 
+    // Dine-in orders require owner/manager confirmation within 10 minutes
+    const isDineIn = finalOrderType === 'dine-in';
+    const initialStatus = isDineIn ? 'pending_confirmation' : 'pending';
+    const confirmationExpiresAt = isDineIn ? new Date(Date.now() + 10 * 60 * 1000) : undefined;
+
     const order = await Order.create({
       customer_id, captain_id: assignedCaptainId, table_number,
       total: +(total + deliveryFee).toFixed(2),
       order_type: finalOrderType,
-      payment_method, status: 'pending',
+      payment_method, status: initialStatus,
+      confirmation_expires_at: confirmationExpiresAt,
       spiceness: spiceness || 'medium',
       delivery_address: needsAddress ? delivery_address.trim() : undefined,
       delivery_notes:   needsAddress ? (delivery_notes || '') : undefined,
@@ -367,30 +381,36 @@ router.post('/', protect, async (req, res, next) => {
 
     if (customer_id) await User.findByIdAndUpdate(customer_id, { $inc: { order_count: 1 } });
 
-    // Mark table as occupied if dine-in — auto updates table status everywhere
-    if (order.order_type === 'dine-in' && resolvedTableNum) {
-      await RestaurantTable.findOneAndUpdate({ table_number: resolvedTableNum }, { status: 'occupied' });
+    if (isDineIn) {
+      // ── Dine-in: notify owner + manager to ACCEPT or REJECT within 10 min ──
+      const managersAndOwners = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
+      await Notification.insertMany(managersAndOwners.map(u => ({
+        user_id: u._id, type: 'order_confirm_required',
+        title: '⏰ Dine-In Order — Action Required',
+        message: `Order #${order.order_number} at Table ${table_number} needs your approval within 10 minutes. Total: $${order.total}. Accept or reject now.`,
+        order_id: order._id,
+      })));
+    } else {
+      // ── Non dine-in: notify owner + manager (info only) ─────────────────────
+      const managersAndOwners = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
+      await Notification.insertMany(managersAndOwners.map(u => ({
+        user_id: u._id, type: 'new_order', title: '🛒 New Order Placed',
+        message: `Order #${order.order_number} — ${finalOrderType}. Total: $${order.total}`,
+      })));
+
+      // Notify chefs for non-dine-in orders immediately
+      const chefs = await User.find({ role: 'chef', is_active: true });
+      await Notification.insertMany(chefs.map(u => ({
+        user_id: u._id, type: 'new_order', title: '👨‍🍳 New Order in Kitchen',
+        message: `Order #${order.order_number} is waiting. ${orderItems.map(i => `${i.name} ×${i.quantity}`).join(', ')}`,
+      })));
     }
 
-    // ── Notify owner + manager ──────────────────────────────────────────────
-    const managersAndOwners = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
-    await Notification.insertMany(managersAndOwners.map(u => ({
-      user_id: u._id, type: 'new_order', title: '🛒 New Order Placed',
-      message: `Order #${order.order_number} placed — ${finalOrderType === 'dine-in' ? `Table ${table_number}` : finalOrderType}. Total: $${order.total}`,
-    })));
-
-    // ── Notify ALL chefs — every new order goes to all chefs ─────────────────
-    const chefs = await User.find({ role: 'chef', is_active: true });
-    await Notification.insertMany(chefs.map(u => ({
-      user_id: u._id, type: 'new_order', title: '👨‍🍳 New Order in Kitchen',
-      message: `Order #${order.order_number} is waiting. ${orderItems.map(i => `${i.name} ×${i.quantity}`).join(', ')}`,
-    })));
-
     // ── Notify ONLY the captain assigned to this specific table ──────────────
-    if (finalOrderType === 'dine-in' && assignedCaptainId) {
+    if (isDineIn && assignedCaptainId) {
       await Notification.create({
         user_id: assignedCaptainId, type: 'new_order', title: '🪑 New Order – Your Table',
-        message: `Order #${order.order_number} placed on Table ${table_number}. Total: $${order.total}`,
+        message: `Order #${order.order_number} placed on Table ${table_number}. Awaiting manager confirmation. Total: $${order.total}`,
       });
     }
 
@@ -417,7 +437,104 @@ router.post('/', protect, async (req, res, next) => {
       }
     }
 
+    // ── Auto-expire: schedule rejection if dine-in not confirmed in 10 min ──
+    if (isDineIn) {
+      setTimeout(async () => {
+        try {
+          const fresh = await Order.findById(order._id);
+          if (fresh && fresh.status === 'pending_confirmation') {
+            fresh.status = 'cancelled';
+            fresh.confirmation_expires_at = undefined;
+            await fresh.save();
+            // Notify customer
+            if (customer_id) {
+              await Notification.create({
+                user_id: customer_id, type: 'order_rejected',
+                title: '❌ Order Auto-Cancelled',
+                message: `Order #${order.order_number} was not confirmed within 10 minutes and has been automatically cancelled. Please try again.`,
+              });
+            }
+            // Notify manager/owner
+            const mgrs = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
+            await Notification.insertMany(mgrs.map(u => ({
+              user_id: u._id, type: 'order_expired',
+              title: '⏱ Order Expired',
+              message: `Order #${order.order_number} was auto-cancelled after 10 min confirmation timeout.`,
+            })));
+          }
+        } catch (e) { console.error('[AutoExpire]', e.message); }
+      }, 10 * 60 * 1000);
+    }
+
     res.status(201).json({ success: true, data: { ...order.toObject(), items: createdItems } });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/orders/:id/confirm — Accept or Reject a dine-in order ──────
+router.patch('/:id/confirm', protect, authorize('owner', 'manager'), async (req, res, next) => {
+  try {
+    const { action } = req.body; // 'accept' | 'reject'
+    if (!['accept', 'reject'].includes(action))
+      return res.status(400).json({ success: false, message: 'action must be accept or reject' });
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (order.status !== 'pending_confirmation')
+      return res.status(400).json({ success: false, message: 'Order is not awaiting confirmation' });
+
+    // Check if expired
+    if (order.confirmation_expires_at && order.confirmation_expires_at < new Date()) {
+      order.status = 'cancelled';
+      await order.save();
+      return res.status(400).json({ success: false, message: 'Confirmation window expired — order auto-cancelled' });
+    }
+
+    if (action === 'reject') {
+      order.status = 'cancelled';
+      order.confirmation_expires_at = undefined;
+      await order.save();
+
+      // Notify customer
+      if (order.customer_id) {
+        await Notification.create({
+          user_id: order.customer_id, type: 'order_rejected',
+          title: '❌ Order Rejected',
+          message: `Sorry, Order #${order.order_number} has been rejected. Please contact the restaurant or try a different table.`,
+        });
+      }
+      return res.json({ success: true, message: 'Order rejected', data: order });
+    }
+
+    // Accept: move to pending, mark table occupied, notify chefs
+    order.status = 'pending';
+    order.confirmation_expires_at = undefined;
+    await order.save();
+
+    // Mark table occupied
+    if (order.table_number) {
+      const match = String(order.table_number).match(/\d+/);
+      const tNum = match ? parseInt(match[0]) : null;
+      if (tNum) await RestaurantTable.findOneAndUpdate({ table_number: tNum }, { status: 'occupied' });
+    }
+
+    // Notify chefs
+    const chefs = await User.find({ role: 'chef', is_active: true });
+    const orderItems = await OrderItem.find({ order_id: order._id });
+    await Notification.insertMany(chefs.map(u => ({
+      user_id: u._id, type: 'new_order', title: '👨‍🍳 New Order in Kitchen',
+      message: `Order #${order.order_number} confirmed. ${orderItems.map(i => `${i.name} ×${i.quantity}`).join(', ')}`,
+    })));
+
+    // Notify customer: order confirmed
+    if (order.customer_id) {
+      await Notification.create({
+        user_id: order.customer_id, type: 'order_accepted',
+        title: '✅ Order Confirmed!',
+        message: `Your Order #${order.order_number} has been accepted and is being prepared. Sit tight!`,
+      });
+    }
+
+    res.json({ success: true, message: 'Order accepted', data: order });
   } catch (err) { next(err); }
 });
 

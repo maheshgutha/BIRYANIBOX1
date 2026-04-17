@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/useContextHooks';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   User, ShoppingBag, Star, MapPin, Bell, MessageSquare,
   Save, Plus, Trash2, Loader, CheckCircle,
@@ -200,10 +200,18 @@ const OrderTracker = ({ order }) => {
 const ProfileHub = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [activeTab, setActiveTab] = useState('live');
+  // Read ?tab= from URL to deep-link into a specific tab (e.g. /profile?tab=rewards)
+  const urlTab = new URLSearchParams(location.search).get('tab');
+  const [activeTab, setActiveTab] = useState(urlTab || 'live');
 
-  // Live tracking — ALL active orders
+  // Sync tab when URL changes
+  useEffect(() => {
+    if (urlTab && urlTab !== activeTab) setActiveTab(urlTab);
+  }, [urlTab]);
+
+  // Live tracking
   const [liveOrders,  setLiveOrders]  = useState([]);
   const [liveLoading, setLiveLoading] = useState(true);
 
@@ -353,6 +361,7 @@ const ProfileHub = () => {
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
+    if (!profileForm.phone.trim()) { setProfileMsg('Mobile number is required.'); return; }
     setProfileSaving(true);
     setProfileMsg('');
     try {
@@ -876,8 +885,9 @@ const ProfileHub = () => {
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary/50" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block flex items-center gap-1"><Phone size={10} /> Phone</label>
-                    <input value={profileForm.phone} onChange={e => setProfileForm(p => ({ ...p, phone: e.target.value }))}
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block flex items-center gap-1"><Phone size={10} /> Mobile Number *</label>
+                    <input required value={profileForm.phone} onChange={e => setProfileForm(p => ({ ...p, phone: e.target.value }))}
+                      placeholder="e.g. 9876543210"
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary/50" />
                   </div>
                   <div>

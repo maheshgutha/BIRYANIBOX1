@@ -56,11 +56,12 @@ const REWARD_AMOUNT    = 200;
 
 // ── Order steps — differ by order type ────────────────────────────────────────
 const DINEIN_STEPS = [
-  { key: 'pending',           label: 'Placed',    icon: Package    },
-  { key: 'start_cooking',     label: 'Preparing', icon: ChefHat    },
-  { key: 'completed_cooking', label: 'Ready',     icon: Utensils   },
-  { key: 'served',            label: 'Served',    icon: Star       },
-  { key: 'paid',              label: 'Done',      icon: CreditCard },
+  { key: 'pending_confirmation', label: 'Confirming', icon: Clock     },
+  { key: 'pending',              label: 'Placed',     icon: Package    },
+  { key: 'start_cooking',        label: 'Preparing',  icon: ChefHat    },
+  { key: 'completed_cooking',    label: 'Ready',      icon: Utensils   },
+  { key: 'served',               label: 'Served',     icon: Star       },
+  { key: 'paid',                 label: 'Done',       icon: CreditCard },
 ];
 const DELIVERY_STEPS = [
   { key: 'pending',           label: 'Placed',    icon: Package    },
@@ -77,7 +78,7 @@ const PICKUP_STEPS = [
   { key: 'dispatched',        label: 'At Counter',     icon: MapPin     },
   { key: 'paid',              label: 'Completed',      icon: CheckCircle},
 ];
-const DINEIN_STATUS_STEP   = { pending:0, start_cooking:1, completed_cooking:2, served:3, paid:4 };
+const DINEIN_STATUS_STEP   = { pending_confirmation:0, pending:1, start_cooking:2, completed_cooking:3, served:4, paid:5 };
 const DELIVERY_STATUS_STEP = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, delivered:4, paid:5 };
 const PICKUP_STATUS_STEP   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, paid:4 };
 const ORDER_STEPS    = DINEIN_STEPS;   // default fallback
@@ -213,6 +214,13 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
                 {order && ot === 'pickup' && order.status && pickupStatusMsg[order.status] && (
                   <div className="bg-primary/10 border border-primary/20 rounded-xl p-3 text-xs text-primary font-bold text-center">
                     {pickupStatusMsg[order.status]}
+                  </div>
+                )}
+
+                {/* Pending confirmation banner */}
+                {order?.status === 'pending_confirmation' && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 text-xs text-yellow-400 font-bold text-center animate-pulse">
+                    ⏰ Waiting for restaurant confirmation — up to 10 minutes. Please hold on!
                   </div>
                 )}
 
@@ -394,22 +402,25 @@ const Cart = () => {
   const [orderError,    setOrderError]    = useState('');
 
   // Gift card state
-  const [giftInput,     setGiftInput]     = useState('');
-  const [giftError,     setGiftError]     = useState('');
-  const [appliedGift,   setAppliedGift]   = useState(null); // { code, balance, applied }
-  const [giftLoading,   setGiftLoading]   = useState(false);
+  const [giftInput,      setGiftInput]      = useState('');
+  const [giftError,      setGiftError]      = useState('');
+  const [appliedGift,    setAppliedGift]    = useState(null); // { code, balance, applied }
+  const [giftLoading,    setGiftLoading]    = useState(false);
+  const [giftAmountInput,setGiftAmountInput]= useState(''); // partial amount user wants to use
 
   // Loyalty tier discount
   const [loyaltyTier,   setLoyaltyTier]   = useState(null); // 'Bronze'|'Silver'|'Gold'
   const [tierPct,       setTierPct]       = useState(0);
 
   // Success state
-  const [showSuccess,   setShowSuccess]   = useState(false);
+  const [showSuccess,      setShowSuccess]      = useState(false);
   const [placedOrderId,    setPlacedOrderId]    = useState(() => { const s = loadActiveOrder(); return s?.orderId  || null; });
   const [placedOrderNum,   setPlacedOrderNum]   = useState(() => { const s = loadActiveOrder(); return s?.orderNum || ''; });
   const [placedItemsSnap,  setPlacedItemsSnap]  = useState(() => { const s = loadActiveOrder(); return s?.items   || []; });
   const [placedTotal,      setPlacedTotal]      = useState(() => { const s = loadActiveOrder(); return s?.total   || 0; });
-  const [showTracker,      setShowTracker]      = useState(() => !!loadActiveOrder());
+  // showTracker always starts false — user must explicitly click "Track Order" on the success banner
+  // This prevents auto-redirecting to tracker when user just navigates to /cart
+  const [showTracker, setShowTracker] = useState(false);
 
   useEffect(() => {
     if (userId) setHistory(getHistory(userId));
@@ -461,10 +472,10 @@ const Cart = () => {
   const handleApplyCoupon = () => {
     setCouponError('');
     const input = couponInput.trim().toUpperCase();
-    if (!input) { setCouponError('Please enter a coupon code.'); return; }
-    if (!userId) { setCouponError('Please sign in to use coupons.'); return; }
-    if (!activeCoupon) { setCouponError('No active coupon on your account.'); return; }
-    if (activeCoupon.code.toUpperCase() !== input) { setCouponError('Invalid code.'); return; }
+    if (!input) { setCouponError('Please enter your reward code.'); return; }
+    if (!userId) { setCouponError('Please sign in to use rewards.'); return; }
+    if (!activeCoupon) { setCouponError('No active reward found on your account.'); return; }
+    if (activeCoupon.code.toUpperCase() !== input) { setCouponError('Invalid reward code — check your Rewards Tracker.'); return; }
     setAppliedCoupon(activeCoupon);
     setCouponInput('');
   };
@@ -477,12 +488,24 @@ const Cart = () => {
       const r = await giftCardsAPI.validate(code);
       const balance = r?.balance || r?.data?.balance || 0;
       if (balance <= 0) { setGiftError('Gift card has no balance or is invalid.'); setGiftLoading(false); return; }
-      const toApply = Math.min(balance, grandTotal);
-      setAppliedGift({ code, balance, applied: toApply });
+      // Default amount = min(balance, grandTotal) — user can change it
+      const suggested = parseFloat(Math.min(balance, grandTotal).toFixed(2));
+      setAppliedGift({ code, balance, applied: suggested });
+      setGiftAmountInput(suggested.toFixed(2));
       setGiftInput('');
     } catch {
       setGiftError('Invalid or expired gift card.');
     } finally { setGiftLoading(false); }
+  };
+
+  // Update the applied gift amount when user changes the amount input
+  const handleGiftAmountChange = (val) => {
+    setGiftAmountInput(val);
+    const amt = parseFloat(val);
+    if (!isNaN(amt) && amt > 0 && appliedGift) {
+      const clamped = parseFloat(Math.min(amt, appliedGift.balance).toFixed(2));
+      setAppliedGift(prev => ({ ...prev, applied: clamped }));
+    }
   };
 
   const updateRewards = (orderTotal) => {
@@ -551,14 +574,19 @@ const Cart = () => {
       const orderId  = res.data?._id || res.data?.order?._id;
       const orderNum = res.data?.order_number || res.data?.order?.order_number || ('BOX-' + Date.now().toString().slice(-5));
 
-      // ── GIFT CARD: redeem after order placed so DB marks it as used ──────
+      // ── GIFT CARD: redeem only the applied partial amount ────────────────
       if (appliedGift && orderId) {
         try {
-          await giftCardsAPI.redeem({ code: appliedGift.code, order_id: orderId });
+          await giftCardsAPI.redeem({
+            code: appliedGift.code,
+            amount_to_use: appliedGift.applied,
+            order_id: orderId,
+          });
         } catch (e) {
           console.warn('[GiftCard] Redeem failed:', e.message);
         }
         setAppliedGift(null);
+        setGiftAmountInput('');
       }
 
       const unlocked = updateRewards(grandTotal);
@@ -589,7 +617,9 @@ const Cart = () => {
     bookingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  // Full-page tracker only when cart is EMPTY and actively tracking
+  // Full-page tracker: ONLY show when user explicitly clicked "Track Order"
+  // (showTracker starts false; it's set true only when user clicks the Track button on success banner)
+  // This prevents the tracker from hijacking the cart page when the user just wants to add items.
   if (placedOrderId && showTracker && cart.length === 0) {
     return (
       <LiveOrderTracker orderId={placedOrderId} orderNumber={placedOrderNum}
@@ -598,7 +628,7 @@ const Cart = () => {
     );
   }
 
-  // Show success banner
+  // Show success banner immediately after placing order
   if (showSuccess && placedOrderNum) {
     return (
       <div className="min-h-screen bg-bg-main text-white flex items-center justify-center p-6">
@@ -757,68 +787,130 @@ const Cart = () => {
               <div className="bg-secondary/30 border border-white/10 rounded-2xl p-5 space-y-3">
                 <div className="flex justify-between text-sm"><span className="text-text-muted">Subtotal</span><span className="font-bold">${total.toFixed(2)}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-text-muted">Service Fee</span><span className="font-bold">${SERVICE_FEE.toFixed(2)}</span></div>
-                {appliedCoupon && <div className="flex justify-between text-sm text-green-400"><span>🎟 Spend Reward</span><span>-${couponDiscAmt.toFixed(2)}</span></div>}
-                {appliedGift && <div className="flex justify-between text-sm text-blue-400"><span>🎁 Gift Card ({appliedGift.code})</span><span>-${giftDiscAmt.toFixed(2)}</span></div>}
+                {appliedCoupon && <div className="flex justify-between text-sm text-green-400"><span>🎟 Reward Code ({appliedCoupon.code.slice(-8)})</span><span>-${couponDiscAmt.toFixed(2)}</span></div>}
+                {appliedGift && <div className="flex justify-between text-sm text-blue-400"><span>🎁 Gift Card ({appliedGift.code}) — using ${appliedGift.applied.toFixed(2)}</span><span>-${giftDiscAmt.toFixed(2)}</span></div>}
                 {tierDiscAmt > 0 && <div className="flex justify-between text-sm text-amber-400"><span>⭐ {loyaltyTier} Discount ({tierPct}%)</span><span>-${tierDiscAmt.toFixed(2)}</span></div>}
                 <div className="border-t border-white/10 pt-3 flex justify-between font-black text-lg">
                   <span>Total</span><span className="text-primary">${grandTotal.toFixed(2)}</span>
                 </div>
               </div>
 
-              {/* Rewards progress */}
+              {/* ── Rewards Code ── */}
               {userId && (
-                <div className="bg-secondary/20 border border-white/5 rounded-2xl p-4 space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Rewards Progress</p>
-                  <p className="text-primary font-black">${runningTotal.toFixed(2)} / ${nextMilestone}</p>
-                  <p className="text-[10px] text-text-muted">${remainingToNext.toFixed(2)} until $200 reward</p>
+                <div className="bg-secondary/20 border border-white/5 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-text-muted">
+                      <TrendingUp size={14} className="text-primary" /> Rewards Progress
+                    </div>
+                    <span className="text-[10px] font-black text-primary">${runningTotal.toFixed(2)} / ${nextMilestone}</span>
+                  </div>
+                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <motion.div className="h-full bg-primary rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, (runningTotal / nextMilestone) * 100)}%` }}
+                      transition={{ duration: 0.8 }} />
+                  </div>
+                  <p className="text-[10px] text-text-muted">${remainingToNext.toFixed(2)} more to unlock $200 reward</p>
+
+                  {/* Reward code input */}
+                  {appliedCoupon ? (
+                    <div className="flex items-center justify-between bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle size={14} className="text-green-400" />
+                        <span className="text-green-400 text-xs font-black">{appliedCoupon.code}</span>
+                        <span className="text-green-300 text-xs">-${couponDiscAmt.toFixed(2)}</span>
+                      </div>
+                      <button onClick={() => { setAppliedCoupon(null); setCouponInput(''); setCouponError(''); }} className="text-text-muted hover:text-white"><XCircle size={14} /></button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Apply Reward Code</p>
+                      <div className="flex gap-2">
+                        <input type="text" value={couponInput}
+                          onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError(''); }}
+                          onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
+                          placeholder="e.g. BB-USER-C1-XXXX"
+                          className="flex-1 bg-bg-main border border-white/10 px-3 py-2.5 rounded-xl text-white text-xs focus:outline-none focus:border-primary transition-all tracking-widest placeholder:tracking-normal placeholder:text-text-muted/40" />
+                        <button onClick={handleApplyCoupon}
+                          className="px-4 py-2.5 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary/80 transition-all">
+                          Apply
+                        </button>
+                      </div>
+                      {couponError && <p className="text-red-400 text-[11px] font-bold flex items-center gap-1"><XCircle size={12} /> {couponError}</p>}
+                      {/* Quick-apply if unlocked */}
+                      {activeCoupon && !appliedCoupon && (
+                        <div className="flex items-center justify-between bg-primary/10 border border-primary/20 rounded-xl px-3 py-2">
+                          <span className="text-primary text-[10px] font-black">🎉 {activeCoupon.code}</span>
+                          <button onClick={() => { setCouponInput(activeCoupon.code); handleApplyCoupon(); }}
+                            className="text-[10px] font-black text-white bg-primary px-3 py-1 rounded-lg hover:bg-primary/80 transition-all">
+                            Use Now
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Coupon */}
-              <div className="bg-secondary/30 border border-white/10 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-text-muted">
-                  <Tag size={14} /> Coupon Code
-                </div>
-                {appliedCoupon ? (
-                  <div className="flex items-center justify-between bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2.5">
-                    <div className="flex items-center gap-2"><Gift size={14} className="text-green-400" /><span className="text-green-400 text-xs font-black">{appliedCoupon.code}</span></div>
-                    <button onClick={() => setAppliedCoupon(null)} className="text-text-muted hover:text-white"><XCircle size={14} /></button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <input type="text" value={couponInput} onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError(''); }}
-                      onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
-                      placeholder="Enter coupon code..."
-                      className="flex-1 bg-bg-main border border-white/10 px-4 py-3 rounded-xl text-white text-xs focus:outline-none focus:border-primary transition-all tracking-widest placeholder:tracking-normal placeholder:text-text-muted/50" />
-                    <button onClick={handleApplyCoupon} className="px-4 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary/80 transition-all">Apply</button>
-                  </div>
-                )}
-                {couponError && <p className="text-red-400 text-[11px] font-bold flex items-center gap-1"><XCircle size={12} /> {couponError}</p>}
-                {activeCoupon && !appliedCoupon && (
-                  <p className="text-primary text-[10px] font-black uppercase tracking-widest animate-pulse">🎉 $200 coupon ready — copy from rewards tracker!</p>
-                )}
-                {!activeCoupon && !isUnlocked && userId && (
-                  <p className="text-[10px] text-text-muted">${remainingToNext.toFixed(2)} more to unlock $200 reward</p>
-                )}
-              </div>
-
-              {/* Gift Card */}
+              {/* ── Gift Card ── */}
               <div className="bg-secondary/30 border border-white/10 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-text-muted">
                   <Gift size={14} /> Gift Card
                 </div>
                 {appliedGift ? (
-                  <div className="flex items-center justify-between bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <Gift size={14} className="text-blue-400" />
-                      <span className="text-blue-400 text-xs font-black">{appliedGift.code}</span>
-                      <span className="text-white/40 text-xs">Balance: ${appliedGift.balance.toFixed(2)}</span>
+                  <div className="space-y-3">
+                    {/* Applied card info */}
+                    <div className="flex items-center justify-between bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <Gift size={14} className="text-blue-400" />
+                        <span className="text-blue-400 text-xs font-black">{appliedGift.code}</span>
+                        <span className="text-white/40 text-xs">Balance: ${appliedGift.balance.toFixed(2)}</span>
+                      </div>
+                      <button onClick={() => { setAppliedGift(null); setGiftAmountInput(''); }} className="text-text-muted hover:text-white"><XCircle size={14} /></button>
                     </div>
-                    <button onClick={() => setAppliedGift(null)} className="text-text-muted hover:text-white"><XCircle size={14} /></button>
+
+                    {/* Partial amount selector */}
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">How much to use this order?</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max={appliedGift.balance}
+                          step="0.01"
+                          value={giftAmountInput}
+                          onChange={e => handleGiftAmountChange(e.target.value)}
+                          className="flex-1 bg-bg-main border border-white/10 px-3 py-2 rounded-xl text-white text-xs focus:outline-none focus:border-primary transition-all"
+                        />
+                        <span className="text-xs text-text-muted self-center font-bold">USD</span>
+                      </div>
+                      {/* Quick-pick buttons */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {[25, 50, 100, 200].filter(v => v <= appliedGift.balance).map(v => (
+                          <button key={v} onClick={() => handleGiftAmountChange(String(v))}
+                            className={`px-3 py-1 rounded-lg text-[10px] font-black border transition-all ${appliedGift.applied === v ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-text-muted hover:text-white hover:border-white/30'}`}>
+                            ${v}
+                          </button>
+                        ))}
+                        <button onClick={() => handleGiftAmountChange(String(appliedGift.balance))}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black border transition-all ${appliedGift.applied === appliedGift.balance ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-text-muted hover:text-white hover:border-white/30'}`}>
+                          Full (${appliedGift.balance})
+                        </button>
+                      </div>
+                      <div className="flex justify-between text-[11px] pt-1 border-t border-white/5">
+                        <span className="text-text-muted">Using this order:</span>
+                        <span className="text-blue-400 font-black">-${appliedGift.applied.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-text-muted">Remaining on card:</span>
+                        <span className="text-white/60 font-bold">${(appliedGift.balance - appliedGift.applied).toFixed(2)}</span>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <input type="text" value={giftInput} onChange={e => { setGiftInput(e.target.value.toUpperCase()); setGiftError(''); }}
+                    <input type="text" value={giftInput}
+                      onChange={e => { setGiftInput(e.target.value.toUpperCase()); setGiftError(''); }}
                       onKeyDown={e => e.key === 'Enter' && handleApplyGift()}
                       placeholder="Gift card code..."
                       className="flex-1 bg-bg-main border border-white/10 px-4 py-3 rounded-xl text-white text-xs focus:outline-none focus:border-primary transition-all tracking-widest placeholder:tracking-normal placeholder:text-text-muted/50" />
@@ -829,6 +921,9 @@ const Cart = () => {
                   </div>
                 )}
                 {giftError && <p className="text-red-400 text-[11px] font-bold flex items-center gap-1"><XCircle size={12} /> {giftError}</p>}
+                {!appliedGift && (
+                  <p className="text-[10px] text-text-muted">💡 Use any amount — remaining balance stays on your card</p>
+                )}
               </div>
 
               {/* Loyalty Tier Discount */}
@@ -900,7 +995,7 @@ const Cart = () => {
                     </div>
                     <p className="text-xs text-text-muted">Your order will be ready at the counter. Show this order number when you arrive.</p>
                     <input value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)}
-                      placeholder="Any pickup notes (optional)"
+                      placeholder="Do you want any extra spoons or extra raita?"
                       className="w-full mt-3 bg-bg-main border border-white/10 px-3 py-2 rounded-xl text-white text-xs focus:outline-none focus:border-primary transition-all placeholder:text-text-muted/50" />
                   </div>
                 )}

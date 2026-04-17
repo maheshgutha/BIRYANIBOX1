@@ -55,7 +55,7 @@ const Hero = ({ navigate }) => {
           <p className="text-lg text-text-muted leading-relaxed mb-10 max-w-lg">{slides[currentSlide].desc}</p>
           <div className="flex flex-wrap gap-4">
             <button onClick={() => document.getElementById('menu').scrollIntoView({ behavior: 'smooth' })} className="px-12 py-6 bg-primary text-white font-black uppercase tracking-widest text-xs rounded-full hover:bg-primary-hover transition-all shadow-3xl shadow-primary/20">Order Online</button>
-            <button onClick={() => navigate('/cart')} className="px-12 py-6 bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-xs rounded-full hover:bg-white/10 transition-all">View Rewards</button>
+            <button onClick={() => navigate('/profile?tab=rewards')} className="px-12 py-6 bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-xs rounded-full hover:bg-white/10 transition-all">View Rewards</button>
           </div>
         </MotionDiv>
         <MotionDiv key={`img-${currentSlide}`} initial={{ opacity: 0, scale: 0.8, rotate: -10 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 1, type: 'spring' }} className="hidden lg:block relative">
@@ -155,7 +155,7 @@ const PopularItems = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-xl font-black text-primary">${(item.price || 0).toFixed(0)}</span>
                     <button onClick={() => handleAdd(item)}
-                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${isAdded ? 'bg-green-500 text-white' : 'bg-primary/10 border border-primary/30 text-primary hover:bg-primary hover:text-white'}`}>
+                      className={`px-6 py-3 rounded-xl text-sm font-black uppercase transition-all ${isAdded ? 'bg-green-500 text-white' : 'bg-primary/10 border border-primary/30 text-primary hover:bg-primary hover:text-white'}`}>
                       {isAdded ? '✓ Added' : '+ Add'}
                     </button>
                   </div>
@@ -243,6 +243,19 @@ const MenuCategories = () => {
   const [filterHalal, setFilterHalal] = useState(false);
   const { addToCart } = useCart();
   const { menu } = useOrders();
+
+  // Listen for navbar "Menu" click — reset everything to show all items
+  useEffect(() => {
+    const handleReset = () => {
+      setActiveCategory('All');
+      setSearchQuery('');
+      setFilterVeg('all');
+      setFilterSpice('all');
+      setFilterHalal(false);
+    };
+    window.addEventListener('bb_menu_reset', handleReset);
+    return () => window.removeEventListener('bb_menu_reset', handleReset);
+  }, []);
 
 
   const categories = ['All', ...Array.from(new Set(menu.map(item => item.category)))];
@@ -594,6 +607,7 @@ const CustomerFeedback = () => {
     e.preventDefault();
     setError('');
     if (!rating) { setError('Please select a star rating.'); return; }
+    if (!form.mobile.trim()) { setError('Mobile number is required.'); return; }
     if (!form.email.trim()) { setError('Email address is required.'); return; }
     setLoading(true);
     try {
@@ -815,7 +829,6 @@ const Home = () => {
       <Testimonials />
       <CustomerAnnouncements />
       <CustomerFeedback />
-      <Contact />
       <Footer />
 
       {/* Cart Float Badge */}

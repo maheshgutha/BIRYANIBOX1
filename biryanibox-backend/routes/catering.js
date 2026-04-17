@@ -205,4 +205,61 @@ router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/catering/send-reminders ─────────────────────────────────────
+// Call this periodically (e.g. once a day). Sends notifications to owner,
+// manager AND customer for catering events happening tomorrow.
+router.get('/send-reminders', protect, authorize('owner', 'manager'), async (req, res, next) => {
+  try {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // Find catering orders whose event_date starts with tomorrow's date string
+    const events = await CateringOrder.find({
+      event_date: { $regex: `^${tomorrowStr}` },
+      status: { $in: ['pending', 'confirmed'] },
+    });
+
+    let sentCount = 0;
+    for (const event of events) {
+      // Notify owner + manager
+      const staff = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
+      await Notification.insertMany(staff.map(u => ({
+        user_id: u._id, type: 'catering_reminder',
+        title: '📅 Catering Event Tomorrow!',
+        message: `Reminder: "${event.event_type || 'Catering event'}" for ${event.guest_count || event.guests} guests is scheduled for tomorrow (${tomorrowStr}). Contact: ${event.customer_name || event.contact_name} — ${event.email || event.contact_email}.`,
+      })));
+
+      // Notify customer via email
+      const customerEmail = event.email || event.contact_email;
+      if (customerEmail) {
+        await sendEmail({
+          to: customerEmail,
+          subject: '⏰ Your Catering Event is Tomorrow — Biryani Box',
+          html: `
+            <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+              <h1 style="color:#f97316;">Biryani Box 🍛</h1>
+              <p style="color:#888;font-size:13px;margin-bottom:28px;">Catering Reminder</p>
+              <h2 style="font-size:20px;">Your event is tomorrow, ${event.customer_name || event.contact_name}!</h2>
+              <p style="color:#ccc;margin:16px 0;">This is a friendly reminder that your catering order is scheduled for <strong style="color:#f97316;">${tomorrowStr}</strong>.</p>
+              <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin:20px 0;">
+                <table style="width:100%;font-size:14px;">
+                  <tr><td style="color:#888;padding:4px 0;">Event Type</td><td style="text-align:right;color:#fff;">${event.event_type || 'Catering'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${event.guest_count || event.guests || 'TBD'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Status</td><td style="text-align:right;color:#f97316;font-weight:bold;">${event.status}</td></tr>
+                </table>
+              </div>
+              <p style="color:#666;font-size:12px;">If you have any last-minute changes, please contact us immediately. We look forward to serving you!</p>
+              <p style="color:#444;font-size:12px;margin-top:20px;">Warm regards,<br/><strong style="color:#f97316;">The Biryani Box Team</strong></p>
+            </div>
+          `,
+        });
+      }
+      sentCount++;
+    }
+
+    res.json({ success: true, message: `Reminders sent for ${sentCount} event(s) happening tomorrow.` });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

@@ -18,24 +18,22 @@ const STATUS_STYLES = {
   completed: 'bg-white/10 text-text-muted border-white/20',
 };
 
-// ─── Scroll-Wheel Time Picker ──────────────────────────────────────────────
-// Generates every-minute slots from 11:00 AM to 9:59 PM
+// ─── Time Slots: every 30 minutes from 11:30 AM to 9:00 PM ──────────────────
 const generateTimeSlots = () => {
   const slots = [];
-  // 11:00 AM – 3:59 PM  then  7:00 PM – 9:59 PM
+  // Operating hours: 11:30 AM – 10:00 PM, step = 30 min
   const ranges = [
-    { startH: 11, endH: 15, ampm: 'AM/PM' },
-    { startH: 19, endH: 21, ampm: 'PM'    },
+    { startH: 11, startM: 30, endH: 22, endM: 0 },
   ];
   for (const rng of ranges) {
-    for (let h = rng.startH; h <= rng.endH; h++) {
-      const maxMin = (h === 15 || h === 21) ? 59 : 59;
-      for (let m = 0; m <= maxMin; m++) {
-        const ampm = h < 12 ? 'AM' : 'PM';
-        const displayH = h > 12 ? h - 12 : h;
-        const label = `${displayH}:${String(m).padStart(2,'0')} ${ampm}`;
-        slots.push(label);
-      }
+    let h = rng.startH, m = rng.startM;
+    while (h < rng.endH || (h === rng.endH && m <= rng.endM)) {
+      const ampm = h < 12 ? 'AM' : 'PM';
+      const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      const label = `${displayH}:${String(m).padStart(2, '0')} ${ampm}`;
+      slots.push(label);
+      m += 30;
+      if (m >= 60) { m = 0; h++; }
     }
   }
   return slots;
@@ -146,23 +144,26 @@ const Reservations = () => {
     setTimeout(() => setMsg({ text: '', type: '' }), 4000);
   };
 
-  // Load reservations — filter by logged-in user's email
+  // Load reservations — STRICT: only show this logged-in user's reservations
   const loadMyReservations = useCallback(async () => {
-    const email = user?.email || formData.email;
-    if (!email) { setMyReservations([]); return; }
+    // Only load if user is logged in — never show other customers' reservations
+    if (!user?.email) { setMyReservations([]); return; }
+    const myEmail = user.email.toLowerCase().trim();
     setLoadingList(true);
     try {
-      const res = await reservationsAPI.getAll(`?email=${encodeURIComponent(email)}`);
-      const list = (res.data || []).filter(r => {
-        if (user?.email) return r.email?.toLowerCase() === user.email.toLowerCase();
-        return r.email?.toLowerCase() === formData.email.toLowerCase() ||
-               r.customer_name?.toLowerCase() === formData.customer_name.toLowerCase();
-      });
+      const res = await reservationsAPI.getAll(`?email=${encodeURIComponent(myEmail)}`);
+      // Hard client-side filter — ONLY exact email match against logged-in user
+      // This is the safety net in case backend returns extra records
+      const list = (res.data || []).filter(r =>
+        r.email?.toLowerCase().trim() === myEmail
+      );
+      // Sort: most recent date first
+      list.sort((a, b) => new Date(b.date) - new Date(a.date));
       setMyReservations(list);
     } catch {
       setMyReservations([]);
     } finally { setLoadingList(false); }
-  }, [user, formData.email, formData.customer_name]);
+  }, [user?.email]);
 
   useEffect(() => {
     if (activeView === 'my') loadMyReservations();
@@ -172,6 +173,7 @@ const Reservations = () => {
     e.preventDefault();
     if (!formData.customer_name.trim()) { flash('Name is required', 'error'); return; }
     if (!formData.email.trim())         { flash('Email is required', 'error'); return; }
+    if (!formData.phone.trim())         { flash('Mobile number is required', 'error'); return; }
     if (!formData.date)                 { flash('Date is required', 'error'); return; }
     if (!formData.time)                 { flash('Time is required', 'error'); return; }
 
@@ -259,10 +261,10 @@ const Reservations = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Phone</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Mobile Number *</label>
                   <div className="relative">
                     <Phone size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
-                    <input type="tel" value={formData.phone} onChange={setField('phone')}
+                    <input type="tel" required value={formData.phone} onChange={setField('phone')}
                       placeholder="+91 98765 43210"
                       className="w-full bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50 transition-all" />
                   </div>
@@ -310,13 +312,13 @@ const Reservations = () => {
           </MotionDiv>
         )}
 
-        {/* MY RESERVATIONS — filtered by logged-in user's email */}
+        {/* MY RESERVATIONS — strictly for the logged-in user's email only */}
         {activeView === 'my' && (
           <MotionDiv initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            {!user && !formData.email ? (
+            {!user ? (
               <div className="bg-secondary/40 border border-white/10 rounded-3xl p-10 text-center">
                 <AlertCircle size={40} className="text-white/20 mx-auto mb-4" />
-                <p className="text-white/40 font-bold">Sign in to view your reservations.</p>
+                <p className="text-white/40 font-bold">Please sign in to view your reservations.</p>
                 <button onClick={() => window.location.href = '/auth'}
                   className="mt-4 px-6 py-3 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-full">
                   Sign In
@@ -325,9 +327,10 @@ const Reservations = () => {
             ) : (
               <>
                 <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-lg font-black">
-                    {user ? `${user.name}'s Reservations` : 'Your Reservations'}
-                  </h2>
+                  <div>
+                    <h2 className="text-lg font-black">{user.name}'s Reservations</h2>
+                    <p className="text-[10px] text-white/30 mt-0.5">Showing reservations for {user.email}</p>
+                  </div>
                   <button onClick={loadMyReservations} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-primary transition-colors">
                     <RefreshCw size={13} /> Refresh
                   </button>
@@ -340,7 +343,7 @@ const Reservations = () => {
                 ) : myReservations.length === 0 ? (
                   <div className="bg-secondary/40 border border-white/10 rounded-3xl p-10 text-center">
                     <Calendar size={40} className="text-white/20 mx-auto mb-4" />
-                    <p className="text-white/40 font-bold">No reservations found for your account.</p>
+                    <p className="text-white/40 font-bold">No reservations found for {user.email}</p>
                     <button onClick={() => setActiveView('new')}
                       className="mt-5 px-6 py-3 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-full">
                       Make a Reservation
@@ -355,11 +358,14 @@ const Reservations = () => {
                           <div>
                             <p className="font-black text-lg mb-1">{r.customer_name}</p>
                             <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-white/50">
-                              <span className="flex items-center gap-1.5"><Calendar size={13} /> {r.date}</span>
+                              <span className="flex items-center gap-1.5"><Calendar size={13} />
+                                {r.date ? new Date(r.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : r.date}
+                              </span>
                               <span className="flex items-center gap-1.5"><Clock size={13} /> {r.time}</span>
                               <span className="flex items-center gap-1.5"><Users size={13} /> {r.guests} guests</span>
                             </div>
                             {r.notes && <p className="text-xs text-white/30 mt-2 italic">"{r.notes}"</p>}
+                            {r.table_assigned && <p className="text-[10px] text-primary font-black mt-1">🪑 Table: {r.table_assigned}</p>}
                           </div>
                           <div className="flex items-center gap-3">
                             <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border ${STATUS_STYLES[r.status] || STATUS_STYLES.pending}`}>

@@ -183,44 +183,43 @@ router.post('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── POST /api/gift-cards/redeem — ONE-TIME USE only ───────────────────────
-// The full denomination is applied at once. Card is immediately marked 'used'.
-// A second redeem attempt on the same code will be rejected.
+// ── POST /api/gift-cards/redeem — Supports partial or full use ─────────────
+// Pass `amount_to_use` to deduct a specific amount. If omitted, full balance used.
+// Card stays 'active' until balance reaches 0, then marked 'used'.
 router.post('/redeem', protect, async (req, res, next) => {
   try {
-    const { code, amount, order_id } = req.body;
+    const { code, amount_to_use, order_id } = req.body;
 
     if (!code)
       return res.status(400).json({ success: false, message: 'Gift card code is required' });
 
-    // Atomic findOneAndUpdate to prevent race-condition double-spend
-    const card = await GiftCard.findOneAndUpdate(
-      { code: code.toUpperCase().trim(), status: 'active' },
-      {
-        $set: {
-          status:               'used',
-          balance:              0,
-          redeemed_by_order_id: order_id || null,
-          redeemed_at:          new Date(),
-        },
-      },
-      { new: false } // return the OLD doc so we know the denomination applied
-    );
+    const card = await GiftCard.findOne({ code: code.toUpperCase().trim(), status: 'active' });
 
     if (!card)
-      return res.status(404).json({
-        success: false,
-        message: 'Gift card not found, already used, or expired',
-      });
+      return res.status(404).json({ success: false, message: 'Gift card not found, already used, or expired' });
 
-    // Check expiry on the original doc
     if (card.expiry_date && card.expiry_date < new Date()) {
-      // Restore status back to expired (edge case)
-      await GiftCard.findByIdAndUpdate(card._id, { status: 'expired', balance: card.balance });
+      card.status = 'expired';
+      await card.save();
       return res.status(400).json({ success: false, message: 'Gift card has expired' });
     }
 
-    const amount_used = card.balance; // full balance consumed in one shot
+    // Determine how much to use
+    const requestedAmount = amount_to_use ? parseFloat(amount_to_use) : card.balance;
+    if (isNaN(requestedAmount) || requestedAmount <= 0)
+      return res.status(400).json({ success: false, message: 'Invalid amount_to_use' });
+
+    const amount_used = Math.min(requestedAmount, card.balance);
+    const remaining_balance = parseFloat((card.balance - amount_used).toFixed(2));
+
+    // Update card — mark used only when balance hits zero
+    card.balance = remaining_balance;
+    if (remaining_balance <= 0) {
+      card.status = 'used';
+      card.redeemed_by_order_id = order_id || null;
+      card.redeemed_at = new Date();
+    }
+    await card.save();
 
     await GiftCardTransaction.create({
       gift_card_id: card._id,
@@ -232,8 +231,11 @@ router.post('/redeem', protect, async (req, res, next) => {
       success: true,
       data: {
         amount_used,
-        remaining_balance: 0,
-        message: 'Gift card redeemed successfully. This card is now used.',
+        remaining_balance,
+        status: card.status,
+        message: remaining_balance > 0
+          ? `$${amount_used.toFixed(2)} redeemed. Remaining balance: $${remaining_balance.toFixed(2)}`
+          : 'Gift card fully redeemed.',
       },
     });
   } catch (err) { next(err); }

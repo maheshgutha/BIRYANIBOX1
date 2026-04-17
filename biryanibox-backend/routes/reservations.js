@@ -102,9 +102,17 @@ router.get('/', protect, async (req, res, next) => {
   try {
     const { status, date, email } = req.query;
     const filter = {};
-    if (status) filter.status = status;
-    if (email)  filter.email  = { $regex: email, $options: 'i' };
-    if (date)   { const d = new Date(date); filter.date = { $gte: d, $lt: new Date(d.getTime() + 86400000) }; }
+
+    // Customers can ONLY see their own reservations — enforce by their email
+    if (req.user.role === 'customer') {
+      filter.email = { $regex: `^${req.user.email}$`, $options: 'i' };
+    } else {
+      // Staff can filter by email or status/date
+      if (status) filter.status = status;
+      if (email)  filter.email  = { $regex: email, $options: 'i' };
+      if (date)   { const d = new Date(date); filter.date = { $gte: d, $lt: new Date(d.getTime() + 86400000) }; }
+    }
+
     const items = await Reservation.find(filter).sort({ date: 1 });
     res.json({ success: true, count: items.length, data: items });
   } catch (err) { next(err); }

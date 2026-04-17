@@ -59,6 +59,7 @@ const CustomerAuth = () => {
     setError('');
     if (!firstName.trim()) { setError('First name is required'); return; }
     if (!email.trim())     { setError('Email is required'); return; }
+    if (!phone.trim())     { setError('Mobile number is required'); return; }
     if (!password.trim())  { setError('Password is required'); return; }
     setBusy(true);
     try {
@@ -197,10 +198,10 @@ const CustomerAuth = () => {
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Phone</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Mobile Number *</label>
                 <div className="relative">
                   <Phone size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
-                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                  <input type="tel" required value={phone} onChange={e => setPhone(e.target.value)}
                     placeholder="+91 98765 43210" autoComplete="tel" className={`${inputCls} pl-11 pr-4`} />
                 </div>
               </div>

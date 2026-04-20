@@ -8,11 +8,27 @@ const headers = (extra = {}) => ({
   ...extra,
 });
 
+// Global 401 interceptor — clears stale/expired token immediately
+// so no more cascade of 401 errors from bad tokens
+const clearAuthOnUnauthorized = () => {
+  localStorage.removeItem('bb_token');
+  localStorage.removeItem('bb_user');
+  // Dispatch a custom event so AuthContext can react if needed
+  window.dispatchEvent(new Event('bb:unauthorized'));
+};
+
 const request = async (path, options = {}) => {
   const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers: headers(options.headers),
   });
+  // 401 = token expired or invalid — clear it immediately to stop cascade
+  if (res.status === 401) {
+    // Don't clear on auth/login itself — those are expected 401s for wrong password
+    if (!path.includes('/auth/login') && !path.includes('/auth/register')) {
+      clearAuthOnUnauthorized();
+    }
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Request failed');
   return data;
@@ -230,11 +246,12 @@ export const leavesAPI = {
 
 // ── BUDGET ────────────────────────────────────────────────────────
 export const budgetAPI = {
-  getAll:     (params = '') => request(`/budget${params}`),
-  getSummary: (params = '') => request(`/budget/summary${params}`),
-  create:     (body)        => request('/budget',       { method: 'POST',   body: JSON.stringify(body) }),
-  update:     (id, body)    => request(`/budget/${id}`, { method: 'PUT',    body: JSON.stringify(body) }),
-  delete:     (id)          => request(`/budget/${id}`, { method: 'DELETE' }),
+  getAll:      (params = '') => request(`/budget${params}`),
+  getSummary:  (params = '') => request(`/budget/summary${params}`),
+  create:      (body)        => request('/budget',        { method: 'POST',   body: JSON.stringify(body) }),
+  update:      (id, body)    => request(`/budget/${id}`,  { method: 'PUT',    body: JSON.stringify(body) }),
+  delete:      (id)          => request(`/budget/${id}`,  { method: 'DELETE' }),
+  bulkImport:  (rows)        => request('/budget/bulk',   { method: 'POST',   body: JSON.stringify({ rows }) }),
 };
 
 // ── WASTE LOGS ────────────────────────────────────────────────────
@@ -261,6 +278,20 @@ export const deliveryAPI = {
   assign: (id, driver_id) =>
     request(`/deliveries/${id}/assign`, { method: 'PATCH', body: JSON.stringify({ driver_id }) }),
   create: (body) => request('/deliveries', { method: 'POST', body: JSON.stringify(body) }),
+};
+
+
+// ── DASHBOARD (Command Hub) ───────────────────────────────────────────────
+export const dashboardAPI = {
+  // Main command-hub endpoint: period = day|week|month|year|custom
+  // Optionally: from=YYYY-MM-DD&to=YYYY-MM-DD for custom, calendar_date=YYYY-MM-DD
+  commandHub:       (params = '') => request(`/dashboard/command-hub${params}`),
+  overview:         ()            => request('/dashboard/overview'),
+  financials:       ()            => request('/dashboard/financials'),
+  revenue:          (period)      => request(`/dashboard/revenue?period=${period}`),
+  topItems:         ()            => request('/dashboard/top-items'),
+  staffPerformance: ()            => request('/dashboard/staff-performance'),
+  inventoryAlerts:  ()            => request('/dashboard/inventory-alerts'),
 };
 
 // ── NORMALIZE HELPERS ─────────────────────────────────────────────

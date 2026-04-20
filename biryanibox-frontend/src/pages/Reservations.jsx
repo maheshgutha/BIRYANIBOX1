@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { reservationsAPI } from '../services/api';
 import { useAuth } from '../context/useContextHooks';
@@ -10,6 +10,17 @@ import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
 const MotionDiv = motion.div;
+
+// Silent auto-refresh — background polling never shows loading spinner
+const useAutoRefresh = (callback, intervalMs = 30000) => {
+  const savedCallback = useRef(callback);
+  useEffect(() => { savedCallback.current = callback; }, [callback]);
+  useEffect(() => {
+    const id = setInterval(() => savedCallback.current(true), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+};
+
 
 const STATUS_STYLES = {
   pending:   'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
@@ -145,11 +156,11 @@ const Reservations = () => {
   };
 
   // Load reservations — STRICT: only show this logged-in user's reservations
-  const loadMyReservations = useCallback(async () => {
+  const loadMyReservations = useCallback(async (silent = false) => {
     // Only load if user is logged in — never show other customers' reservations
     if (!user?.email) { setMyReservations([]); return; }
     const myEmail = user.email.toLowerCase().trim();
-    setLoadingList(true);
+    if (!silent) setLoadingList(true);
     try {
       const res = await reservationsAPI.getAll(`?email=${encodeURIComponent(myEmail)}`);
       // Hard client-side filter — ONLY exact email match against logged-in user
@@ -162,12 +173,18 @@ const Reservations = () => {
       setMyReservations(list);
     } catch {
       setMyReservations([]);
-    } finally { setLoadingList(false); }
+    } finally { if (!silent) setLoadingList(false); }
   }, [user?.email]);
 
   useEffect(() => {
-    if (activeView === 'my') loadMyReservations();
+    if (activeView === 'my') loadMyReservations(false);
   }, [activeView, loadMyReservations]);
+
+  // Auto-refresh reservations silently every 30s (only when viewing My Reservations)
+  const silentRefreshReservations = useCallback(() => {
+    if (activeView === 'my') loadMyReservations(true);
+  }, [activeView, loadMyReservations]);
+  useAutoRefresh(silentRefreshReservations, 30000);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

@@ -33,7 +33,7 @@ const STATUS_TO_STEP = {
 
 const useAutoRefresh = (callback, ms = 15000) => {
   useEffect(() => {
-    const id = setInterval(callback, ms);
+    const id = setInterval(() => callback(true), ms);
     return () => clearInterval(id);
   }, [callback, ms]);
 };
@@ -136,7 +136,7 @@ const AnnouncementsSection = () => {
     announcementsAPI.getPublic()
       .then(res => setAnnouncements(res.data || []))
       .catch(() => setAnnouncements([]))
-      .finally(() => setLoading(false));
+      .finally(() => { if (!silent) setLoading(false); });
   }, []);
 
   if (loading) return <div className="flex justify-center py-6"><Loader size={20} className="animate-spin text-primary" /></div>;
@@ -309,13 +309,13 @@ const AddressesTab = () => {
     setTimeout(() => setMsg({ text: '', type: '' }), 3000);
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await addressesAPI.getAll();
       setAddresses(res.data || []);
     } catch { setAddresses([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -579,7 +579,7 @@ const RewardsTab = ({ user }) => {
         .filter(o => o.status === 'paid')
         .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       setPaidOrders(paid);
-    }).finally(() => setLoading(false));
+    }).finally(() => { if (!silent) setLoading(false); });
   }, [user]);
 
   const points = loyalty?.points ?? user?.loyalty_points ?? 0;
@@ -874,18 +874,18 @@ const OrderHistory = () => {
     }
   }, [location.search]);
 
-  const fetchOrders = useCallback(async () => {
+  const fetchOrders = useCallback(async (silent = false) => {
     if (!user) return;
     const uid = user._id || user.id;
     if (!uid) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const res = await ordersAPI.history(uid);
       const all = res.data || [];
       setActiveOrders(all.filter(o => ['pending', 'start_cooking', 'completed_cooking', 'served'].includes(o.status)));
       setHistoryOrders(all.filter(o => ['paid', 'cancelled', 'delivered'].includes(o.status)));
     } catch {}
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [user]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);

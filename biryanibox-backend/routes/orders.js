@@ -615,15 +615,23 @@ router.patch('/:id/status', protect, async (req, res, next) => {
     if (status === 'start_cooking' && updated.order_type === 'delivery') {
       const alreadyExists = await Delivery.findOne({ order_id: updated._id });
       if (!alreadyExists) {
-        const customer = updated.customer_id ? await User.findById(updated.customer_id).select('name phone') : null;
+        const customer = updated.customer_id ? await User.findById(updated.customer_id).select('name phone email') : null;
+        // Prefer delivery_customer_* fields (set from POS form) over linked user profile
+        const deliveryName  = updated.delivery_customer_name  || customer?.name  || 'Walk-in';
+        const deliveryEmail = updated.delivery_customer_email || customer?.email || '';
+        const deliveryPhone = updated.delivery_customer_phone || customer?.phone || '';
         await Delivery.create({
-          order_id: updated._id, customer_id: updated.customer_id || null,
-          customer_name: customer?.name || 'Walk-in', phone: customer?.phone || '',
+          order_id:         updated._id,
+          customer_id:      updated.customer_id || null,
+          customer_name:    deliveryName,
+          customer_email:   deliveryEmail,
+          phone:            deliveryPhone,
           delivery_address: updated.delivery_address || 'Address not set',
-          delivery_notes: updated.delivery_notes || '',
-          distance_km: updated.distance_km || 0,
-          delivery_fee: updated.delivery_fee || 0,
-          status: 'pending', order_placed_at: new Date(),
+          delivery_notes:   updated.delivery_notes  || '',
+          distance_km:      updated.distance_km     || 0,
+          delivery_fee:     updated.delivery_fee    || 0,
+          status:           'pending',
+          order_placed_at:  new Date(),
           captain_dispatched: false,
         });
         // Notify ALL riders immediately

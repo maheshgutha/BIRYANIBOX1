@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/useContextHooks';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { deliveryAPI, notificationsAPI } from '../services/api';
 import {
   Package, MapPin, Clock, CheckCircle, XCircle, LogOut, Bell, RefreshCw,
@@ -32,7 +32,7 @@ const NotifBell = () => {
   const [notifs, setNotifs] = useState([]);
   const [unread, setUnread] = useState(0);
   const ref = useRef(null);
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try { const r = await notificationsAPI.getAll(); setNotifs(r.data || []); setUnread(r.unreadCount || 0); } catch {}
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -212,7 +212,20 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
 export default function DeliveryDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab]           = useState('available');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTabState] = useState(searchParams.get('tab') || 'available');
+
+  // Push tab changes to browser history so back/forward works
+  const setTab = React.useCallback((t) => {
+    setTabState(t);
+    setSearchParams({ tab: t }, { replace: false });
+  }, [setSearchParams]);
+
+  // Sync when browser navigates back/forward
+  const urlTab = searchParams.get('tab');
+  React.useEffect(() => {
+    if (urlTab && urlTab !== tab) setTabState(urlTab);
+  }, [urlTab]);
   const [available, setAvailable] = useState([]);
   const [myActive, setMyActive]   = useState(null);
   const [completed, setCompleted] = useState([]);
@@ -226,7 +239,7 @@ export default function DeliveryDashboard() {
     setTimeout(() => setFlash({ text: '', type: '' }), 3500);
   };
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (silent = false) => {
     try {
       const [avail, active, done, st] = await Promise.allSettled([
         deliveryAPI.getAvailable(),

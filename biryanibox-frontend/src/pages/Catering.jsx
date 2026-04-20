@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -48,6 +48,17 @@ const PACKAGES = [
   },
 ];
 
+
+// Silent auto-refresh — background refresh never triggers loading spinner
+const useAutoRefresh = (callback, intervalMs = 30000) => {
+  const savedCallback = useRef(callback);
+  useEffect(() => { savedCallback.current = callback; }, [callback]);
+  useEffect(() => {
+    const id = setInterval(() => savedCallback.current(true), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+};
+
 const Catering = () => {
   const { cateringOrders, addCateringOrder } = useDemoData();
 
@@ -71,12 +82,17 @@ const Catering = () => {
   const [formError,   setFormError]   = useState('');
   const sf = (f) => (e) => setFormData(prev => ({ ...prev, [f]: e.target.value }));
 
-  useEffect(() => {
-    menuAPI.getAll()
-      .then(r => setMenuItems(r.data || []))
-      .catch(() => {})
-      .finally(() => setMenuLoading(false));
+  const loadMenu = useCallback(async (silent = false) => {
+    if (!silent) setMenuLoading(true);
+    try {
+      const r = await menuAPI.getAll();
+      setMenuItems(r.data || []);
+    } catch {}
+    finally { if (!silent) setMenuLoading(false); }
   }, []);
+
+  useEffect(() => { loadMenu(false); }, [loadMenu]);
+  useAutoRefresh(loadMenu, 60000);
 
   const categories = useMemo(() => {
     const cats = [...new Set(menuItems.map(i => i.category).filter(Boolean))];

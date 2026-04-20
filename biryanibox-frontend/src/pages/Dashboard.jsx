@@ -14,7 +14,7 @@ import {
   Activity, BarChart2, TrendingUp as Trend, Truck,
 } from 'lucide-react';
 import { useAuth, useOrders } from '../context/useContextHooks';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   usersAPI, ordersAPI, ingredientsAPI, reservationsAPI, tablesAPI,
   feedbackAPI, announcementsAPI, shiftsAPI, notificationsAPI, normalizeOrder,
@@ -23,11 +23,12 @@ import {
 import POS from '../components/POS';
 
 // ─── Auto-refresh hook ───────────────────────────────────────────────────────
+// silent=true means background auto-refresh — never shows loading spinner
 const useAutoRefresh = (callback, intervalMs = 30000) => {
   const savedCallback = useRef(callback);
   useEffect(() => { savedCallback.current = callback; }, [callback]);
   useEffect(() => {
-    const id = setInterval(() => savedCallback.current(), intervalMs);
+    const id = setInterval(() => savedCallback.current(true), intervalMs);
     return () => clearInterval(id);
   }, [intervalMs]);
 };
@@ -54,14 +55,14 @@ const STATUS_LABELS = {
 };
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
-const Sidebar = ({ activeTab, setActiveTab, user, unreadAnnouncements }) => {
-  const { logout } = useAuth();
-  const navigate = useNavigate();
+const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements, onLogout }) => {
+  // No hooks that subscribe to external contexts — keeps memo effective
+  // logout and navigate are passed in as a stable callback from Dashboard
 
   const allItems = [
     { id: 'overview',      label: 'Command Hub',      icon: PieChart,        roles: ['owner', 'manager'] },
     { id: 'pos',           label: 'Order Booking',    icon: OrderIcon,       roles: ['owner', 'manager', 'captain'] },
-    { id: 'orders',        label: 'Live Orders',      icon: Monitor,         roles: ['owner', 'manager', 'captain', 'chef'] },
+    { id: 'orders',        label: 'Orders',      icon: Monitor,         roles: ['owner', 'manager', 'captain', 'chef'] },
     { id: 'kitchen',       label: 'My Kitchen',       icon: ChefHat,         roles: ['chef'] },
     { id: 'menu',          label: 'Menu Master',      icon: FileText,        roles: ['owner', 'manager'] },
     { id: 'tables',        label: 'Table Status',     icon: LayoutDashboard, roles: ['owner', 'manager', 'captain'] },
@@ -77,6 +78,7 @@ const Sidebar = ({ activeTab, setActiveTab, user, unreadAnnouncements }) => {
     { id: 'finance',       label: 'Finance Center',   icon: DollarSign,      roles: ['owner', 'manager'] },
     { id: 'my_orders',     label: 'My Orders',        icon: ClipboardList,   roles: ['captain'] },
     { id: 'chef_orders',   label: 'Order History',    icon: ClipboardList,   roles: ['chef'] },
+    { id: 'waste_chef',    label: 'Waste Log',        icon: Trash2,          roles: ['chef'] },
     { id: 'staff',         label: 'My Profile',       icon: User,            roles: ['owner', 'manager', 'captain', 'chef'] },
   ];
 
@@ -116,14 +118,14 @@ const Sidebar = ({ activeTab, setActiveTab, user, unreadAnnouncements }) => {
           <p className="font-bold text-white truncate">{user.name}</p>
           <p className="text-primary uppercase tracking-wider text-[10px]">{user.role}</p>
         </div>
-        <button onClick={() => { logout(); navigate('/login'); }}
+        <button onClick={onLogout}
           className="w-full flex items-center gap-2 p-3 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/10 transition-all">
           <LogOut size={14} /> Sign Out
         </button>
       </div>
     </div>
   );
-};
+});
 
 // ─── Header ──────────────────────────────────────────────────────────────────
 // ─── Notification Bell ──────────────────────────────────────────────────────
@@ -133,7 +135,7 @@ const NotificationBell = ({ userId }) => {
   const [unread, setUnread] = useState(0);
   const bellRef = useRef(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
       const r = await notificationsAPI.getAll();
       setNotifs(r.data || []);
@@ -247,7 +249,7 @@ const ShiftCheckinBadge = () => {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try { const r = await shiftsAPI.getMyActive(); setActiveShift(r.data || null); } catch { setActiveShift(null); }
   }, []);
 
@@ -258,13 +260,13 @@ const ShiftCheckinBadge = () => {
 
   const handleCheckIn = async () => {
     setLoading(true);
-    try { await shiftsAPI.checkIn(); flash('Checked in!'); load(); } catch (e) { flash(e.message); }
+    try { await shiftsAPI.checkIn(); flash('Checked in!'); load(false); } catch (e) { flash(e.message); }
     finally { setLoading(false); }
   };
   const handleCheckOut = async () => {
     if (!activeShift) return;
     setLoading(true);
-    try { await shiftsAPI.checkOut(activeShift._id); flash('Checked out!'); load(); } catch (e) { flash(e.message); }
+    try { await shiftsAPI.checkOut(activeShift._id); flash('Checked out!'); load(false); } catch (e) { flash(e.message); }
     finally { setLoading(false); }
   };
 
@@ -366,6 +368,40 @@ const CookDurationCell = ({ order }) => {
   }
   return <span className="text-text-muted text-[11px]">—</span>;
 };
+
+// ─── Universal Confirm Dialog ─────────────────────────────────────────────────
+// Usage: <ConfirmDialog open={open} title="..." message="..." onConfirm={fn} onCancel={fn} danger />
+const ConfirmDialog = ({ open, title, message, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm, onCancel, danger = true }) => {
+  if (!open) return null;
+  return (
+    <AnimatePresence>
+      <MotionDiv initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4"
+        onClick={onCancel}>
+        <MotionDiv initial={{ scale: 0.9, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }}
+          onClick={e => e.stopPropagation()}
+          className={`bg-[#1a1a1a] border ${danger ? 'border-red-500/40' : 'border-yellow-500/40'} rounded-3xl p-8 max-w-sm w-full shadow-2xl`}>
+          <div className={`w-14 h-14 rounded-2xl ${danger ? 'bg-red-500/10' : 'bg-yellow-500/10'} flex items-center justify-center mx-auto mb-5`}>
+            <AlertTriangle size={28} className={danger ? 'text-red-400' : 'text-yellow-400'} />
+          </div>
+          <h3 className="text-xl font-black text-white text-center mb-2">{title}</h3>
+          <p className="text-text-muted text-sm text-center mb-6 leading-relaxed">{message}</p>
+          <div className="flex gap-3">
+            <button onClick={onCancel}
+              className="flex-1 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest text-text-muted hover:bg-white/5 transition-all">
+              {cancelText}
+            </button>
+            <button onClick={onConfirm}
+              className={`flex-1 py-3 ${danger ? 'bg-red-500 hover:bg-red-600' : 'bg-yellow-500 hover:bg-yellow-400 text-black'} text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg`}>
+              {confirmText}
+            </button>
+          </div>
+        </MotionDiv>
+      </MotionDiv>
+    </AnimatePresence>
+  );
+};
+
 
 const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, statusColors, captainTableNumbers }) => {
   // Which statuses can this role trigger?
@@ -1008,8 +1044,8 @@ const TableStatus = ({ user }) => {
 
   const [reservations, setReservations] = useState([]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       if (isCaptain) {
         const res = await tablesAPI.getMyTables();
@@ -1026,7 +1062,7 @@ const TableStatus = ({ user }) => {
         setReservations(rRes.data || []);
       } catch { setReservations([]); }
     } catch { setTables([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [isCaptain]);
 
   useEffect(() => { load(); }, [load]);
@@ -1295,16 +1331,17 @@ const ReservationsPanel = () => {
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [resDelConfirm, setResDelConfirm] = useState(null); // { id, name }
   const RESERVATION_TIMES = ['11:00 AM','11:30 AM','12:00 PM','12:30 PM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','7:00 PM','7:30 PM','8:00 PM','8:30 PM','9:00 PM','9:30 PM'];
   const [form, setForm] = useState({ customer_name: '', email: '', phone: '', guests: 2, date: '', time: '', notes: '', table_assigned: '' });
   const [msg, setMsg] = useState({ text: '', type: '' });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try { const res = await reservationsAPI.getAll(); setReservations(res.data || []); }
     catch { setReservations([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, []);
@@ -1398,7 +1435,14 @@ const ReservationsPanel = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Calendar size={28} className="text-primary" />Reservations</h2>
+          <h2 className="text-3xl font-black text-white flex items-center gap-3">
+            <Calendar size={28} className="text-primary" />Reservations
+            {reservations.filter(r => r.status === 'pending').length > 0 && (
+              <span className="bg-yellow-500 text-black text-xs px-2.5 py-1 rounded-full font-black animate-pulse">
+                +{reservations.filter(r => r.status === 'pending').length} pending
+              </span>
+            )}
+          </h2>
           <p className="text-text-muted text-sm mt-1">{reservations.length} total reservations</p>
         </div>
         <div className="flex items-center gap-2">
@@ -1532,7 +1576,7 @@ const ReservationsPanel = () => {
                       </button>
                     )}
                     {r.status !== 'cancelled' && r.status !== 'completed' && (
-                      <button onClick={() => updateStatus(r._id, 'cancelled')}
+                      <button onClick={() => setResDelConfirm({ id: r._id, name: r.customer_name, action: 'cancel' })}
                         className="px-3 py-1.5 bg-red-500/10 text-red-400 text-[10px] font-black rounded-lg hover:bg-red-500 hover:text-white transition-all">✕ Cancel</button>
                     )}
                   </div>
@@ -1584,27 +1628,38 @@ const ReservationsPanel = () => {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!resDelConfirm}
+        title="Cancel Reservation?"
+        message={resDelConfirm?.name ? `Are you sure you want to cancel ${resDelConfirm.name}'s reservation?` : 'Are you sure you want to cancel this reservation?'}
+        confirmText="Yes, Cancel It"
+        cancelText="Keep Reservation"
+        onCancel={() => setResDelConfirm(null)}
+        onConfirm={() => { updateStatus(resDelConfirm.id, 'cancelled'); setResDelConfirm(null); }}
+      />
     </div>
   );
 };
 
 // ─── FEEDBACK BOX ─────────────────────────────────────────────────────────────
-const FeedbackBox = () => {
+const FeedbackBox = ({ userRole = 'owner' }) => {
   const [feedback, setFeedback] = useState([]);
   const [replyingTo, setReplyingTo] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   const [replyMsg, setReplyMsg] = useState('');
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  // Manager defaults to 'unread'; Owner defaults to 'all'
+  const [filter, setFilter] = useState(userRole === 'manager' ? 'unread' : 'all');
+  const [fbDelConfirm, setFbDelConfirm] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try { const res = await feedbackAPI.getAll(); setFeedback(res.data || []); }
     catch { setFeedback([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, []);
@@ -1626,8 +1681,17 @@ const FeedbackBox = () => {
     finally { setReplySending(false); }
   };
 
+  const handleDeleteFeedback = async (id) => {
+    setFbDelConfirm(null);
+    try { await feedbackAPI.delete?.(id) || await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/feedback/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${localStorage.getItem('bb_token')}` } }); load(); }
+    catch {}
+  };
+
   const unread = feedback.filter(f => !f.is_read).length;
-  const filtered = filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f.is_read) : feedback.filter(f => f.category === filter);
+  // Manager sees: unread + needs reply; Owner sees: everything
+  const filtered = userRole === 'manager'
+    ? (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f.is_read) : feedback.filter(f => !f.is_read || !f.replied_at))
+    : (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f.is_read) : feedback.filter(f => f.category === filter));
 
   const starColor = (n) => n >= 4 ? 'text-green-400' : n >= 3 ? 'text-yellow-400' : 'text-red-400';
 
@@ -1638,6 +1702,9 @@ const FeedbackBox = () => {
           <h2 className="text-3xl font-black text-white flex items-center gap-3">
             <MessageSquare size={28} className="text-primary" />Feedback Box
             {unread > 0 && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-black">{unread}</span>}
+            <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase border ${userRole === 'owner' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
+              {userRole === 'owner' ? '👑 Owner View — All Feedback' : '🧑‍💼 Manager View — Unread & Pending'}
+            </span>
           </h2>
           <p className="text-text-muted text-sm mt-1">{feedback.length} total · {unread} unread</p>
         </div>
@@ -1745,6 +1812,14 @@ const FeedbackBox = () => {
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={!!fbDelConfirm}
+        title="Delete Feedback?"
+        message="Are you sure you want to permanently delete this customer feedback?"
+        confirmText="Delete"
+        onCancel={() => setFbDelConfirm(null)}
+        onConfirm={() => handleDeleteFeedback(fbDelConfirm)}
+      />
     </div>
   );
 };
@@ -1782,13 +1857,13 @@ const AnnouncementsPanel = ({ isAdmin }) => {
     }));
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = isAdmin ? await announcementsAPI.getAllAdmin() : await announcementsAPI.getAll();
       setAnnouncements(res.data || []);
     } catch { setAnnouncements([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [isAdmin]);
 
   useEffect(() => { load(); }, []);
@@ -1817,7 +1892,10 @@ const AnnouncementsPanel = ({ isAdmin }) => {
     } catch (err) { flash(err.message, 'error'); }
   };
 
+  const [annDelConfirm, setAnnDelConfirm] = useState(null); // { id, title }
+  const handleDeleteClick = (a) => setAnnDelConfirm({ id: a._id, title: a.title });
   const handleDelete = async (id) => {
+    setAnnDelConfirm(null);
     try { await announcementsAPI.delete(id); load(); }
     catch (err) { flash(err.message, 'error'); }
   };
@@ -2014,7 +2092,8 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                   )}
                 </div>
                 {isAdmin && (
-                  <button onClick={() => handleDelete(a._id)} className="text-text-muted hover:text-red-400 transition-colors p-1 shrink-0">
+                  <button onClick={() => handleDeleteClick(a)} title="Delete announcement"
+                    className="text-text-muted hover:text-red-400 transition-colors p-1 shrink-0">
                     <Trash2 size={14} />
                   </button>
                 )}
@@ -2087,6 +2166,14 @@ const AnnouncementsPanel = ({ isAdmin }) => {
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={!!annDelConfirm}
+        title="Delete Announcement?"
+        message={annDelConfirm?.title ? `Are you sure you want to delete "${annDelConfirm.title}"? This cannot be undone.` : 'Are you sure you want to delete this announcement?'}
+        confirmText="Delete"
+        onCancel={() => setAnnDelConfirm(null)}
+        onConfirm={() => handleDelete(annDelConfirm?.id)}
+      />
     </div>
   );
 };
@@ -2100,8 +2187,8 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
   const [roleFilter, setRoleFilter] = useState('all');
   const [msg, setMsg] = useState({ text: '', type: '' });
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [shiftsRes, activeRes] = await Promise.all([
         shiftsAPI.getAll(`?period=${period}`),
@@ -2110,7 +2197,7 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
       setShifts(shiftsRes.data || []);
       setActiveShift(activeRes.data || null);
     } catch { setShifts([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [period]);
 
   useEffect(() => { load(); }, [load]);
@@ -2326,6 +2413,80 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
         </div>
       )}
 
+
+      {/* ── Calendar View — pick a date, see all shifts that day ── */}
+      {isAdmin && (() => {
+        const [calDate, setCalDate] = React.useState('');
+        const dayShifts = calDate
+          ? filteredShifts.filter(s => {
+              const d = new Date(s.check_in || s.date || '');
+              return d.toISOString().split('T')[0] === calDate;
+            })
+          : [];
+        // Group by person for the selected day
+        const grouped = {};
+        dayShifts.forEach(s => {
+          const key = s.user_id?._id || s._id;
+          if (!grouped[key]) grouped[key] = { name: s.user_id?.name || '—', role: s.user_id?.role || '—', sessions: [] };
+          grouped[key].sessions.push(s);
+        });
+        return (
+          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-sm font-black text-white flex items-center gap-2">
+                <Calendar size={16} className="text-primary" /> Shift Calendar
+              </h3>
+              <input type="date" value={calDate} onChange={e => setCalDate(e.target.value)}
+                className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-primary transition-all" />
+            </div>
+            {!calDate ? (
+              <p className="text-text-muted text-sm text-center py-6">Pick a date to see all shifts for that day</p>
+            ) : Object.keys(grouped).length === 0 ? (
+              <p className="text-text-muted text-sm text-center py-6">No shifts recorded on {new Date(calDate + 'T12:00:00').toLocaleDateString('en-US',{weekday:'long',day:'numeric',month:'long'})}</p>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-[10px] text-primary font-black uppercase tracking-widest mb-4">
+                  {Object.keys(grouped).length} staff · {dayShifts.length} sessions on {new Date(calDate + 'T12:00:00').toLocaleDateString('en-US',{weekday:'short',day:'numeric',month:'short'})}
+                </p>
+                {Object.values(grouped).map((g, i) => (
+                  <div key={i} className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full overflow-hidden border border-primary/20">
+                          <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${g.name}`} alt="" className="w-full h-full" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-black text-white">{g.name}</p>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase border ${roleBadge[g.role] || 'text-text-muted bg-white/5 border-white/10'}`}>{g.role}</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-text-muted">{g.sessions.length} session{g.sessions.length > 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      {g.sessions.map((s, j) => (
+                        <div key={j} className="flex items-center justify-between bg-black/20 rounded-xl px-4 py-2 text-xs">
+                          <div className="flex items-center gap-3">
+                            <span className="text-green-400 font-bold">IN: {s.check_in ? new Date(s.check_in).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—'}</span>
+                            <span className="text-white/20">→</span>
+                            <span className={`font-bold ${s.check_out ? 'text-red-400' : 'text-yellow-400 animate-pulse'}`}>
+                              OUT: {s.check_out ? new Date(s.check_out).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : 'Active'}
+                            </span>
+                          </div>
+                          <span className="text-primary font-black">{s.duration_minutes ? `${Math.floor(s.duration_minutes/60)}h ${s.duration_minutes%60}m` : '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-primary font-black mt-2 text-right">
+                      Total: {(g.sessions.reduce((a,s) => a+(s.duration_minutes||0), 0)/60).toFixed(1)}h
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
     </div>
   );
 };
@@ -2355,8 +2516,8 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
     ? ['manager', 'captain', 'chef', 'servant', 'helper', 'cleaner', 'security']
     : ['captain', 'chef', 'servant', 'helper', 'cleaner', 'security'];
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const queries = allowedRoles.map(r => usersAPI.getAll(`?role=${r}`));
       const results = await Promise.all(queries);
@@ -2377,7 +2538,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
       }
       setCaptainTableMap(map);
     } catch { setStaff([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, []);
@@ -2690,6 +2851,12 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                       {u.is_active ? 'Active' : 'Disabled'}
                     </span>
                   </div>
+                  <div className="w-[10%] flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${u.is_checked_in ? 'bg-green-400 shadow-sm shadow-green-400/60 animate-pulse' : 'bg-white/20'}`} />
+                    <span className={`text-[9px] font-bold uppercase ${u.is_checked_in ? 'text-green-400' : 'text-text-muted'}`}>
+                      {u.is_checked_in ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
                     {onViewProfile && (
                       <button onClick={() => onViewProfile(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition-all" title="View Profile">
@@ -2759,13 +2926,13 @@ const LeaveModule = ({ user }) => {
   const isOwner = user.role === 'owner';
   const canApprove = isManager || isOwner;
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await leavesAPI.getAll();
       setLeaves(res.data || []);
     } catch { setLeaves([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, []);
@@ -2790,8 +2957,10 @@ const LeaveModule = ({ user }) => {
     } catch (err) { flash(err.message, 'error'); }
   };
 
+  const [leaveDelConfirm, setLeaveDelConfirm] = useState(null);
   const handleDelete = async (id) => {
-    try { await leavesAPI.delete(id); flash('Leave cancelled'); load(); }
+    setLeaveDelConfirm(null);
+    try { await leavesAPI.delete(id); flash('Leave request cancelled'); load(); }
     catch (err) { flash(err.message, 'error'); }
   };
 
@@ -2868,12 +3037,12 @@ const LeaveModule = ({ user }) => {
             <form onSubmit={handleApply} className="grid md:grid-cols-2 gap-4">
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">From Date *</label>
-                <input type="date" required value={form.from_date} onChange={sf('from_date')}
+                <input type="date" required value={form.from_date} onChange={sf('from_date')} style={{ colorScheme: 'dark' }}
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">To Date *</label>
-                <input type="date" required value={form.to_date} onChange={sf('to_date')}
+                <input type="date" required value={form.to_date} onChange={sf('to_date')} style={{ colorScheme: 'dark' }}
                   className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
               <div>
@@ -2977,6 +3146,14 @@ const LeaveModule = ({ user }) => {
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={!!leaveDelConfirm}
+        title="Cancel Leave Request?"
+        message="Are you sure you want to cancel this leave request? This action cannot be undone."
+        confirmText="Yes, Cancel Leave"
+        onCancel={() => setLeaveDelConfirm(null)}
+        onConfirm={() => handleDelete(leaveDelConfirm)}
+      />
     </div>
   );
 };
@@ -2992,11 +3169,11 @@ const CateringPanel = () => {
   const [sendingQuote,   setSendingQuote]   = useState(false);
   const [filterStatus,   setFilterStatus]   = useState('all');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try { const res = await cateringAPI.getAll(); setOrders(res.data || []); }
     catch { setOrders([]); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, []);
@@ -3356,8 +3533,10 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
     finally { setSubmitting(false); }
   };
 
+  const [menuDelConfirm, setMenuDelConfirm] = useState(null);
+  const handleDeleteClick = (id) => setMenuDelConfirm(id);
   const handleDelete = async (id) => {
-    if (!window.confirm('Remove this item from the menu?')) return;
+    setMenuDelConfirm(null);
     try {
       await menuAPI.delete(id);
       setMenuItems(prev => prev.filter(i => (i._id || i.id) !== id));
@@ -3424,7 +3603,10 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                   <span className={`text-[9px] font-bold px-2 py-1 rounded-full ${avail ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
                     {avail ? 'Available' : 'Off Menu'}
                   </span>
-                  {item.is_veg && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-700/30 text-green-500 border border-green-700/40">VEG</span>}
+                  {item.is_veg
+                    ? <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-700/30 text-green-500 border border-green-700/40"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />VEG</span>
+                    : <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-orange-700/30 text-orange-400 border border-orange-700/40"><span className="w-1.5 h-1.5 rounded-full bg-orange-500" />NON-VEG</span>
+                  }
                 </div>
               </div>
               <div className="flex items-center gap-3 mb-3">
@@ -3445,7 +3627,8 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                   className="p-2 bg-primary/20 text-primary rounded-lg hover:bg-primary hover:text-white transition-all">
                   <Edit2 size={13} />
                 </button>
-                <button onClick={() => handleDelete(id)}
+                <button onClick={() => handleDeleteClick(id)}
+                  title="Delete menu item"
                   className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all">
                   <Trash2 size={13} />
                 </button>
@@ -3510,8 +3693,15 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                   </div>
                   <div className="flex items-center gap-6">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={form.is_veg} onChange={sb('is_veg')} className="w-4 h-4 rounded accent-green-500" />
-                      <span className="text-sm text-white font-bold">Veg</span>
+                      {/* Veg / Non-Veg radio buttons */}
+                      <button type="button" onClick={() => setForm(p => ({ ...p, is_veg: true }))}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-black transition-all ${form.is_veg ? 'bg-green-500/20 border-green-500 text-green-400' : 'bg-white/5 border-white/10 text-text-muted hover:text-green-400'}`}>
+                        <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" /> VEG
+                      </button>
+                      <button type="button" onClick={() => setForm(p => ({ ...p, is_veg: false }))}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-black transition-all ${!form.is_veg ? 'bg-orange-500/20 border-orange-500 text-orange-400' : 'bg-white/5 border-white/10 text-text-muted hover:text-orange-400'}`}>
+                        <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" /> NON-VEG
+                      </button>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={form.is_halal} onChange={sb('is_halal')} className="w-4 h-4 rounded accent-primary" />
@@ -3541,6 +3731,15 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
 
       {/* Waste Management */}
       <WasteManagement ingredients={ingredients} />
+
+      <ConfirmDialog
+        open={!!menuDelConfirm}
+        title="Remove Menu Item?"
+        message="Are you sure you want to remove this menu item? This action cannot be undone."
+        confirmText="Remove Item"
+        onCancel={() => setMenuDelConfirm(null)}
+        onConfirm={() => handleDelete(menuDelConfirm)}
+      />
     </div>
   );
 };
@@ -3548,9 +3747,9 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
 // ─── WASTE MANAGEMENT ─────────────────────────────────────────────────────────
 const WasteManagement = ({ ingredients }) => {
   const [entries, setEntries] = useState([]);
-  const [wasteType, setWasteType] = useState('ingredients'); // 'ingredients' | 'items'
+  const [wasteType, setWasteType] = useState('ingredients'); // 'ingredients' | 'food_items'
   const [menuItems, setMenuItems] = useState([]);
-  const [form, setForm] = useState({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
+  const [form, setForm] = useState({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '', waste_date: '' });
   const [showForm, setShowForm] = useState(false);
   const [msg, setMsg] = useState({ text: '', type: 'success' });
   const [wasteLoading, setWasteLoading] = useState(true);
@@ -3579,7 +3778,7 @@ const WasteManagement = ({ ingredients }) => {
       item_name = ing.name; unit = ing.unit;
       unit_cost_at_time = ing.unit_cost || ing.unitCost || 0;
       ingredient_id = ing._id || ing.id; item_type = 'ingredient';
-    } else {
+    } else { // food_items
       const mi = menuItems.find(i => (i._id || i.id) === form.ingredient_id);
       if (!mi) return;
       item_name = mi.name; unit = 'pcs';
@@ -3591,8 +3790,9 @@ const WasteManagement = ({ ingredients }) => {
         ingredient_id, menu_item_id, item_type, item_name,
         quantity_wasted: Number(form.quantity), unit,
         unit_cost_at_time, reason: form.reason, notes: form.notes,
+        waste_date: form.waste_date || new Date().toISOString(),
       });
-      setForm({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '' });
+      setForm({ ingredient_id: '', quantity: '', reason: 'spoilage', notes: '', waste_date: '' });
       setShowForm(false);
       flash(`Waste logged: ${item_name} — ${form.quantity} ${unit}`);
       loadWaste();
@@ -3617,13 +3817,7 @@ const WasteManagement = ({ ingredients }) => {
           <p className="text-text-muted text-sm mt-0.5">Track ingredient waste & calculate losses</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Type selector */}
-          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
-            {[['ingredients', '🧂 Ingredients'], ['items', '🍽 Menu Items']].map(([val, label]) => (
-              <button key={val} type="button" onClick={() => { setWasteType(val); setForm(p => ({ ...p, ingredient_id: '' })); }}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${wasteType === val ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{label}</button>
-            ))}
-          </div>
+      
           <button onClick={() => setShowForm(s => !s)}
             className="flex items-center gap-2 px-5 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
             <Plus size={13} /> Log Waste
@@ -3661,10 +3855,17 @@ const WasteManagement = ({ ingredients }) => {
             <h4 className="text-base font-bold text-white mb-4">Log Waste Entry</h4>
             <form onSubmit={handleAdd} className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{wasteType === 'ingredients' ? 'Ingredient' : 'Menu Item'} *</label>
+                {/* Type selector */}
+          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+            {[['ingredients', '🧂 Ingredients'], ['food_items', '🍽 Food Items']].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => { setWasteType(val); setForm(p => ({ ...p, ingredient_id: '' })); }}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${wasteType === val ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{label}</button>
+            ))}
+          </div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">{wasteType === 'ingredients' ? 'Ingredient' : 'Food Item'} *</label>
                 <select required value={form.ingredient_id} onChange={e => setForm(p => ({ ...p, ingredient_id: e.target.value }))}
                   className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-red-400">
-                  <option value="">Select {wasteType === 'ingredients' ? 'ingredient' : 'item'}...</option>
+                  <option value="">Select {wasteType === 'ingredients' ? 'ingredient' : 'food item'}...</option>
                   {wasteType === 'ingredients'
                     ? ingredients.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} ({i.unit})</option>)
                     : menuItems.map(i => <option key={i._id || i.id} value={i._id || i.id}>{i.name} (${i.price})</option>)
@@ -3686,6 +3887,16 @@ const WasteManagement = ({ ingredients }) => {
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Notes</label>
                 <input type="text" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional details..."
+                  className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-red-400" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block flex items-center gap-1">
+                  <Calendar size={10} /> Date of Waste
+                </label>
+                <input type="date" value={form.waste_date}
+                  max={new Date().toISOString().split('T')[0]}
+                  onChange={e => setForm(p => ({ ...p, waste_date: e.target.value }))}
+                  placeholder="Leave blank for today"
                   className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-red-400" />
               </div>
               <div className="md:col-span-2 flex gap-3">
@@ -3723,7 +3934,7 @@ const WasteManagement = ({ ingredients }) => {
                     <td className="p-3 text-orange-400 font-bold">${(e.total_loss || e.cost || 0).toFixed(2)}</td>
                     <td className="p-3 text-text-muted text-xs">{e.notes || '—'}</td>
                     <td className="p-3">
-                      <button onClick={() => handleDelete(e._id || e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+                      <button onClick={() => setBudgetDelConfirm(e._id || e.id)} className="text-text-muted hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
                     </td>
                   </tr>
                 ))}
@@ -3786,8 +3997,10 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
     finally { setSubmitting(false); }
   };
 
+  const [ingrDelConfirm, setIngrDelConfirm] = useState(null);
+  const handleDeleteIngredientClick = (id) => setIngrDelConfirm(id);
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this ingredient?')) return;
+    setIngrDelConfirm(null);
     try {
       await ingredientsAPI.delete(id);
       setLocalIngredients(prev => prev.filter(i => (i._id || i.id) !== id));
@@ -3969,7 +4182,8 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
                   className="flex-1 py-2 bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-primary hover:text-white transition-all flex items-center justify-center gap-1">
                   <Edit2 size={10} /> Update
                 </button>
-                <button onClick={() => handleDelete(id)}
+                <button onClick={() => handleDeleteIngredientClick(id)}
+                  title="Delete ingredient"
                   className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all border border-red-500/20">
                   <Trash2 size={13} />
                 </button>
@@ -3984,6 +4198,14 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={!!ingrDelConfirm}
+        title="Delete Ingredient?"
+        message="Are you sure you want to delete this ingredient? Stock data will be permanently lost."
+        confirmText="Delete Ingredient"
+        onCancel={() => setIngrDelConfirm(null)}
+        onConfirm={() => handleDelete(ingrDelConfirm)}
+      />
     </div>
   );
 };
@@ -4000,7 +4222,7 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><OrderIcon size={28} className="text-primary" />Live Orders</h2>
+          <h2 className="text-3xl font-black text-white flex items-center gap-3"><OrderIcon size={28} className="text-primary" />Orders</h2>
           <p className="text-text-muted text-sm mt-1">{orders.length} orders
             {pendingConfirmCount > 0 && <span className="ml-2 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-full text-[10px] font-black animate-pulse">⏰ {pendingConfirmCount} awaiting confirmation</span>}
           </p>
@@ -4021,135 +4243,523 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
   );
 };
 
-// ─── OVERVIEW (owner/manager command hub) ─────────────────────────────────────
-const Overview = ({ orders, financial }) => {
-  const analytics = useMemo(() => {
-    const pendingCount = orders.filter(o => o.status === 'pending').length;
-    const cookingCount = orders.filter(o => o.status === 'start_cooking').length;
-    const readyCount   = orders.filter(o => o.status === 'completed_cooking').length;
-    const servedCount  = orders.filter(o => o.status === 'served').length;
-    const paidCount    = orders.filter(o => o.status === 'paid').length;
-    const totalRev     = orders.reduce((s, o) => s + (o.total || 0), 0);
-    const avgVal       = orders.length > 0 ? totalRev / orders.length : 0;
-    const itemFreq     = {};
-    orders.forEach(o => (o.items || []).forEach(i => { itemFreq[i.name] = (itemFreq[i.name] || 0) + i.quantity; }));
-    const topItems = Object.entries(itemFreq).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, count]) => ({ name, count }));
-    return { pendingCount, cookingCount, readyCount, servedCount, paidCount, totalRev, avgVal, topItems, totalOrders: orders.length };
+// ─── OVERVIEW — Enhanced Command Hub ──────────────────────────────────────────
+const DISH_COLORS = [
+  '#f97316','#3b82f6','#22c55e','#a855f7','#ec4899',
+  '#14b8a6','#f59e0b','#ef4444','#6366f1','#84cc16',
+  '#06b6d4','#d946ef','#fb923c','#34d399','#818cf8',
+];
+
+const Overview = ({ orders }) => {
+  const [period,        setPeriod]        = useState('week');   // day|week|month|year|custom
+  const [customFrom,    setCustomFrom]    = useState('');
+  const [customTo,      setCustomTo]      = useState('');
+  const [hubData,       setHubData]       = useState(null);
+  const [hubLoading,    setHubLoading]    = useState(true);
+  const [calDate,       setCalDate]       = useState('');
+  const [showAllDishes, setShowAllDishes] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const [activeSection, setActiveSection] = useState('pipeline'); // pipeline|cancelled
+
+  const loadHub = useCallback(async (silent = false) => {
+    if (!silent) setHubLoading(true);
+    try {
+      let url = `/dashboard/command-hub?period=${period}`;
+      if (period === 'custom' && customFrom && customTo) {
+        url += `&from=${customFrom}&to=${customTo}`;
+      }
+      if (calDate) url += `&calendar_date=${calDate}`;
+      const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const token = localStorage.getItem('bb_token');
+      const res = await fetch(`${BASE}${url}`, {
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+      });
+      const json = await res.json();
+      if (json.success) setHubData(json.data);
+    } catch {}
+    finally { if (!silent) setHubLoading(false); }
+  }, [period, customFrom, customTo, calDate]);
+
+  useEffect(() => { loadHub(false); }, [loadHub]);
+  useAutoRefresh(loadHub, 30000);
+
+  // Local analytics from the passed orders prop (for instant display while API loads)
+  const localAnalytics = useMemo(() => {
+    const itemFreq = {};
+    orders.forEach(o => (o.items || []).forEach(i => {
+      itemFreq[i.name] = (itemFreq[i.name] || 0) + (i.quantity || 1);
+    }));
+    const topItems = Object.entries(itemFreq)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+    return { topItems };
   }, [orders]);
+
+  const d = hubData;
+
+  // Format chart label based on period
+  const chartLabel = (pt) => {
+    if (!pt) return '';
+    if (pt._id.hour !== undefined) return `${pt._id.hour}:00`;
+    if (pt._id.day) return `${pt._id.month}/${pt._id.day}`;
+    return `${pt._id.year}/${pt._id.month}`;
+  };
+
+  const pipelineStats = d ? [
+    { label: 'Pending',        value: d.pipeline.pending + (d.pipeline.pending_confirmation || 0), color: 'bg-yellow-500',  dot: 'bg-yellow-400' },
+    { label: 'Cooking',        value: d.pipeline.start_cooking,     color: 'bg-orange-500', dot: 'bg-orange-400' },
+    { label: 'Ready to Serve', value: d.pipeline.completed_cooking, color: 'bg-blue-500',   dot: 'bg-blue-400'   },
+    { label: 'Served',         value: d.pipeline.served,            color: 'bg-green-500',  dot: 'bg-green-400'  },
+    { label: 'Paid',           value: d.pipeline.paid,              color: 'bg-primary',    dot: 'bg-primary'    },
+    { label: 'Cancelled',      value: d.pipeline.cancelled,         color: 'bg-red-500',    dot: 'bg-red-400'    },
+  ] : [];
+
+  const maxPipeline = pipelineStats.reduce((m, s) => Math.max(m, s.value), 1);
+
+  const displayedDishes = d
+    ? (showAllDishes ? d.top_dishes_all : d.top_dishes)
+    : localAnalytics.topItems.slice(0, 5).map(x => ({ name: x.name, total_qty: x.count }));
+
+  const topDishes10 = d ? d.top_dishes_10 : localAnalytics.topItems.slice(0, 10).map(x => ({ name: x.name, total_qty: x.count }));
+  const totalDishQty = topDishes10.reduce((s, x) => s + (x.total_qty || 0), 0) || 1;
+
+  // Revenue chart
+  // Revenue = strictly paid orders only
+  const chartPoints = d?.revenue_chart || [];
+  const maxRev = Math.max(...chartPoints.map(p => p.revenue), 1);
+
+  const makeSmoothPath = (pts, W, H) => {
+    if (pts.length === 0) return { line: '', area: '', xs: [], ys: [] };
+    const xs = pts.map((_, i) => i * (W / Math.max(pts.length - 1, 1)));
+    const ys = pts.map(p => H - Math.max(2, (p.revenue / maxRev) * (H - 10)) + 5);
+    let line = `M \${xs[0]},\${ys[0]}`;
+    for (let i = 1; i < pts.length; i++) {
+      const cp1x = xs[i - 1] + (xs[i] - xs[i - 1]) * 0.4;
+      const cp2x = xs[i] - (xs[i] - xs[i - 1]) * 0.4;
+      line += ` C \${cp1x},\${ys[i-1]} \${cp2x},\${ys[i]} \${xs[i]},\${ys[i]}`;
+    }
+    const area = `\${line} L \${xs[pts.length-1]},\${H} L \${xs[0]},\${H} Z`;
+    return { line, area, xs, ys };
+  };
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-4xl font-black font-heading text-white mb-2">Command Hub</h2>
-        <p className="text-text-muted text-sm">Real-time business overview</p>
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-4xl font-black font-heading text-white mb-1">Command Hub</h2>
+          <p className="text-text-muted text-sm">Live business intelligence — all data from database</p>
+        </div>
+        <button onClick={() => loadHub(false)} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-black text-text-muted hover:text-white hover:bg-white/10 transition-all">
+          <RefreshCw size={13} /> Refresh
+        </button>
       </div>
 
-      {/* KPI row */}
+      {/* ── Period Selector ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {[
+          { key: 'day',   label: 'Today' },
+          { key: 'week',  label: 'This Week' },
+          { key: 'month', label: 'This Month' },
+          { key: 'year',  label: 'This Year' },
+          { key: 'custom',label: 'Custom' },
+        ].map(p => (
+          <button key={p.key} onClick={() => setPeriod(p.key)}
+            className={`px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${period === p.key ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/30'}`}>
+            {p.label}
+          </button>
+        ))}
+        {period === 'custom' && (
+          <div className="flex items-center gap-2 ml-2">
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+              className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+            <span className="text-text-muted text-xs">to</span>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+              className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+          </div>
+        )}
+      </div>
+
+      {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         {[
-          { label: 'Total Revenue', value: `$${analytics.totalRev.toFixed(0)}`, icon: DollarSign, color: 'text-green-400', bg: 'bg-green-500/10' },
-          { label: 'Active Orders', value: analytics.totalOrders, icon: Flame, color: 'text-primary', bg: 'bg-primary/10' },
-          { label: 'Avg Order Value', value: `$${analytics.avgVal.toFixed(0)}`, icon: TrendingUp, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-          { label: 'Paid Orders', value: analytics.paidCount, icon: CheckCircle2, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+          { label: 'Revenue',         value: d ? `$${d.revenue.toFixed(0)}` : '…', icon: DollarSign,  color: 'text-green-400',  bg: 'bg-green-500/10'  },
+          { label: 'Total Orders',    value: d ? d.total_orders : '…',             icon: OrderIcon,   color: 'text-primary',    bg: 'bg-primary/10'    },
+          { label: 'Avg Order Value', value: d ? `$${d.avg_order_value.toFixed(0)}` : '…', icon: TrendingUp, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+          { label: 'Paid Orders',     value: d ? d.paid_count : '…',               icon: CheckCircle2,color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
         ].map((stat, idx) => (
-          <MotionDiv key={idx} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.08 }}
+          <MotionDiv key={idx} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.07 }}
             className="bg-secondary/40 p-6 rounded-3xl border border-white/10 relative overflow-hidden">
             <div className={`absolute top-0 right-0 w-24 h-24 ${stat.bg} blur-3xl opacity-20`} />
             <div className={`w-10 h-10 rounded-xl ${stat.bg} ${stat.color} flex items-center justify-center mb-4`}>
               <stat.icon size={20} />
             </div>
             <p className="text-text-muted text-[10px] font-bold uppercase tracking-widest mb-1">{stat.label}</p>
-            <h3 className="text-3xl font-black text-white">{stat.value}</h3>
+            {hubLoading ? (
+              <div className="h-8 w-24 bg-white/10 rounded-lg animate-pulse" />
+            ) : (
+              <h3 className="text-3xl font-black text-white">{stat.value}</h3>
+            )}
           </MotionDiv>
         ))}
       </div>
 
-      {/* Pipeline + Top dishes */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
-          <h4 className="text-lg font-bold text-white mb-5 flex items-center gap-2"><Zap size={18} className="text-primary" />Order Pipeline</h4>
-          <div className="space-y-4">
-            {[
-              { label: 'Pending',           value: analytics.pendingCount, color: 'bg-yellow-500', pct: analytics.pendingCount },
-              { label: 'Cooking',           value: analytics.cookingCount, color: 'bg-orange-500', pct: analytics.cookingCount },
-              { label: 'Ready to Serve',    value: analytics.readyCount,   color: 'bg-blue-500',   pct: analytics.readyCount },
-              { label: 'Served',            value: analytics.servedCount,  color: 'bg-green-500',  pct: analytics.servedCount },
-              { label: 'Paid',              value: analytics.paidCount,    color: 'bg-primary',    pct: analytics.paidCount },
-            ].map(s => (
-              <div key={s.label}>
-                <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-xs font-bold text-text-muted uppercase tracking-widest">{s.label}</span>
-                  <span className="text-base font-black text-white">{s.value}</span>
-                </div>
-                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                  <MotionDiv initial={{ width: 0 }} animate={{ width: `${(s.pct / Math.max(analytics.totalOrders, 1)) * 100}%` }}
-                    transition={{ duration: 0.8 }} className={`h-full ${s.color} rounded-full`} />
-                </div>
-              </div>
-            ))}
+      {/* ── Revenue Trend Chart — paid orders only ── */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6 relative overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-primary/10 blur-[60px] rounded-full pointer-events-none" />
+        <div className="flex items-start justify-between mb-6 relative z-10">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-1">Revenue Trend</p>
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-3xl font-black text-white">
+                {d ? `$${d.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
+              </h3>
+              <span className="text-[10px] font-black text-primary uppercase tracking-widest">from paid orders only</span>
+            </div>
+            <p className="text-xs text-text-muted mt-1">
+              {period === 'day' ? 'Hourly breakdown' : period === 'week' ? 'Last 7 days' : period === 'month' ? 'This month' : period === 'year' ? 'This year' : 'Custom period'}
+              {d && chartPoints.length > 0 && ` · ${chartPoints.length} data points`}
+            </p>
           </div>
+          {d && chartPoints.length > 0 && (
+            <div className="text-right">
+              <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Peak</p>
+              <p className="text-lg font-black text-primary">${maxRev.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+              <p className="text-[10px] text-text-muted">{chartLabel(chartPoints.reduce((m, p) => p.revenue > m.revenue ? p : m, chartPoints[0]))}</p>
+            </div>
+          )}
         </div>
-        <div className="space-y-6">
-          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
-            <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><BarChart3 size={18} className="text-primary" />Top Dishes</h4>
-            {analytics.topItems.length > 0 ? analytics.topItems.map((item, i) => (
-              <div key={i} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 mb-2 border border-white/5">
-                <span className="text-sm font-bold text-white">{item.name}</span>
-                <span className="text-primary font-black">{item.count}×</span>
+        {hubLoading ? (
+          <div className="space-y-2">
+            <div className="h-32 bg-white/5 rounded-2xl animate-pulse" />
+            <div className="flex justify-between">{[1,2,3,4,5].map(i => <div key={i} className="h-3 w-10 bg-white/5 rounded animate-pulse" />)}</div>
+          </div>
+        ) : chartPoints.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <BarChart3 size={36} className="text-white/10 mb-3" />
+            <p className="text-text-muted text-sm font-bold">No revenue data for this period</p>
+            <p className="text-text-muted/50 text-xs mt-1">Revenue is recorded when orders are marked as Paid</p>
+          </div>
+        ) : (() => {
+          const W = 560, H = 130;
+          const { line, area, xs, ys } = makeSmoothPath(chartPoints, W, H);
+          const yTicks = [0, 0.25, 0.5, 0.75, 1];
+          const step = Math.ceil(chartPoints.length / 7);
+          const xLabels = chartPoints.filter((_, i) => i === 0 || i === chartPoints.length - 1 || i % step === 0);
+          return (
+            <div className="relative">
+              <div className="absolute left-0 top-0 bottom-8 flex flex-col justify-between pointer-events-none" style={{ width: 44 }}>
+                {[...yTicks].reverse().map((frac, i) => (
+                  <span key={i} className="text-[9px] text-text-muted font-bold text-right pr-2 leading-none">
+                    ${frac === 0 ? '0' : (maxRev * frac).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                  </span>
+                ))}
               </div>
-            )) : <p className="text-text-muted text-sm">No orders yet</p>}
-          </div>
-
-          {/* ── Most Ordered: Donut Pie Chart ── */}
-          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
-            <h4 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
-              <PieChart size={18} className="text-primary" />Order Distribution
-            </h4>
-            {analytics.topItems.length === 0 ? (
-              <p className="text-text-muted text-sm">No orders yet</p>
-            ) : (() => {
-              const COLS=['#f97316','#3b82f6','#22c55e','#a855f7','#ec4899','#14b8a6'];
-              const tot=analytics.topItems.reduce((s,i)=>s+i.count,0);
-              let ang=0;
-              const segs=analytics.topItems.map((item,idx)=>{
-                const span=(item.count/tot)*360;
-                const seg={...item,span,start:ang,color:COLS[idx%COLS.length],pct:item.count/tot};
-                ang+=span; return seg;
-              });
-              const SZ=160,R=60,cx=80,cy=80;
-              const pt=(a,r)=>({x:cx+r*Math.cos((a-90)*Math.PI/180),y:cy+r*Math.sin((a-90)*Math.PI/180)});
-              return (
-                <div className="flex items-center gap-5 flex-wrap">
-                  <svg width={SZ} height={SZ} className="shrink-0">
-                    {segs.map((s,i)=>{ if(s.span<0.5) return null; const p1=pt(s.start,R),p2=pt(s.start+s.span,R);
-                      return <path key={i} d={`M${cx},${cy}L${p1.x},${p1.y}A${R},${R} 0 ${s.span>180?1:0} 1 ${p2.x},${p2.y}Z`} fill={s.color} opacity="0.85"><title>{s.name}: {s.count}× ({(s.pct*100).toFixed(0)}%)</title></path>;
-                    })}
-                    <circle cx={cx} cy={cy} r={R*0.43} fill="#111"/>
-                    <text x={cx} y={cy-4} textAnchor="middle" fill="white" fontSize="14" fontWeight="900">{tot}</text>
-                    <text x={cx} y={cy+11} textAnchor="middle" fill="#666" fontSize="8" fontWeight="700">ORDERS</text>
-                  </svg>
-                  <div className="flex-1 space-y-2 min-w-0">
-                    {segs.map((s,i)=>(
-                      <div key={i} className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:s.color}}/>
-                          <span className="text-xs text-white/80 truncate">{s.name}</span>
-                        </div>
-                        <span className="text-xs font-black text-white shrink-0">{s.count}× ({(s.pct*100).toFixed(0)}%)</span>
-                      </div>
-                    ))}
-                  </div>
+              <div className="pl-11 overflow-x-auto">
+                <svg width="100%" viewBox={`0 0 ${W} ${H + 32}`} className="min-w-[280px]" style={{ height: 170 }}>
+                  <defs>
+                    <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%"   stopColor="#f97316" stopOpacity="0.35" />
+                      <stop offset="70%"  stopColor="#f97316" stopOpacity="0.08" />
+                      <stop offset="100%" stopColor="#f97316" stopOpacity="0"    />
+                    </linearGradient>
+                    <filter id="lineGlow">
+                      <feGaussianBlur stdDeviation="2" result="blur" />
+                      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                  </defs>
+                  {yTicks.map((frac, i) => (
+                    <line key={i} x1="0" y1={H - frac * (H - 10) + 5} x2={W} y2={H - frac * (H - 10) + 5}
+                      stroke={frac === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)'}
+                      strokeWidth={frac === 0 ? 1.5 : 1} strokeDasharray={frac === 0 ? 'none' : '4,6'} />
+                  ))}
+                  <path d={area} fill="url(#revGrad)" />
+                  <path d={line} fill="none" stroke="#f97316" strokeWidth="2.5"
+                    strokeLinecap="round" strokeLinejoin="round" filter="url(#lineGlow)" />
+                  {xs && xs.map((x, i) => (
+                    <g key={i}>
+                      <circle cx={x} cy={ys[i]} r="3.5" fill="#111" stroke="#f97316" strokeWidth="2">
+                        <title>{chartLabel(chartPoints[i])}: ${chartPoints[i].revenue.toFixed(0)} ({chartPoints[i].orders} order{chartPoints[i].orders !== 1 ? 's' : ''})</title>
+                      </circle>
+                      <line x1={x} y1={ys[i]} x2={x} y2={H + 5} stroke="rgba(249,115,22,0.10)" strokeWidth="1" strokeDasharray="2,3" />
+                    </g>
+                  ))}
+                  {xs && xLabels.map((pt) => {
+                    const idx = chartPoints.indexOf(pt);
+                    return (
+                      <text key={idx} x={xs[idx]} y={H + 22} textAnchor="middle" fill="#555" fontSize="9" fontWeight="700">
+                        {chartLabel(pt)}
+                      </text>
+                    );
+                  })}
+                </svg>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-white/5">
+                <div className="text-center">
+                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Total Orders</p>
+                  <p className="text-lg font-black text-white">{chartPoints.reduce((s, p) => s + p.orders, 0)}</p>
                 </div>
-              );
-            })()}
+                <div className="text-center">
+                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Avg / Period</p>
+                  <p className="text-lg font-black text-white">${chartPoints.length > 0 ? (d.revenue / chartPoints.length).toFixed(0) : '0'}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Data Points</p>
+                  <p className="text-lg font-black text-white">{chartPoints.length}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── Order Pipeline + Calendar ── */}
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Order Pipeline */}
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h4 className="text-lg font-bold text-white flex items-center gap-2"><Zap size={18} className="text-primary" />Order Pipeline</h4>
+            <div className="flex gap-1">
+              <button onClick={() => setActiveSection('pipeline')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${activeSection === 'pipeline' ? 'bg-primary text-white' : 'bg-white/5 text-text-muted hover:text-white'}`}>
+                Pipeline
+              </button>
+              <button onClick={() => setActiveSection('cancelled')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 ${activeSection === 'cancelled' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-white/5 text-text-muted hover:text-white'}`}>
+                Cancelled {d && d.cancelled_count > 0 && <span className="bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px]">{d.cancelled_count}</span>}
+              </button>
+            </div>
           </div>
 
+          {activeSection === 'pipeline' ? (
+            <div className="space-y-4">
+              {hubLoading ? (
+                [1,2,3,4,5,6].map(i => <div key={i} className="h-10 bg-white/5 rounded-xl animate-pulse" />)
+              ) : (
+                pipelineStats.map(s => (
+                  <div key={s.label}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${s.dot}`} />
+                        <span className="text-xs font-bold text-text-muted uppercase tracking-widest">{s.label}</span>
+                      </div>
+                      <span className="text-base font-black text-white">{s.value}</span>
+                    </div>
+                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                      <MotionDiv initial={{ width: 0 }}
+                        animate={{ width: `${(s.value / maxPipeline) * 100}%` }}
+                        transition={{ duration: 0.8 }}
+                        className={`h-full ${s.color} rounded-full`} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            /* Cancelled orders list */
+            <div>
+              {hubLoading ? (
+                <div className="h-40 bg-white/5 rounded-xl animate-pulse" />
+              ) : !d || d.cancelled_count === 0 ? (
+                <div className="text-center py-10">
+                  <CheckCircle2 size={32} className="mx-auto mb-3 text-green-400/40" />
+                  <p className="text-text-muted text-sm">No cancelled orders in this period</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-3">
+                    {d.cancelled_count} cancelled order{d.cancelled_count !== 1 ? 's' : ''}
+                  </p>
+                  {d.cancelled_orders.map(o => (
+                    <div key={o._id} className="flex items-center justify-between bg-red-500/5 border border-red-500/10 rounded-xl px-4 py-3">
+                      <div>
+                        <p className="text-xs font-black text-white">#{o.order_number}</p>
+                        <p className="text-[10px] text-text-muted">
+                          {o.customer?.name || 'Walk-in'} · {o.order_type}
+                          {o.table_number ? ` · Table ${o.table_number}` : ''}
+                        </p>
+                        <p className="text-[10px] text-text-muted/60">
+                          {new Date(o.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                      <span className="text-sm font-black text-red-400">${(o.total || 0).toFixed(0)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
+        {/* Calendar — Sales by date */}
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+          <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <Calendar size={18} className="text-primary" />Sales Calendar
+          </h4>
+          <div className="flex items-center gap-3 mb-4">
+            <input type="date" value={calDate} onChange={e => setCalDate(e.target.value)}
+              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-primary transition-all" />
+            {calDate && (
+              <button onClick={() => setCalDate('')} className="px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-text-muted hover:text-white transition-all">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          {!calDate ? (
+            <div className="text-center py-10 text-text-muted text-sm">
+              <Calendar size={32} className="mx-auto mb-3 opacity-30" />
+              Pick a date to see all orders placed on that day
+            </div>
+          ) : hubLoading ? (
+            <div className="h-40 bg-white/5 rounded-xl animate-pulse" />
+          ) : !d?.calendar_orders?.length ? (
+            <div className="text-center py-8 text-text-muted text-sm">
+              <p className="font-bold">No orders on {new Date(calDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[10px] font-black text-primary uppercase tracking-widest">
+                  {d.calendar_orders.length} orders · ${d.calendar_orders.reduce((s, o) => s + (o.total || 0), 0).toFixed(0)} total
+                </p>
+                <p className="text-[10px] text-text-muted font-bold">
+                  {new Date(calDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}
+                </p>
+              </div>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {d.calendar_orders.map(o => (
+                  <div key={o._id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 border border-white/5">
+                    <div>
+                      <p className="text-xs font-black text-white">#{o.order_number}</p>
+                      <p className="text-[10px] text-text-muted capitalize">
+                        {o.customer?.name || 'Walk-in'} · {o.order_type}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-black text-primary">${(o.total || 0).toFixed(0)}</p>
+                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                        o.status === 'paid' ? 'bg-green-500/20 text-green-400' :
+                        o.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
+                        'bg-yellow-500/20 text-yellow-400'
+                      }`}>{o.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Top Dishes ── */}
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Bar list + Show More */}
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h4 className="text-lg font-bold text-white flex items-center gap-2">
+              <BarChart3 size={18} className="text-primary" />Top Dishes
+            </h4>
+            {d && d.top_dishes_all && d.top_dishes_all.length > 5 && (
+              <button onClick={() => setShowAllDishes(s => !s)}
+                className="text-[10px] font-black text-primary hover:underline uppercase tracking-widest flex items-center gap-1">
+                <Eye size={12} /> {showAllDishes ? 'Show Less' : `See All (${d.top_dishes_all.length})`}
+              </button>
+            )}
+          </div>
+          {hubLoading ? (
+            [1,2,3,4,5].map(i => <div key={i} className="h-10 bg-white/5 rounded-xl animate-pulse mb-2" />)
+          ) : displayedDishes.length === 0 ? (
+            <p className="text-text-muted text-sm py-6 text-center">No dish data for this period</p>
+          ) : (
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              {displayedDishes.map((dish, i) => {
+                const pct = totalDishQty > 0 ? ((dish.total_qty || 0) / totalDishQty) * 100 : 0;
+                const col = DISH_COLORS[i % DISH_COLORS.length];
+                return (
+                  <div key={dish.name || i}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: col }} />
+                        <span className="text-sm font-bold text-white truncate">{dish.name}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 ml-3">
+                        <span className="text-[10px] text-text-muted">{dish.total_qty}×</span>
+                        {dish.total_revenue > 0 && (
+                          <span className="text-[10px] font-black text-primary">${dish.total_revenue.toFixed(0)}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                      <MotionDiv initial={{ width: 0 }} animate={{ width: `${pct}%` }}
+                        transition={{ duration: 0.6, delay: i * 0.04 }}
+                        className="h-full rounded-full" style={{ background: col }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Pie chart — top 10 */}
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+          <h4 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
+            <PieChart size={18} className="text-primary" />Top 10 Dish Distribution
+          </h4>
+          {hubLoading ? (
+            <div className="h-48 bg-white/5 rounded-2xl animate-pulse" />
+          ) : topDishes10.length === 0 ? (
+            <p className="text-text-muted text-sm py-8 text-center">No orders yet in this period</p>
+          ) : (() => {
+            const tot  = topDishes10.reduce((s, i) => s + (i.total_qty || 0), 0) || 1;
+            let   ang  = 0;
+            const segs = topDishes10.map((item, idx) => {
+              const span = ((item.total_qty || 0) / tot) * 360;
+              const seg  = { ...item, span, start: ang, color: DISH_COLORS[idx % DISH_COLORS.length] };
+              ang += span;
+              return seg;
+            });
+            const SZ = 180, R = 70, cx = 90, cy = 90;
+            const pt = (a, r) => ({ x: cx + r * Math.cos((a - 90) * Math.PI / 180), y: cy + r * Math.sin((a - 90) * Math.PI / 180) });
+            return (
+              <div className="flex items-start gap-5 flex-wrap">
+                <svg width={SZ} height={SZ} className="shrink-0">
+                  {segs.map((s, i) => {
+                    if (s.span < 0.5) return null;
+                    const p1 = pt(s.start, R), p2 = pt(s.start + s.span, R);
+                    return (
+                      <path key={i} d={`M${cx},${cy}L${p1.x},${p1.y}A${R},${R} 0 ${s.span > 180 ? 1 : 0} 1 ${p2.x},${p2.y}Z`}
+                        fill={s.color} opacity="0.88">
+                        <title>{s.name}: {s.total_qty}× ({((s.total_qty / tot) * 100).toFixed(0)}%)</title>
+                      </path>
+                    );
+                  })}
+                  <circle cx={cx} cy={cy} r={R * 0.42} fill="#111" />
+                  <text x={cx} y={cy - 4} textAnchor="middle" fill="white" fontSize="14" fontWeight="900">{tot}</text>
+                  <text x={cx} y={cy + 11} textAnchor="middle" fill="#666" fontSize="8" fontWeight="700">ORDERS</text>
+                </svg>
+                <div className="flex-1 space-y-1.5 min-w-0 max-h-48 overflow-y-auto pr-1">
+                  {segs.map((s, i) => (
+                    <div key={i} className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                        <span className="text-xs text-white/80 truncate">{s.name}</span>
+                      </div>
+                      <span className="text-xs font-black text-white shrink-0">
+                        {s.total_qty}× ({((s.total_qty / tot) * 100).toFixed(0)}%)
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
   );
 };
+
 
 // ─── FINANCE CENTER ───────────────────────────────────────────────────────────
 const FinanceCenter = ({ orders }) => {
@@ -4158,7 +4768,11 @@ const FinanceCenter = ({ orders }) => {
   const [showBudgetForm, setShowBudgetForm] = useState(false);
   const [budgetForm, setBudgetForm] = useState({ label: '', amount: '', type: 'expense', category: 'other', date: new Date().toISOString().slice(0, 10), notes: '' });
   const [msg, setMsg] = useState({ text: '', type: 'success' });
-  const [importBills, setImportBills] = useState(false);
+  const [importBills,   setImportBills]   = useState(false);
+  const [xlsxRows,      setXlsxRows]      = useState([]);  // parsed rows from Excel
+  const [xlsxErrors,    setXlsxErrors]    = useState([]);
+  const [xlsxUploading, setXlsxUploading] = useState(false);
+  const [xlsxResult,    setXlsxResult]    = useState(null); // { imported, skipped, errors }
   const [period, setPeriod] = useState('all');
   const [loadingFinance, setLoadingFinance] = useState(true);
 
@@ -4269,22 +4883,194 @@ const FinanceCenter = ({ orders }) => {
         </div>
       </div>
 
-      {/* Import Bills Panel — slides in under header */}
+      {/* ── Excel Import Panel ── */}
       <AnimatePresence>
         {importBills && (
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
-            className="bg-secondary/40 border border-white/20 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-base font-bold text-white flex items-center gap-2"><FileText size={16} className="text-primary" />Import Bills</h4>
-              <button onClick={() => setImportBills(false)} className="text-text-muted hover:text-white"><X size={16} /></button>
+            className="bg-secondary/40 border border-primary/30 rounded-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h4 className="text-base font-bold text-white flex items-center gap-2">
+                <FileText size={16} className="text-primary" /> Import Budget Entries via Excel
+              </h4>
+              <button onClick={() => { setImportBills(false); setXlsxRows([]); setXlsxErrors([]); setXlsxResult(null); }}
+                className="text-text-muted hover:text-white"><X size={16} /></button>
             </div>
-            <p className="text-sm text-text-muted mb-4">Upload supplier or utility bills — each becomes a budget expense entry automatically.</p>
-            <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
-              <FileText size={32} className="mx-auto mb-3 text-text-muted opacity-40" />
-              <p className="text-sm text-text-muted font-bold">Drag & drop bills here or click to browse</p>
-              <p className="text-[10px] text-text-muted mt-1">PDF, JPG, PNG supported</p>
-              <button className="mt-4 px-5 py-2 bg-primary text-white rounded-xl text-xs font-black uppercase hover:bg-primary-hover">Browse Files</button>
+
+            {/* Step 1 — Download Template */}
+            <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-2">Step 1 — Download Template</p>
+              <p className="text-xs text-text-muted mb-3">Download the Excel template, fill it in, then upload it back.</p>
+              <button
+                onClick={() => {
+                  // Generate CSV template
+                  const headers = ['title','amount','entry_type','category','date','period','notes'];
+                  const sample = [
+                    ['Gas Bill - March','2500','expense','utilities','2026-03-01','monthly','Monthly gas bill'],
+                    ['Staff Salary','45000','expense','salary','2026-03-01','monthly','March salaries'],
+                    ['Catering Income','15000','income','other','2026-03-05','one-time','Corporate event'],
+                    ['Vegetable Supplies','3200','expense','supplies','2026-03-10','weekly','Weekly veggie purchase'],
+                  ];
+                  const csv = [headers, ...sample].map(r => r.join(',')).join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a'); a.href = url;
+                  a.download = 'biryanibox_budget_template.csv';
+                  document.body.appendChild(a); a.click();
+                  document.body.removeChild(a); URL.revokeObjectURL(url);
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-500 hover:text-white transition-all">
+                ⬇ Download CSV Template
+              </button>
+              {/* Column guide */}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {[
+                  ['title', 'Entry name (required)'],
+                  ['amount', 'Numeric amount (required)'],
+                  ['entry_type', '"expense" or "income" (required)'],
+                  ['category', 'rent / salary / utilities / supplies / marketing / maintenance / equipment / other'],
+                  ['date', 'YYYY-MM-DD format'],
+                  ['period', 'daily / weekly / monthly / yearly / one-time'],
+                  ['notes', 'Optional notes'],
+                ].map(([col, desc]) => (
+                  <div key={col} className="bg-white/5 rounded-lg px-3 py-2">
+                    <p className="text-[10px] font-black text-primary uppercase">{col}</p>
+                    <p className="text-[10px] text-text-muted">{desc}</p>
+                  </div>
+                ))}
+              </div>
             </div>
+
+            {/* Step 2 — Upload File */}
+            <div className="bg-white/3 border border-white/10 rounded-xl p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mb-3">Step 2 — Upload Your File</p>
+              <label className="border-2 border-dashed border-white/20 hover:border-primary/50 rounded-xl p-8 text-center cursor-pointer block transition-all group">
+                <FileText size={28} className="mx-auto mb-2 text-text-muted group-hover:text-primary transition-colors" />
+                <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">Click to browse or drag & drop</p>
+                <p className="text-[10px] text-text-muted mt-1">.csv or .xlsx files supported</p>
+                <input type="file" accept=".csv,.xlsx,.xls" className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setXlsxErrors([]); setXlsxRows([]); setXlsxResult(null);
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    try {
+                      if (ext === 'csv') {
+                        // Parse CSV natively
+                        const text = await file.text();
+                        const lines = text.trim().split('\n');
+                        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,''));
+                        const rows = lines.slice(1).filter(l => l.trim()).map(line => {
+                          const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g,''));
+                          return Object.fromEntries(headers.map((h, i) => [h, vals[i] || '']));
+                        });
+                        setXlsxRows(rows);
+                      } else {
+                        // Load xlsx from CDN and parse
+                        if (!window.XLSX) {
+                          await new Promise((res, rej) => {
+                            const s = document.createElement('script');
+                            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+                            s.onload = res; s.onerror = rej;
+                            document.head.appendChild(s);
+                          });
+                        }
+                        const data = await file.arrayBuffer();
+                        const wb = window.XLSX.read(data, { type: 'array' });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        const rows = window.XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
+                        setXlsxRows(rows);
+                      }
+                    } catch (err) {
+                      setXlsxErrors([`Failed to parse file: ${err.message}`]);
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Preview parsed rows */}
+            {xlsxRows.length > 0 && !xlsxResult && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-white">{xlsxRows.length} rows parsed — preview:</p>
+                  <button
+                    disabled={xlsxUploading}
+                    onClick={async () => {
+                      setXlsxUploading(true);
+                      setXlsxErrors([]);
+                      try {
+                        const result = await budgetAPI.bulkImport(xlsxRows);
+                        setXlsxResult(result);
+                        setXlsxRows([]);
+                        loadFinance();
+                      } catch (err) {
+                        setXlsxErrors([err.message || 'Import failed']);
+                      } finally { setXlsxUploading(false); }
+                    }}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${xlsxUploading ? 'bg-white/5 text-text-muted cursor-not-allowed' : 'bg-primary text-white hover:bg-primary-hover'}`}>
+                    {xlsxUploading ? <><Loader size={13} className="animate-spin" /> Importing…</> : <>⬆ Import {xlsxRows.length} Entries</>}
+                  </button>
+                </div>
+                <div className="bg-black/20 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-white/5 sticky top-0">
+                      <tr>
+                        {['#','Title','Amount','Type','Category','Date'].map(h => (
+                          <th key={h} className="px-3 py-2 text-left text-[10px] font-black uppercase text-text-muted">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {xlsxRows.slice(0, 20).map((row, i) => (
+                        <tr key={i} className="hover:bg-white/5">
+                          <td className="px-3 py-2 text-text-muted">{i + 1}</td>
+                          <td className="px-3 py-2 text-white font-bold truncate max-w-[120px]">{row.title || row.Title || '—'}</td>
+                          <td className="px-3 py-2 text-primary font-black">${row.amount || row.Amount || 0}</td>
+                          <td className="px-3 py-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${(row.entry_type || row['Entry Type'] || 'expense').toLowerCase() === 'income' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {row.entry_type || row['Entry Type'] || 'expense'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-text-muted">{row.category || row.Category || 'other'}</td>
+                          <td className="px-3 py-2 text-text-muted">{row.date || row.Date || 'today'}</td>
+                        </tr>
+                      ))}
+                      {xlsxRows.length > 20 && (
+                        <tr><td colSpan={6} className="px-3 py-2 text-center text-text-muted">…and {xlsxRows.length - 20} more rows</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Success result */}
+            {xlsxResult && (
+              <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-5">
+                <p className="text-green-400 font-black text-base mb-2">✅ Import Complete!</p>
+                <div className="flex gap-6 text-sm">
+                  <div><p className="text-text-muted text-xs uppercase font-bold">Imported</p><p className="text-green-400 font-black text-xl">{xlsxResult.imported}</p></div>
+                  {xlsxResult.skipped > 0 && <div><p className="text-text-muted text-xs uppercase font-bold">Skipped</p><p className="text-yellow-400 font-black text-xl">{xlsxResult.skipped}</p></div>}
+                </div>
+                {xlsxResult.errors?.length > 0 && (
+                  <div className="mt-3 space-y-1">
+                    {xlsxResult.errors.map((e, i) => <p key={i} className="text-[10px] text-red-400">⚠ {e}</p>)}
+                  </div>
+                )}
+                <button onClick={() => { setXlsxResult(null); setImportBills(false); }}
+                  className="mt-3 px-4 py-2 bg-green-500/20 border border-green-500/30 text-green-400 rounded-xl text-xs font-black uppercase hover:bg-green-500 hover:text-white transition-all">
+                  Close
+                </button>
+              </div>
+            )}
+
+            {/* Errors */}
+            {xlsxErrors.length > 0 && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                <p className="text-red-400 font-bold text-sm mb-2">Import Errors:</p>
+                {xlsxErrors.map((e, i) => <p key={i} className="text-[10px] text-red-400">• {e}</p>)}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -4678,8 +5464,8 @@ const RidersPanel = ({ currentUserRole }) => {
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', vehicle_type: 'bike' });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [ridersRes, delRes] = await Promise.all([
         usersAPI.getAll('?role=delivery'),
@@ -4688,7 +5474,7 @@ const RidersPanel = ({ currentUserRole }) => {
       setRiders(ridersRes.data || []);
       setDeliveries(delRes.data || []);
     } catch { }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, []);
@@ -5541,14 +6327,15 @@ const CustomersPanel = () => {
   const [custOrders,  setCustOrders]  = useState([]);
   const [ordLoading,  setOrdLoading]  = useState(false);
 
-  const loadCustomers = () => {
-    setLoading(true);
+  const loadCustomers = (silent = false) => {
+    if (!silent) setLoading(true);
     usersAPI.getCustomers()
       .then(r => setCustomers(r.data || []))
       .catch(() => setCustomers([]))
-      .finally(() => setLoading(false));
+      .finally(() => { if (!silent) setLoading(false); });
   };
-  useEffect(() => { loadCustomers(); }, []);
+  useEffect(() => { loadCustomers(false); }, []);
+  useAutoRefresh(loadCustomers, 30000);
 
   const openCustomer = async (c) => {
     setSelected(c);
@@ -5655,6 +6442,28 @@ const CustomersPanel = () => {
         <div className="flex items-center gap-2">
           <button onClick={loadCustomers} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
             <RefreshCw size={13} /> Refresh
+          </button>
+          <button
+            onClick={() => {
+              // Download customers as CSV
+              const headers = ['Name','Email','Phone','Orders','Loyalty Points','Status','Joined'];
+              const rows = customers.map(u => [
+                u.name || '',
+                u.email || '',
+                u.phone || '',
+                u.order_count || 0,
+                u.loyalty_points || 0,
+                u.is_active ? 'Active' : 'Inactive',
+                u.created_at ? new Date(u.created_at).toLocaleDateString() : '',
+              ]);
+              const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+              const blob = new Blob([csv], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a'); a.href = url; a.download = 'biryanibox_customers.csv';
+              document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/20 rounded-xl text-xs font-black text-green-400 hover:bg-green-500/20 transition-all uppercase tracking-widest">
+            ⬇ Download CSV
           </button>
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
@@ -6079,7 +6888,8 @@ const MyProfilePanel = ({ user }) => {
 //  MAIN DASHBOARD
 // ══════════════════════════════════════════════════════════════════════════════
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+const navigate = useNavigate();
   const {
     orders, menu, ingredients,
     updateOrderStatus: ctxUpdateStatus, deleteOrder,
@@ -6088,7 +6898,14 @@ const Dashboard = () => {
   } = useOrders();
 
   const defaultTab = user.role === 'chef' ? 'kitchen' : user.role === 'captain' ? 'tables' : 'overview';
-  const [activeTab, setActiveTab] = useState(defaultTab);
+  // ── URL tab history: back/forward navigates between tabs ──────────────────
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = (() => {
+    const urlTab = searchParams.get('tab');
+    if (urlTab) return urlTab;
+    try { return localStorage.getItem(`bb_dashboard_tab_${user.role}`) || defaultTab; } catch { return defaultTab; }
+  })();
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [financial, setFinancial] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [unreadAnnouncements, setUnreadAnnouncements] = useState(0);
@@ -6127,18 +6944,21 @@ const Dashboard = () => {
   }, [user.role]);
 
   const TITLE_MAP = {
-    overview: 'Command Hub', pos: 'Order Booking', orders: 'Live Orders',
+    overview: 'Command Hub', pos: 'Order Booking', orders: 'Orders',
     kitchen: 'My Kitchen', menu: 'Menu Master', tables: 'Table Status',
     reservations: 'Reservations', catering: 'Catering Orders', feedback: 'Feedback Box',
     announcements: 'Announcements', leaves: 'Leave Module', shifts: 'Shift Logs',
-    staffmgmt: 'Staff Management', finance: 'Finance Center', riders: 'Riders Hub',
+    staffmgmt: 'Staff Management', finance: 'Finance Center', riders: 'Riders Hub', waste_chef: 'Waste Log',
     customers: 'Customers',
     my_orders: 'My Orders', chef_orders: 'Order History', staff: 'My Profile',
   };
 
   useEffect(() => {
     let cancelled = false;
-    getFinancialMetrics?.().then(r => { if (!cancelled && r?.revenue != null) setFinancial(r); }).catch(() => {});
+    // Only owner and manager are authorized to call financials endpoint
+    if (['owner', 'manager'].includes(user.role)) {
+      getFinancialMetrics?.().then(r => { if (!cancelled && r?.revenue != null) setFinancial(r); }).catch(() => {});
+    }
     return () => { cancelled = true; };
   }, [orders]);
 
@@ -6171,14 +6991,31 @@ const Dashboard = () => {
   const isAdmin = ['owner', 'manager'].includes(user.role);
 
   // Wrap tab change to also clear staff profile view
+  // Stable logout handler — created once so Sidebar memo is never broken
+  const handleLogout = useCallback(() => {
+    logout();
+    navigate('/login');
+  }, [logout, navigate]);
+
   const handleTabChange = useCallback((tab) => {
     setProfileViewUser(null);
     setActiveTab(tab);
-  }, []);
+    setSearchParams({ tab }, { replace: false });
+    try { localStorage.setItem(`bb_dashboard_tab_${user.role}`, tab); } catch {}
+  }, [user.role, setSearchParams]);
+
+  // Sync tab when browser navigates back/forward
+  const _urlTab = searchParams.get('tab');
+  React.useEffect(() => {
+    if (_urlTab && _urlTab !== activeTab) {
+      setProfileViewUser(null);
+      setActiveTab(_urlTab);
+    }
+  }, [_urlTab]);
 
   return (
     <div className="min-h-screen bg-bg-main flex">
-      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} />
+      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} onLogout={handleLogout} />
       <div className="flex-1 ml-64 flex flex-col min-h-screen overflow-hidden">
         <Header title={profileViewUser ? `${profileViewUser.name || 'Staff'} — Profile` : (TITLE_MAP[activeTab] || '')} onRefresh={handleRefresh} loading={refreshing} />
         <main className="flex-1 overflow-y-auto px-8 py-6">
@@ -6279,7 +7116,7 @@ const Dashboard = () => {
             {/* FEEDBACK BOX */}
             {activeTab === 'feedback' && isAdmin && (
               <MotionDiv key="feedback" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <FeedbackBox />
+                <FeedbackBox userRole={user.role} />
               </MotionDiv>
             )}
 
@@ -6351,6 +7188,13 @@ const Dashboard = () => {
             {activeTab === 'chef_orders' && user.role === 'chef' && (
               <MotionDiv key="chef_orders" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <ChefOrderHistory user={user} allOrders={orders} />
+              </MotionDiv>
+            )}
+
+            {/* CHEF WASTE LOG */}
+            {activeTab === 'waste_chef' && user.role === 'chef' && (
+              <MotionDiv key="waste_chef" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <WasteManagement ingredients={ingredients} />
               </MotionDiv>
             )}
 

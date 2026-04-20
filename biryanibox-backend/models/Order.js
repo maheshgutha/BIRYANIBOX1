@@ -32,6 +32,11 @@ const OrderSchema = new mongoose.Schema({
   distance_km:       { type: Number, min: 0 },
   delivery_fee:      { type: Number, min: 0, default: 0 },
 
+  // Delivery customer contact info (captured from POS delivery form)
+  delivery_customer_name:  { type: String },
+  delivery_customer_email: { type: String },
+  delivery_customer_phone: { type: String },
+
   // Timestamps
   cooking_started_at:   { type: Date },
   cooking_completed_at: { type: Date },

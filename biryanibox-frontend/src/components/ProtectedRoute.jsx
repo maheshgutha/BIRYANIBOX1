@@ -3,22 +3,32 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/useContextHooks';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
-  const { user } = useAuth();
+  const { user, authReady } = useAuth();
 
-  // Not authenticated at all → login
+  // Wait until the initial /me auth verification is done
+  // This prevents a flash-redirect to /login while the token is being validated
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-bg-main flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-text-muted text-sm font-bold uppercase tracking-widest">Verifying session…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not authenticated → login
   if (!user) return <Navigate to="/login" replace />;
 
-  // Delivery role trying to reach staff dashboard → redirect to rider portal
+  // Delivery role hitting staff dashboard → rider portal
   if (user.role === 'delivery' && !allowedRoles?.includes('delivery')) {
     return <Navigate to="/rider" replace />;
   }
 
-  // Role restriction check
+  // Role not allowed
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    // Non-delivery trying to reach rider portal
-    if (allowedRoles.includes('delivery')) {
-      return <Navigate to="/dashboard" replace />;
-    }
+    if (allowedRoles.includes('delivery')) return <Navigate to="/dashboard" replace />;
     return <Navigate to="/dashboard" replace />;
   }
 

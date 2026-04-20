@@ -9,44 +9,63 @@ export const AuthProvider = ({ children }) => {
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [loading,         setLoading]         = useState(false);
+  const [error,           setError]           = useState(null);
+  // authReady = true once the initial /me verification is done (or skipped)
+  // ProtectedRoute waits for this before making redirect decisions
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('bb_token');
-    if (token) {
-      // Always refresh from /me to get full _id and latest loyalty_points
-      authAPI.me().then(res => {
+    if (!token) {
+      setAuthReady(true);
+      return;
+    }
+    authAPI.me()
+      .then(res => {
         const u = normalizeUser(res.data);
         setUser(u);
         localStorage.setItem('bb_user', JSON.stringify(u));
-      }).catch(() => {
+      })
+      .catch(() => {
         localStorage.removeItem('bb_token');
         localStorage.removeItem('bb_user');
         setUser(null);
+      })
+      .finally(() => {
+        setAuthReady(true);
       });
-    }
   }, []);
 
-  // Handles both login response shape (id) and /me response shape (_id)
+  // Listen for global 401 signal from api.js interceptor
+  // When any request gets 401, clear user state immediately
+  useEffect(() => {
+    const handle = () => {
+      setUser(null);
+      setAuthReady(true); // ensure ProtectedRoute can redirect
+    };
+    window.addEventListener('bb:unauthorized', handle);
+    return () => window.removeEventListener('bb:unauthorized', handle);
+  }, []);
+
   const normalizeUser = (data) => {
     const id = data._id || data.id;
     return {
       id,
       _id: id,
-      name: data.name,
-      role: data.role,
-      email: data.email,
-      phone: data.phone,
-      avatar: data.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(data.name || 'user')}`,
-      avatar_url: data.avatar_url,
+      name:          data.name,
+      role:          data.role,
+      email:         data.email,
+      phone:         data.phone,
+      avatar:        data.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(data.name || 'user')}`,
+      avatar_url:    data.avatar_url,
       loyaltyPoints: data.loyalty_points || 0,
-      loyalty_points: data.loyalty_points || 0,
-      orderCount: data.order_count || 0,
-      vehicleType: data.vehicle_type,
-      rating: data.driver_rating,
-      deliveries: data.delivery_count || 0,
-      is_active: data.is_active,
+      loyalty_points:data.loyalty_points || 0,
+      orderCount:    data.order_count    || 0,
+      vehicleType:   data.vehicle_type,
+      rating:        data.driver_rating,
+      deliveries:    data.delivery_count || 0,
+      is_active:     data.is_active,
     };
   };
 
@@ -59,14 +78,12 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('bb_token', res.token);
       localStorage.setItem('bb_user', JSON.stringify(u));
       setUser(u);
-
-      // Fetch full profile in background to ensure _id is correct
+      // Refresh from /me to ensure _id is correct
       authAPI.me().then(meRes => {
         const fullUser = normalizeUser(meRes.data);
         setUser(fullUser);
         localStorage.setItem('bb_user', JSON.stringify(fullUser));
       }).catch(() => {});
-
       return { success: true, user: u };
     } catch (err) {
       setError(err.message);
@@ -85,13 +102,11 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('bb_token', res.token);
       localStorage.setItem('bb_user', JSON.stringify(u));
       setUser(u);
-
       authAPI.me().then(meRes => {
         const fullUser = normalizeUser(meRes.data);
         setUser(fullUser);
         localStorage.setItem('bb_user', JSON.stringify(fullUser));
       }).catch(() => {});
-
       return { success: true, user: u };
     } catch (err) {
       setError(err.message);
@@ -110,7 +125,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, error, authReady, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

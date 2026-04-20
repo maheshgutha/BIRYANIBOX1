@@ -15,6 +15,17 @@ import { ordersAPI, addressesAPI, announcementsAPI, feedbackAPI, loyaltyAPI, use
 
 const MotionDiv = motion.div;
 
+// Silent auto-refresh: background refresh never shows loading spinner
+const useAutoRefresh = (callback, intervalMs = 30000) => {
+  const savedCallback = React.useRef(callback);
+  React.useEffect(() => { savedCallback.current = callback; }, [callback]);
+  React.useEffect(() => {
+    const id = setInterval(() => savedCallback.current(true), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+};
+
+
 const STATUS_STYLES = {
   pending:           'bg-yellow-500/20 text-yellow-400',
   start_cooking:     'bg-orange-500/20 text-orange-400',
@@ -204,7 +215,10 @@ const ProfileHub = () => {
 
   // Read ?tab= from URL to deep-link into a specific tab (e.g. /profile?tab=rewards)
   const urlTab = new URLSearchParams(location.search).get('tab');
-  const [activeTab, setActiveTab] = useState(urlTab || 'live');
+  const storedTab = (() => {
+    try { return localStorage.getItem('bb_profile_tab') || 'live'; } catch { return 'live'; }
+  })();
+  const [activeTab, setActiveTab] = useState(urlTab || storedTab);
 
   // Sync tab when URL changes
   useEffect(() => {
@@ -253,9 +267,9 @@ const ProfileHub = () => {
   }, [user, navigate]);
 
   // Live order polling — get ALL active orders
-  const loadLiveOrders = useCallback(async () => {
+  const loadLiveOrders = useCallback(async (silent = false) => {
     if (!user) return;
-    setLiveLoading(true);
+    if (!silent) setLiveLoading(true);
     try {
       const r = await ordersAPI.liveOrder(user.id);
       // Backend now returns { data: first, all: [] }
@@ -264,26 +278,27 @@ const ProfileHub = () => {
     } catch {
       setLiveOrders([]);
     } finally {
-      setLiveLoading(false);
+      if (!silent) setLiveLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
     if (activeTab === 'live') {
-      loadLiveOrders();
-      const id = setInterval(loadLiveOrders, 40000);
-      return () => clearInterval(id);
+      loadLiveOrders(false); // initial load with spinner
     }
   }, [activeTab, loadLiveOrders]);
 
-  const loadTab = useCallback(async (tab) => {
+  // Auto-refresh live orders silently every 20s
+  useAutoRefresh(loadLiveOrders, 20000);
+
+  const loadTab = useCallback(async (tab, silent = false) => {
     if (!user) return;
     try {
       if (tab === 'orders') {
-        setOLoading(true);
+        if (!silent) setOLoading(true);
         const r = await ordersAPI.history(user.id);
         setOrders(r.data || []);
-        setOLoading(false);
+        if (!silent) setOLoading(false);
       }
       if (tab === 'rewards') {
         try {
@@ -317,7 +332,13 @@ const ProfileHub = () => {
     } catch {}
   }, [user]);
 
-  useEffect(() => { loadTab(activeTab); }, [activeTab, loadTab]);
+  useEffect(() => { loadTab(activeTab, false); }, [activeTab, loadTab]);
+
+  // Auto-refresh current tab data silently every 30s
+  const silentRefreshTab = useCallback(() => {
+    if (activeTab !== 'live') loadTab(activeTab, true);
+  }, [activeTab, loadTab]);
+  useAutoRefresh(silentRefreshTab, 30000);
 
   const handleAddAddress = async (e) => {
     e.preventDefault();
@@ -426,7 +447,10 @@ const ProfileHub = () => {
           {TABS.map(t => {
             const Icon = t.icon;
             return (
-              <button key={t.id} onClick={() => setActiveTab(t.id)}
+              <button key={t.id} onClick={() => {
+                setActiveTab(t.id);
+                try { localStorage.setItem('bb_profile_tab', t.id); } catch {}
+              }}
                 className={'flex items-center gap-2 px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ' +
                   (activeTab === t.id ? 'bg-primary border-primary text-white shadow-lg' : 'border-white/10 text-white/40 hover:text-white bg-white/5')}>
                 <Icon size={12} />{t.label}

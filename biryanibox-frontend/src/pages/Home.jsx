@@ -373,7 +373,6 @@ const MenuCategories = () => {
                   </div>
                   <p className="text-xs text-text-muted leading-relaxed mb-10 h-12 line-clamp-2 font-medium">{item.desc}</p>
                   <div className="flex items-center justify-between gap-4">
-                    <div className="text-xs text-text-muted">Stock: {item.stock}</div>
                     <button
                       onClick={() => {
                         addToCart({

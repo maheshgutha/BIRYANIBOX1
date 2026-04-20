@@ -7,7 +7,8 @@ const DeliverySchema = new mongoose.Schema({
   // Customer info captured at checkout
   customer_name:     { type: String },
   customer_id:       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  phone:             { type: String },
+  customer_email:    { type: String },   // delivery contact email
+  phone:             { type: String },   // delivery contact phone
   delivery_address:  { type: String, required: true },
   delivery_notes:    { type: String },
 

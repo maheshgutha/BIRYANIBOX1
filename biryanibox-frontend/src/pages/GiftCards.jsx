@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { giftCardsAPI } from '../services/api';
 import { useAuth } from '../context/useContextHooks';
@@ -9,6 +9,17 @@ import {
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+
+
+// Silent auto-refresh — background polling never shows loading spinner
+const useAutoRefresh = (callback, intervalMs = 30000) => {
+  const savedCallback = useRef(callback);
+  useEffect(() => { savedCallback.current = callback; }, [callback]);
+  useEffect(() => {
+    const id = setInterval(() => savedCallback.current(true), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+};
 
 // ── GiftCardItem: shows balance, copy code, and partial-use input ─────────────
 const GiftCardItem = ({ card, copyCode, copied, onRefresh }) => {
@@ -172,12 +183,18 @@ const GiftCards = () => {
     if (user) setForm(p => ({ ...p, sender_name: user.name || p.sender_name, sender_email: user.email || p.sender_email }));
   }, [user]);
 
-  useEffect(() => {
-    if (viewTab === 'mine' && user)
+  const loadCards = useCallback(async (silent = false) => {
+    if (!user) return;
+    if (viewTab === 'mine') {
       giftCardsAPI.myCards().then(r => setMyCards(r.data || [])).catch(() => setMyCards([]));
-    if (viewTab === 'sent' && user)
+    }
+    if (viewTab === 'sent') {
       giftCardsAPI.sentCards().then(r => setSentCards(r.data || [])).catch(() => setSentCards([]));
+    }
   }, [viewTab, user]);
+
+  useEffect(() => { loadCards(false); }, [loadCards]);
+  useAutoRefresh(loadCards, 30000);
 
   const handlePurchase = async () => {
     if (!form.sender_name.trim())    { setError('Your name is required'); return; }

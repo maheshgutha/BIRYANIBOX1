@@ -47,7 +47,7 @@ export const OrderProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('bb_token');
     const role = getUserRole();
-    if (!token || role === 'customer') return;
+    if (!token || role === 'customer' || role === 'delivery') return;
     ingredientsAPI.getAll().then(res => {
       setIngredients(res.data.map(normalizeIngredient));
     }).catch(() => {});
@@ -58,10 +58,14 @@ export const OrderProvider = ({ children }) => {
   //   staff      → GET /api/orders              (all orders for dashboard)
   const loadOrders = useCallback(() => {
     const token = localStorage.getItem('bb_token');
-    if (!token) return;
+    // No token or explicitly cleared (e.g., after 401) — do not poll
+    if (!token || token === 'undefined' || token === 'null') return;
 
     const role   = getUserRole();
     const userId = getUserId();
+
+    // Delivery riders use the deliveries API, not orders
+    if (role === 'delivery') return;
 
     if (role === 'customer') {
       // Customers only see their own orders — use the dedicated history endpoint
@@ -117,21 +121,29 @@ export const OrderProvider = ({ children }) => {
   const createOrder = async (cart, table, captain, customerName = null, deliveryParams = {}) => {
     try {
       const user = JSON.parse(localStorage.getItem('bb_user') || 'null');
-      const { delivery_address, delivery_notes, distance_km, order_type } = deliveryParams;
+      const {
+        delivery_address, delivery_notes, distance_km, order_type,
+        payment_method, customer_email, customer_phone, customer_name,
+      } = deliveryParams;
 
-      const isDelivery = order_type === 'delivery' ||
-                         (table && String(table).toLowerCase() === 'takeaway' && order_type === 'delivery');
+      // order_type is now always passed inside deliveryParams from POS
+      const isDelivery = order_type === 'delivery';
       const isPickup   = order_type === 'pickup' || order_type === 'takeaway';
+      const resolvedOrderType = isDelivery ? 'delivery' : isPickup ? 'pickup' : 'dine-in';
 
       const payload = {
-        items:        cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
-        table_number: table,
-        // captain_id intentionally omitted for customers — backend auto-assigns
-        order_type:   isDelivery ? 'delivery' : isPickup ? 'pickup' : 'dine-in',
-        customer_id:  user?.role === 'customer' ? (user._id || user.id) : undefined,
+        items:          cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
+        table_number:   table,
+        order_type:     resolvedOrderType,
+        customer_id:    user?.role === 'customer' ? (user._id || user.id) : undefined,
+        payment_method: payment_method || undefined,
         delivery_address: delivery_address || undefined,
         delivery_notes:   delivery_notes   || undefined,
         distance_km:      distance_km      || undefined,
+        // Extra delivery contact info
+        customer_email: customer_email || undefined,
+        customer_phone: customer_phone || undefined,
+        customer_name:  customer_name  || undefined,
       };
 
       const res      = await ordersAPI.create(payload);

@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './context/useContextHooks';
 import Home              from './pages/Home';
 import Login             from './pages/Login';
 import Dashboard         from './pages/Dashboard';
@@ -15,9 +16,29 @@ import Contact           from './pages/Contact';
 import ProfileHub        from './pages/ProfileHub';
 import ProtectedRoute    from './components/ProtectedRoute';
 
+// Redirect already-logged-in users away from /login to their dashboard
+const LoginGuard = ({ children }) => {
+  const { user, authReady } = useAuth();
+
+  // Still verifying token — show the login form optimistically (avoids blank flash)
+  // Once verified, if already logged in, redirect to the right place
+  if (!authReady) return children;
+
+  if (user) {
+    // Already logged in — send to the right place
+    if (user.role === 'delivery') return <Navigate to="/rider"     replace />;
+    if (['owner','manager','captain','chef'].includes(user.role))
+                                   return <Navigate to="/dashboard" replace />;
+    // Customer logged in — send to profile
+    return <Navigate to="/profile" replace />;
+  }
+
+  return children;
+};
+
 function App() {
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         {/* ── Public customer routes ── */}
         <Route path="/"             element={<Home />} />
@@ -31,8 +52,8 @@ function App() {
         <Route path="/contact"      element={<Contact />} />
         <Route path="/profile"      element={<ProfileHub />} />
 
-        {/* ── Staff login ── */}
-        <Route path="/login" element={<Login />} />
+        {/* ── Staff login — hidden from already-logged-in users ── */}
+        <Route path="/login" element={<LoginGuard><Login /></LoginGuard>} />
 
         {/* ── Rider portal ── */}
         <Route

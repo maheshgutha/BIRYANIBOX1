@@ -4,7 +4,7 @@ const MenuItemSchema = new mongoose.Schema({
   name:         { type: String, required: true, maxlength: 100 },
   description:  { type: String },
   price:        { type: Number, required: true, min: 0 },
-  category:     { type: String, enum: ['Biryani','Appetizers','Breads','Desserts','Combos','Drinks'], required: true },
+  category:     { type: String,enum: ['Dosa','Tiffins','Biryani','Pulao','Curries','Appetizers','Street Style','Beverages','Desserts'], required: true },
   image_url:    { type: String },
   prep_time:    { type: Number, min: 0 },
   rating:       { type: Number, min: 0, max: 5, default: 0 },

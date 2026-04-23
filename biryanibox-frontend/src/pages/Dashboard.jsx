@@ -7108,7 +7108,9 @@ const MyProfilePanel = ({ user }) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await usersAPI.updateMe(form);
+      const res = await usersAPI.updateMe(form);
+      // Refresh auth context so navbar/header name updates immediately
+      if (updateUser) updateUser({ name: form.name, phone: form.phone, ...form });
       flash('Profile updated successfully!');
       setEditing(false);
       // Update name in the form in case it changed

@@ -124,8 +124,22 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('biryani_box_cart');
   };
 
+  // Update user fields in state + localStorage (called after profile save)
+  const updateUser = (updates) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const merged = { ...prev, ...updates };
+      // Re-normalize avatar if avatar_url changed
+      if (updates.avatar_url !== undefined) {
+        merged.avatar = updates.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(merged.name || 'user')}`;
+      }
+      try { localStorage.setItem('bb_user', JSON.stringify(merged)); } catch {}
+      return merged;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, error, authReady, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, error, authReady, login, register, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

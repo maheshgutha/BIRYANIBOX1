@@ -61,15 +61,27 @@ const DeliveryMap = ({ address, label = 'Delivery Location', onDistanceCalc }) =
     const init = async () => {
       setLoading(true); setError('');
       try {
-        // Load Leaflet if not already loaded
+        // Load Leaflet CSS + JS if not already loaded
         if (!window.L) {
           await new Promise((res, rej) => {
-            if (document.querySelector('#leaflet-css')) { res(); return; }
-            const link = document.createElement('link');
-            link.id = 'leaflet-css'; link.rel = 'stylesheet';
-            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-            document.head.appendChild(link);
+            // Inject CSS only once
+            if (!document.querySelector('#leaflet-css')) {
+              const link = document.createElement('link');
+              link.id = 'leaflet-css'; link.rel = 'stylesheet';
+              link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+              document.head.appendChild(link);
+            }
+            // If JS tag already exists, wait for it (another map may be loading it)
+            const existing = document.querySelector('#leaflet-js');
+            if (existing) {
+              if (window.L) { res(); return; }
+              existing.addEventListener('load', res);
+              existing.addEventListener('error', rej);
+              return;
+            }
+            // Inject JS and wait for it to fully load before resolving
             const s = document.createElement('script');
+            s.id = 'leaflet-js';
             s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
             s.onload = res; s.onerror = rej;
             document.head.appendChild(s);
@@ -92,8 +104,12 @@ const DeliveryMap = ({ address, label = 'Delivery Location', onDistanceCalc }) =
         if (!mapRef.current) return;
 
         mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([latNum, lonNum], 14);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance.current);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors'
+        }).addTo(mapInstance.current);
         L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
+        // Force recalculate size in case map was hidden/toggled when initialised
+        setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 100);
 
         // Destination marker (red pin)
         const destIcon = L.divIcon({

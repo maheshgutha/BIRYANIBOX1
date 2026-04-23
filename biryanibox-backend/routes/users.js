@@ -32,6 +32,45 @@ router.get('/', protect, authorize('owner', 'manager'), async (req, res, next) =
   } catch (err) { next(err); }
 });
 
+// GET /api/users/me — get own profile
+router.get('/me', protect, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).select('-password_hash -reset_token -reset_expire');
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, data: user });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/users/me — update own profile (name, phone, avatar_url)
+router.patch('/me', protect, async (req, res, next) => {
+  try {
+    const allowed = ['name', 'phone', 'avatar_url'];
+    const updateData = {};
+    allowed.forEach(field => { if (req.body[field] !== undefined) updateData[field] = req.body[field]; });
+    const updated = await User.findByIdAndUpdate(req.user._id, updateData, { new: true, runValidators: true })
+      .select('-password_hash -reset_token -reset_expire');
+    if (!updated) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, data: updated });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/users/me/password — change own password
+router.patch('/me/password', protect, async (req, res, next) => {
+  try {
+    const { current_password, new_password, currentPassword, newPassword } = req.body;
+    const curPass = current_password || currentPassword;
+    const newPass = new_password || newPassword;
+    if (!curPass || !newPass) return res.status(400).json({ success: false, message: 'current_password and new_password are required' });
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    const match = await user.matchPassword(curPass);
+    if (!match) return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    user.password_hash = newPass;
+    await user.save();
+    res.json({ success: true, message: 'Password updated successfully' });
+  } catch (err) { next(err); }
+});
+
 // GET /api/users/:id
 router.get('/:id', protect, async (req, res, next) => {
   try {

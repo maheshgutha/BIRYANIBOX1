@@ -209,7 +209,7 @@ const OrderTracker = ({ order }) => {
 };
 
 const ProfileHub = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -386,7 +386,8 @@ const ProfileHub = () => {
     setProfileSaving(true);
     setProfileMsg('');
     try {
-      await usersAPI.update(user.id || user._id, { name: profileForm.name, phone: profileForm.phone });
+      await usersAPI.updateMe({ name: profileForm.name, phone: profileForm.phone });
+      if (updateUser) updateUser({ name: profileForm.name, phone: profileForm.phone });
       setProfileMsg('Profile updated successfully!');
     } catch (err) {
       setProfileMsg(err.message || 'Update failed. Please try again.');
@@ -403,7 +404,7 @@ const ProfileHub = () => {
     setProfileSaving(true);
     setProfileMsg('');
     try {
-      await usersAPI.changePassword(user.id || user._id, {
+      await usersAPI.changeMyPassword({
         current_password: passForm.current_password,
         new_password: passForm.new_password,
       });

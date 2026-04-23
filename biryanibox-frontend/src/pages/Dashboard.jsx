@@ -77,6 +77,7 @@ const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements
     { id: 'customers',     label: 'Customers',        icon: Users,           roles: ['owner'] },
     { id: 'finance',       label: 'Finance Center',   icon: DollarSign,      roles: ['owner', 'manager'] },
     { id: 'my_orders',     label: 'My Orders',        icon: ClipboardList,   roles: ['captain'] },
+    { id: 'captain_bonus', label: 'My Bonus',          icon: Award,           roles: ['captain'] },
     { id: 'chef_orders',   label: 'Order History',    icon: ClipboardList,   roles: ['chef'] },
     { id: 'waste_chef',    label: 'Waste Log',        icon: Trash2,          roles: ['chef'] },
     { id: 'staff',         label: 'My Profile',       icon: User,            roles: ['owner', 'manager', 'captain', 'chef'] },
@@ -404,17 +405,30 @@ const ConfirmDialog = ({ open, title, message, confirmText = 'Confirm', cancelTe
 
 
 const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, statusColors, captainTableNumbers }) => {
-  // Which statuses can this role trigger?
   const chefStatuses     = ['start_cooking', 'completed_cooking'];
   const captainStatuses  = ['served', 'paid'];
   const managerStatuses  = ['served', 'paid', 'cancelled'];
 
-  // For captain: check if an order belongs to their zone tables
+  // Delivery captain = captain with no assigned tables
+  const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
+
+  // Extract numeric table number from any format: "1" → 1, "Table 1" → 1, "Table 7" → 7
+  const parseTableNum = (raw) => {
+    if (!raw) return NaN;
+    const match = String(raw).match(/\d+/);
+    return match ? parseInt(match[0]) : NaN;
+  };
+
+  // Is this order in the captain's zone?
   const isCaptainOrderInZone = (order) => {
     if (user.role !== 'captain') return true; // non-captains always in zone
-    if (!captainTableNumbers || captainTableNumbers.length === 0) return false; // delivery captain — no dine-in zone
-    const tNum = parseInt(order.table_number);
-    return captainTableNumbers.includes(tNum);
+    if (isDeliveryCaptain) {
+      // Delivery captain: delivery/pickup/takeaway orders are their zone
+      return ['delivery', 'pickup', 'takeaway'].includes(order.order_type);
+    }
+    // Dine-in captain: compare table numbers
+    const orderTNum = parseTableNum(order.table_number);
+    return !isNaN(orderTNum) && captainTableNumbers.includes(orderTNum);
   };
 
   const TRANSITIONS = {
@@ -425,7 +439,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
   };
 
   const canAdvance = (order) => {
-    if (order.status === 'pending_confirmation') return false; // handled via accept/reject buttons
+    if (order.status === 'pending_confirmation') return false;
     const next = TRANSITIONS[order.status];
     if (!next) return false;
     if (user.role === 'chef') return chefStatuses.includes(next);
@@ -434,7 +448,15 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     return false;
   };
 
-  const nextLabel = { start_cooking: '▶ Start', completed_cooking: '✓ Done', served: 'Serve', paid: 'Paid ✓' };
+  // Label for the advance button — delivery captain sees "🚗 Dispatch" instead of "Serve"
+  const getActionLabel = (order) => {
+    const next = TRANSITIONS[order.status];
+    if (!next) return '';
+    if (isDeliveryCaptain && next === 'served') return '🚗 Dispatch';
+    if (isDeliveryCaptain && next === 'paid')   return '✓ Collected';
+    const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', served: 'Serve', paid: 'Paid ✓' };
+    return labels[next] || next;
+  };
 
   return (
     <div className="overflow-x-auto">
@@ -446,6 +468,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
             <th className="text-left px-4 py-3 font-bold">Items</th>
             <th className="text-left px-4 py-3 font-bold">Total</th>
             <th className="text-left px-4 py-3 font-bold">Status</th>
+            <th className="text-left px-4 py-3 font-bold">Served By</th>
             <th className="text-left px-4 py-3 font-bold">Spice</th>
             <th className="text-left px-4 py-3 font-bold">Time</th>
             <th className="text-left px-4 py-3 font-bold">Cook Duration</th>
@@ -457,14 +480,29 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
             const id = ord._id || ord.id;
             const items = ord.items || [];
             const total = typeof ord.total === 'number' ? ord.total : 0;
+            const inZone = isCaptainOrderInZone(ord);
             return (
-              <tr key={id} className="hover:bg-white/3 transition-all group">
+              <tr key={id} className={`hover:bg-white/3 transition-all group ${user.role === 'captain' && !inZone ? 'opacity-40' : ''}`}>
                 <td className="px-4 py-3">
                   <p className="font-bold text-white">{ord.order_number || `#${id?.slice(-6).toUpperCase()}`}</p>
                   <p className="text-text-muted text-[10px]">{ord.customerName || 'Walk-in'}</p>
                 </td>
                 <td className="px-4 py-3">
-                  <span className="px-2 py-1 bg-white/5 rounded text-white border border-white/10">{ord.table_number || '—'}</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="px-2 py-1 bg-white/5 rounded text-white border border-white/10">
+                      {(() => {
+                        const raw = String(ord.table_number || '');
+                        const n = parseInt(raw);
+                        return (!isNaN(n) && String(n) === raw) ? `Table ${n}` : (raw || '—');
+                      })()}
+                    </span>
+                    {/* Zone indicator for captains */}
+                    {user.role === 'captain' && (
+                      inZone
+                        ? <span className="text-[8px] font-black text-green-400 uppercase tracking-widest">✓ Your Zone</span>
+                        : <span className="text-[8px] font-black text-red-400/60 uppercase tracking-widest">🔒 Other Zone</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 max-w-[180px]">
                   {items.slice(0, 2).map((item, i) => (
@@ -479,6 +517,14 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                   </span>
                 </td>
                 <td className="px-4 py-3">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-5 h-5 rounded-full overflow-hidden border border-primary/20 shrink-0">
+                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${ord.captain_id?.name || 'captain'}`} alt="" />
+                    </div>
+                    <span className="text-white/70 text-[11px] font-bold">{ord.captain_id?.name || '—'}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3">
                   <span className="text-text-muted capitalize">{ord.spiceness || '—'}</span>
                 </td>
                 <td className="px-4 py-3 text-text-muted">
@@ -489,7 +535,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                    {/* ── pending_confirmation: Accept / Reject (owner + manager only) ── */}
+                    {/* pending_confirmation: Accept / Reject (owner + manager only) */}
                     {ord.status === 'pending_confirmation' && ['owner', 'manager'].includes(user.role) && onConfirmOrder && (
                       <>
                         <button onClick={() => onConfirmOrder(id, 'accept')}
@@ -502,45 +548,23 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                         </button>
                       </>
                     )}
-                    {canAdvance(ord) && isCaptainOrderInZone(ord) && (
+                    {/* Main action button — only shown for in-zone orders */}
+                    {canAdvance(ord) && inZone && (
                       <button onClick={() => onStatusUpdate(id, TRANSITIONS[ord.status])}
-                        className="px-3 py-1.5 bg-primary text-white rounded-lg text-[10px] font-black uppercase hover:bg-primary-hover transition-all">
-                        {nextLabel[TRANSITIONS[ord.status]]}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${
+                          isDeliveryCaptain && TRANSITIONS[ord.status] === 'served'
+                            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500 hover:text-white'
+                            : 'bg-primary text-white hover:bg-primary-hover'
+                        }`}>
+                        {getActionLabel(ord)}
                       </button>
                     )}
-                    {user.role === 'captain' && !isCaptainOrderInZone(ord) && (() => {
-                      // Captain 4 (delivery captain, no tables): gets dispatch buttons for delivery/pickup orders
-                      const isDeliveryCap = !captainTableNumbers || captainTableNumbers.length === 0;
-                      const isDeliveryOrder = ['delivery', 'pickup', 'takeaway'].includes(ord.order_type);
-                      if (isDeliveryCap && isDeliveryOrder) {
-                        // Show dispatch actions based on status
-                        if (ord.status === 'completed_cooking') {
-                          return (
-                            <button onClick={() => onStatusUpdate(ord._id || ord.id, 'served')}
-                              className="px-3 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-blue-500 hover:text-white transition-all">
-                              🚗 Dispatch
-                            </button>
-                          );
-                        }
-                        if (ord.status === 'served') {
-                          return (
-                            <button onClick={() => onStatusUpdate(ord._id || ord.id, 'paid')}
-                              className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-green-500 hover:text-white transition-all">
-                              ✓ Mark Paid
-                            </button>
-                          );
-                        }
-                      }
-                      // Other captains see View Only for other zones
-                      if (canAdvance(ord)) {
-                        return (
-                          <span className="text-[9px] text-text-muted px-2 py-1 bg-white/5 rounded-lg border border-white/10 uppercase tracking-widest">
-                            👁 View Only
-                          </span>
-                        );
-                      }
-                      return null;
-                    })()}
+                    {/* Out-of-zone indicator for dine-in captains only */}
+                    {user.role === 'captain' && !inZone && !isDeliveryCaptain && canAdvance(ord) && (
+                      <span className="text-[9px] text-text-muted px-2 py-1 bg-white/5 rounded-lg border border-white/10 uppercase tracking-widest">
+                        🔒 Other Zone
+                      </span>
+                    )}
                     {user.role === 'owner' && (
                       <button onClick={() => onDelete(id)} className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-all">
                         <Trash2 size={13} />
@@ -552,7 +576,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
             );
           })}
           {orders.length === 0 && (
-            <tr><td colSpan={9} className="py-20 text-center text-text-muted">
+            <tr><td colSpan={10} className="py-20 text-center text-text-muted">
               <AlertCircle size={32} className="mx-auto mb-3 opacity-20" />
               <p className="font-bold uppercase tracking-widest text-sm">No orders found</p>
             </td></tr>
@@ -882,6 +906,274 @@ const ChefOrderHistory = ({ user, allOrders }) => {
 };
 
 // ─── CAPTAIN MY ORDERS ────────────────────────────────────────────────────────
+// ─── CAPTAIN BONUS MODULE ─────────────────────────────────────────────────────
+const BONUS_TIERS = [
+  { key: 'bronze', label: 'Bronze',   min: 0,    max: 500,  pct: 3,  color: 'text-amber-600',  bg: 'bg-amber-700/10', border: 'border-amber-700/30',   glow: 'shadow-amber-700/20',   icon: '🥉', badge: 'from-amber-700 to-amber-500' },
+  { key: 'silver', label: 'Silver',   min: 500,  max: 1500, pct: 5,  color: 'text-slate-300',  bg: 'bg-slate-500/10', border: 'border-slate-500/30',   glow: 'shadow-slate-400/20',   icon: '🥈', badge: 'from-slate-500 to-slate-300' },
+  { key: 'gold',   label: 'Gold',     min: 1500, max: 3000, pct: 8,  color: 'text-yellow-400', bg: 'bg-yellow-500/10',border: 'border-yellow-500/30',  glow: 'shadow-yellow-400/20',  icon: '🥇', badge: 'from-yellow-500 to-yellow-300' },
+  { key: 'diamond',label: 'Diamond',  min: 3000, max: Infinity, pct: 12, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/30', glow: 'shadow-cyan-400/20', icon: '💎', badge: 'from-cyan-500 to-cyan-300' },
+];
+
+const getTier = (revenue) => BONUS_TIERS.find(t => revenue >= t.min && revenue < t.max) || BONUS_TIERS[0];
+
+const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
+  const [period, setPeriod] = useState('monthly');
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  const isDeliveryCaptain = !captainTableNumbers || captainTableNumbers.length === 0;
+
+  // Filter orders by period and captain zone
+  const zoneOrders = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
+    const weekAgo    = new Date(now); weekAgo.setDate(now.getDate() - 7);
+    const monthAgo   = new Date(now); monthAgo.setMonth(now.getMonth() - 1);
+    const yearAgo    = new Date(now); yearAgo.setFullYear(now.getFullYear() - 1);
+
+    return (allOrders || []).filter(o => {
+      if (o.status !== 'paid') return false;
+      // Zone filter
+      if (isDeliveryCaptain) {
+        if (!['delivery','pickup','takeaway'].includes(o.order_type)) return false;
+      } else {
+        const rawT = String(o.table_number || '');
+        const match = rawT.match(/\d+/);
+        const tNum = match ? parseInt(match[0]) : NaN;
+        if (isNaN(tNum) || !captainTableNumbers.includes(tNum)) return false;
+      }
+      // Period filter
+      const ts = new Date(o.created_at || o.timestamp);
+      if (period === 'today')   return ts >= todayStart;
+      if (period === 'weekly')  return ts >= weekAgo;
+      if (period === 'monthly') return ts >= monthAgo;
+      if (period === 'yearly')  return ts >= yearAgo;
+      return true;
+    });
+  }, [allOrders, period, captainTableNumbers, isDeliveryCaptain]);
+
+  const revenue    = zoneOrders.reduce((s, o) => s + (o.total || 0), 0);
+  const tier       = getTier(revenue);
+  const bonusAmt   = revenue * (tier.pct / 100);
+  const nextTier   = BONUS_TIERS.find(t => t.min > tier.min);
+  const toNextTier = nextTier ? Math.max(0, nextTier.min - revenue) : 0;
+  const progressPct= nextTier ? Math.min(100, ((revenue - tier.min) / (tier.max - tier.min)) * 100) : 100;
+
+  // All-time cumulative
+  const allTimePaid = (allOrders || []).filter(o => {
+    if (o.status !== 'paid') return false;
+    if (isDeliveryCaptain) return ['delivery','pickup','takeaway'].includes(o.order_type);
+    const rawT = String(o.table_number || '');
+    const match = rawT.match(/\d+/);
+    const tNum = match ? parseInt(match[0]) : NaN;
+    return !isNaN(tNum) && captainTableNumbers.includes(tNum);
+  });
+  const allTimeRevenue = allTimePaid.reduce((s, o) => s + (o.total || 0), 0);
+  const allTimeTier    = getTier(allTimeRevenue);
+
+  const periodLabel = { today: 'Today', weekly: 'This Week', monthly: 'This Month', yearly: 'This Year' };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-3xl font-black text-white flex items-center gap-3">
+            <Award size={28} className="text-yellow-400" />My Bonus
+          </h2>
+          <p className="text-text-muted text-sm mt-1">
+            {isDeliveryCaptain ? 'Delivery & Pickup orders' : `Tables ${captainTableNumbers.map(n => `Table ${n}`).join(', ')}`}
+          </p>
+        </div>
+        <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
+          {['today','weekly','monthly','yearly'].map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${period === p ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{p}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Current Tier Hero Card */}
+      <div className={`relative overflow-hidden rounded-3xl border p-8 ${tier.bg} ${tier.border} shadow-2xl ${tier.glow}`}>
+        <div className="absolute inset-0 opacity-10" style={{ background: `radial-gradient(ellipse at 80% 50%, ${tier.key === 'gold' ? '#eab308' : tier.key === 'silver' ? '#94a3b8' : tier.key === 'diamond' ? '#06b6d4' : '#b45309'}, transparent 60%)` }} />
+        <div className="relative z-10 flex items-center justify-between flex-wrap gap-6">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-5xl">{tier.icon}</span>
+              <div>
+                <p className={`text-xs font-black uppercase tracking-widest ${tier.color}`}>{tier.label} Tier Captain</p>
+                <p className="text-[10px] text-text-muted">{tier.pct}% bonus rate · {periodLabel[period]}</p>
+              </div>
+            </div>
+            <p className={`text-6xl font-black ${tier.color} leading-none`}>${bonusAmt.toFixed(2)}</p>
+            <p className="text-text-muted text-sm mt-2">Bonus from <span className="text-white font-bold">${revenue.toFixed(0)}</span> revenue · <span className="text-white font-bold">{zoneOrders.length}</span> paid orders</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mb-1">Bonus Rate</p>
+            <p className={`text-5xl font-black ${tier.color}`}>{tier.pct}%</p>
+            <p className="text-[10px] text-text-muted mt-1">of total revenue</p>
+          </div>
+        </div>
+
+        {/* Progress to next tier */}
+        {nextTier && (
+          <div className="relative z-10 mt-6">
+            <div className="flex justify-between text-[10px] font-bold text-text-muted mb-1.5">
+              <span>{tier.icon} {tier.label} (${tier.min.toFixed(0)})</span>
+              <span className={tier.color}>${toNextTier.toFixed(0)} to {nextTier.icon} {nextTier.label}</span>
+              <span>{nextTier.icon} {nextTier.label} (${nextTier.min.toFixed(0)})</span>
+            </div>
+            <div className="h-3 bg-black/30 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full bg-gradient-to-r ${tier.badge} transition-all duration-700`}
+                style={{ width: `${progressPct}%` }} />
+            </div>
+            <p className="text-[10px] text-text-muted mt-1 text-center">
+              Reach {nextTier.icon} {nextTier.label} tier → earn {nextTier.pct}% bonus (+{nextTier.pct - tier.pct}% more)
+            </p>
+          </div>
+        )}
+        {!nextTier && (
+          <div className="relative z-10 mt-6 text-center">
+            <p className={`text-sm font-black ${tier.color}`}>🎉 You've reached the highest tier! Maximum {tier.pct}% bonus.</p>
+          </div>
+        )}
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Paid Orders',   value: zoneOrders.length,            color: 'text-primary',    bg: 'bg-primary/10',    icon: ClipboardList },
+          { label: 'Revenue',       value: `$${revenue.toFixed(0)}`,     color: 'text-green-400',  bg: 'bg-green-500/10',  icon: TrendingUp },
+          { label: 'Bonus Earned',  value: `$${bonusAmt.toFixed(2)}`,    color: tier.color,         bg: tier.bg,            icon: Award },
+          { label: 'Avg Per Order', value: zoneOrders.length ? `$${(revenue/zoneOrders.length).toFixed(0)}` : '—', color: 'text-blue-400', bg: 'bg-blue-500/10', icon: DollarSign },
+        ].map(({ label, value, color, bg, icon: Icon }) => (
+          <div key={label} className={`${bg} rounded-2xl border border-white/5 p-5 flex items-center gap-3`}>
+            <div className={`w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center shrink-0 ${color}`}>
+              <Icon size={18} />
+            </div>
+            <div>
+              <p className={`text-2xl font-black ${color}`}>{value}</p>
+              <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest">{label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* All Tiers Reference Table */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
+        <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+            <Star size={15} className="text-yellow-400" /> Bonus Tier Structure
+          </h3>
+          <p className="text-[10px] text-text-muted">Based on paid revenue per period</p>
+        </div>
+        <div className="divide-y divide-white/5">
+          {BONUS_TIERS.map((t) => {
+            const isCurrentTier = t.key === tier.key;
+            return (
+              <div key={t.key} className={`flex items-center px-6 py-4 gap-4 transition-all ${isCurrentTier ? `${t.bg} ring-1 ring-inset ${t.border}` : 'hover:bg-white/3'}`}>
+                <span className="text-2xl w-8 text-center">{t.icon}</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className={`font-black text-sm ${t.color}`}>{t.label}</p>
+                    {isCurrentTier && <span className={`text-[9px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r ${t.badge} text-white`}>CURRENT</span>}
+                  </div>
+                  <p className="text-[10px] text-text-muted">
+                    Revenue: ${t.min.toFixed(0)}{t.max === Infinity ? '+' : ` – $${t.max.toFixed(0)}`}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className={`text-2xl font-black ${t.color}`}>{t.pct}%</p>
+                  <p className="text-[10px] text-text-muted">bonus rate</p>
+                </div>
+                <div className="text-right w-24">
+                  <p className="text-xs font-bold text-white">
+                    {isCurrentTier ? `$${bonusAmt.toFixed(2)}` : `$${(revenue * t.pct / 100).toFixed(2)}`}
+                  </p>
+                  <p className="text-[10px] text-text-muted">on ${revenue.toFixed(0)}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* All-time stats */}
+      <div className={`rounded-3xl border p-6 ${allTimeTier.bg} ${allTimeTier.border}`}>
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-3xl">{allTimeTier.icon}</span>
+          <div>
+            <p className="text-sm font-black text-white">All-Time Performance</p>
+            <p className="text-[10px] text-text-muted">Based on your total lifetime revenue in your zone</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: 'All-Time Revenue',  value: `$${allTimeRevenue.toFixed(0)}`,                           color: 'text-white' },
+            { label: 'Lifetime Tier',     value: `${allTimeTier.icon} ${allTimeTier.label}`,                 color: allTimeTier.color },
+            { label: 'Lifetime Bonus',    value: `$${(allTimeRevenue * allTimeTier.pct / 100).toFixed(2)}`,  color: 'text-green-400' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-black/20 rounded-2xl p-4 text-center">
+              <p className={`text-xl font-black ${color}`}>{value}</p>
+              <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mt-1">{label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Order Breakdown */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
+        <button onClick={() => setShowBreakdown(b => !b)}
+          className="w-full flex items-center justify-between px-6 py-4 hover:bg-white/5 transition-all">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+            <FileText size={14} className="text-primary" /> Order Breakdown — {periodLabel[period]}
+          </h3>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-text-muted">{zoneOrders.length} orders</span>
+            <ChevronDown size={14} className={`text-text-muted transition-transform ${showBreakdown ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+        <AnimatePresence>
+          {showBreakdown && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden border-t border-white/5">
+              {zoneOrders.length === 0 ? (
+                <div className="py-10 text-center text-text-muted">
+                  <Award size={32} className="mx-auto mb-2 opacity-20" />
+                  <p className="text-sm font-bold">No paid orders this {period === 'today' ? 'day' : period === 'weekly' ? 'week' : period === 'monthly' ? 'month' : 'year'}</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-white/5 max-h-80 overflow-y-auto">
+                  {zoneOrders.map(o => {
+                    const tableRaw = String(o.table_number || '');
+                    const match = tableRaw.match(/\d+/);
+                    const tableLabel = match ? `Table ${match[0]}` : (o.order_type || '—');
+                    return (
+                      <div key={o._id || o.id} className="flex items-center px-6 py-3 hover:bg-white/3 transition-all">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-white">{o.order_number || `#${String(o._id || '').slice(-6).toUpperCase()}`}</p>
+                          <p className="text-[10px] text-text-muted">{tableLabel} · {new Date(o.created_at || o.timestamp).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-black text-white">${(o.total || 0).toFixed(0)}</p>
+                          <p className={`text-[10px] font-bold ${tier.color}`}>+${((o.total || 0) * tier.pct / 100).toFixed(2)} bonus</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="px-6 py-3 bg-white/3 border-t border-white/5 flex justify-between text-xs font-bold">
+                <span className="text-text-muted">{zoneOrders.length} orders · ${revenue.toFixed(0)} total</span>
+                <span className={tier.color}>${bonusAmt.toFixed(2)} bonus @ {tier.pct}%</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
 const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
   const [period, setPeriod] = useState('today');
   const [expandedOrder, setExpandedOrder] = useState(null);
@@ -916,13 +1208,24 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
     });
   }, [allOrders, period]);
 
-  const stats = useMemo(() => ({
-    total: orders.length,
-    served: orders.filter(o => ['served', 'paid'].includes(o.status)).length,
-    paid: orders.filter(o => o.status === 'paid').length,
-    revenue: orders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total || 0), 0),
-    items: orders.reduce((s, o) => s + (o.items || []).reduce((a, i) => a + (i.quantity || 1), 0), 0),
-  }), [orders]);
+  const stats = useMemo(() => {
+    const revenue = orders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total || 0), 0);
+    // Tiered bonus: Bronze <$500→3%, Silver $500-$1500→5%, Gold >$1500→8%
+    const bonusPct = revenue >= 1500 ? 0.08 : revenue >= 500 ? 0.05 : 0.03;
+    const bonusTier = revenue >= 1500 ? 'Gold' : revenue >= 500 ? 'Silver' : 'Bronze';
+    const bonusTierColor = revenue >= 1500 ? 'text-yellow-400' : revenue >= 500 ? 'text-slate-300' : 'text-amber-600';
+    return {
+      total: orders.length,
+      served: orders.filter(o => ['served', 'paid'].includes(o.status)).length,
+      paid: orders.filter(o => o.status === 'paid').length,
+      revenue,
+      items: orders.reduce((s, o) => s + (o.items || []).reduce((a, i) => a + (i.quantity || 1), 0), 0),
+      bonusAmt: revenue * bonusPct,
+      bonusPct: (bonusPct * 100).toFixed(0),
+      bonusTier,
+      bonusTierColor,
+    };
+  }, [orders]);
 
   return (
     <div className="space-y-6">
@@ -930,6 +1233,20 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><ClipboardList size={28} className="text-primary" />My Orders</h2>
           <p className="text-text-muted text-sm mt-1">All orders you have served</p>
+          {/* Zone badge */}
+          {captainTableNumbers && captainTableNumbers.length > 0 ? (
+            <div className="flex items-center gap-2 mt-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-xl w-fit">
+              <span className="text-green-400 text-sm">🪑</span>
+              <span className="text-[10px] text-green-400 font-black uppercase tracking-widest">
+                Zone: {captainTableNumbers.map(n => `Table ${n}`).join(' · ')}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 mt-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-xl w-fit">
+              <span className="text-blue-400 text-sm">🚗</span>
+              <span className="text-[10px] text-blue-400 font-black uppercase tracking-widest">Zone: Delivery & Pickup</span>
+            </div>
+          )}
         </div>
         <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
           {['today', 'weekly', 'monthly'].map(p => (
@@ -952,6 +1269,32 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
             <p className="text-[10px] text-text-muted uppercase tracking-widest font-bold mt-1">{s.label}</p>
           </div>
         ))}
+      </div>
+
+      {/* Bonus Banner */}
+      <div className="relative overflow-hidden rounded-3xl border border-yellow-500/30 bg-gradient-to-r from-yellow-500/10 via-amber-500/5 to-yellow-500/10 p-6">
+        <div className="absolute top-0 right-0 w-40 h-40 bg-yellow-400/10 blur-3xl rounded-full pointer-events-none" />
+        <div className="flex items-center justify-between flex-wrap gap-4 relative z-10">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Award size={20} className="text-yellow-400" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-yellow-400">Performance Bonus</span>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border border-yellow-500/30 bg-yellow-500/10 ${stats.bonusTierColor}`}>
+                {stats.bonusTier} Tier · {stats.bonusPct}%
+              </span>
+            </div>
+            <p className="text-4xl font-black text-white">${stats.bonusAmt.toFixed(2)}</p>
+            <p className="text-text-muted text-xs mt-1">Based on ${stats.revenue.toFixed(0)} revenue generated · {period}</p>
+          </div>
+          <div className="space-y-1 text-right">
+            {[['Bronze','< $500','3%','text-amber-600'],['Silver','$500–$1500','5%','text-slate-300'],['Gold','> $1500','8%','text-yellow-400']].map(([tier, range, pct, col]) => (
+              <div key={tier} className={`flex items-center gap-2 text-[10px] font-bold ${stats.bonusTier === tier ? col : 'text-text-muted'}`}>
+                <span className={`w-2 h-2 rounded-full ${stats.bonusTier === tier ? 'bg-current' : 'bg-white/10'}`} />
+                {tier}: {range} → {pct} bonus
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -1177,9 +1520,17 @@ const TableStatus = ({ user }) => {
         </div>
       </div>
       {isCaptain && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 rounded-xl text-xs text-primary font-bold w-fit">
+        <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border w-fit ${
+          isDeliveryCaptain
+            ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+            : 'bg-green-500/10 border-green-500/30 text-green-400'
+        }`}>
           <Shield size={12} />
-          Captain Zone — ID: CAP-{user?._id?.slice(-6).toUpperCase()}
+          <span className="text-xs font-black uppercase tracking-widest">
+            {isDeliveryCaptain
+              ? '🚗 Delivery & Pickup Captain'
+              : `🪑 Zone: ${tables.map(t => t.label || `Table ${t.table_number}`).join(' · ')}`}
+          </span>
         </div>
       )}
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
@@ -1269,7 +1620,13 @@ const TableStatus = ({ user }) => {
             return (
               <div key={t._id} className={`rounded-2xl border p-4 ${cfg.bg} relative overflow-hidden`}>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-xl font-black text-white">{t.label || `T${t.table_number}`}</p>
+                  <p className="text-xl font-black text-white">{
+                    (() => {
+                      const lbl = t.label || String(t.table_number || '');
+                      const n = parseInt(lbl);
+                      return (!isNaN(n) && String(n) === lbl.trim()) ? `Table ${n}` : (lbl || `T${t.table_number}`);
+                    })()
+                  }</p>
                   {isUpdating && <Loader size={14} className="animate-spin text-primary" />}
                 </div>
                 {t.capacity && <p className="text-[10px] text-text-muted mb-2">{t.capacity} seats</p>}
@@ -1331,7 +1688,8 @@ const ReservationsPanel = () => {
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
-  const [resDelConfirm, setResDelConfirm] = useState(null); // { id, name }
+  const [resDelConfirm, setResDelConfirm] = useState(null);
+  const [allTables, setAllTables] = useState([]); // for dropdown
   const RESERVATION_TIMES = ['11:00 AM','11:30 AM','12:00 PM','12:30 PM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','7:00 PM','7:30 PM','8:00 PM','8:30 PM','9:00 PM','9:30 PM'];
   const [form, setForm] = useState({ customer_name: '', email: '', phone: '', guests: 2, date: '', time: '', notes: '', table_assigned: '' });
   const [msg, setMsg] = useState({ text: '', type: '' });
@@ -1344,12 +1702,35 @@ const ReservationsPanel = () => {
     finally { if (!silent) setLoading(false); }
   }, []);
 
+  // Load real tables list for dropdown
+  useEffect(() => {
+    tablesAPI.getAll()
+      .then(r => setAllTables(r.data || []))
+      .catch(() => setAllTables([]));
+  }, []);
+
+  // Format a table label to always show "Table N" format
+  const getTableLabel = (t) => {
+    if (!t) return '';
+    const lbl = t.label || String(t.table_number || '');
+    const n = parseInt(lbl);
+    return (!isNaN(n) && String(n) === lbl.trim()) ? `Table ${n}` : lbl;
+  };
+
   useEffect(() => { load(); }, []);
   useAutoRefresh(load, 30000);
 
   const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
+
+  // Ensure table label always shows "Table 1" format, not bare "1"
+  const fmtTable = (t) => {
+    if (!t) return null;
+    const s = String(t).trim();
+    const n = parseInt(s);
+    return (!isNaN(n) && String(n) === s) ? `Table ${n}` : s;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1522,9 +1903,20 @@ const ReservationsPanel = () => {
                 </select>
               </div>
               <div>
-                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Table # (optional)</label>
-                <input value={form.table_assigned} onChange={sf('table_assigned')} placeholder="e.g. Table 5, Terrace 1"
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Assign Table (optional)</label>
+                <select value={form.table_assigned} onChange={sf('table_assigned')}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm appearance-none cursor-pointer">
+                  <option value="">— No table yet —</option>
+                  {allTables.map(t => {
+                    const lbl = getTableLabel(t);
+                    return (
+                      <option key={t._id} value={lbl}>
+                        {lbl}{t.capacity ? ` (${t.capacity} seats)` : ''}{t.type === 'vip' ? ' ⭐ VIP' : ''}
+                        {t.status !== 'available' ? ` [${t.status}]` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
               <div className="md:col-span-2">
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Special Requests</label>
@@ -1555,7 +1947,7 @@ const ReservationsPanel = () => {
                 <div className="flex items-center px-6 py-4 hover:bg-white/3 group flex-wrap gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-white">{r.customer_name}</p>
-                    <p className="text-xs text-text-muted">{r.phone || '—'} · {r.guests} guests{r.table_assigned ? ` · Table ${r.table_assigned}` : ''}</p>
+                    <p className="text-xs text-text-muted">{r.phone || '—'} · {r.guests} guests{fmtTable(r.table_assigned) ? ` · ${fmtTable(r.table_assigned)}` : ''}</p>
                     {r.email && <p className="text-[10px] text-text-muted/70">{r.email}</p>}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-text-muted">
@@ -1587,8 +1979,19 @@ const ReservationsPanel = () => {
                     <div className="grid md:grid-cols-2 gap-3">
                       <div>
                         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Assign Table</label>
-                        <input value={tableAssign} onChange={e => setTableAssign(e.target.value)} placeholder="e.g. Table 3"
-                          className={`w-full bg-bg-main border p-2.5 rounded-xl outline-none text-white text-sm ${tableConflicts.length > 0 ? 'border-red-500/60 focus:border-red-500' : 'border-white/10 focus:border-primary'}`} />
+                        <select value={tableAssign} onChange={e => setTableAssign(e.target.value)}
+                          className={`w-full bg-bg-main border p-2.5 rounded-xl outline-none text-white text-sm appearance-none cursor-pointer ${tableConflicts.length > 0 ? 'border-red-500/60 focus:border-red-500' : 'border-white/10 focus:border-primary'}`}>
+                          <option value="">— Select a table —</option>
+                          {allTables.map(t => {
+                            const lbl = getTableLabel(t);
+                            return (
+                              <option key={t._id} value={lbl}>
+                                {lbl}{t.capacity ? ` (${t.capacity} seats)` : ''}{t.type === 'vip' ? ' ⭐ VIP' : ''}
+                                {t.status !== 'available' ? ` [${t.status}]` : ' ✓ Available'}
+                              </option>
+                            );
+                          })}
+                        </select>
                         {/* Conflict warning */}
                         {checkingConflict && <p className="text-[10px] text-text-muted mt-1">Checking availability…</p>}
                         {!checkingConflict && tableConflicts.length > 0 && (
@@ -2314,31 +2717,7 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
         ))}
       </div>
 
-      {/* Staff Hours Bar Chart */}
-      {staffStats.length > 0 && (
-        <div className="bg-secondary/40 rounded-3xl border border-white/5 p-6">
-          <h3 className="text-sm font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-            <BarChart2 size={16} className="text-primary" /> Staff Hours — {period}
-          </h3>
-          <div className="space-y-3">
-            {staffStats.map(s => (
-              <div key={s.name} className="flex items-center gap-3">
-                <div className="w-28 shrink-0">
-                  <p className="text-xs font-bold text-white truncate">{s.name}</p>
-                  <p className={`text-[9px] font-bold uppercase ${(roleColors[s.role] || 'text-text-muted').split(' ')[1]}`}>{s.role}</p>
-                </div>
-                <div className="flex-1 relative h-6 bg-white/5 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-700 ${(roleColors[s.role] || 'bg-primary').split(' ')[0]}/60`}
-                    style={{ width: `${Math.min((s.hours / maxHours) * 100, 100)}%` }}
-                  />
-                  <span className="absolute inset-0 flex items-center px-3 text-[10px] font-black text-white">{s.hours.toFixed(1)}h · {s.sessions} sessions</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+    
 
       {/* Role filter buttons — only shown to admins; captain/chef only see their own */}
       {isAdmin && (
@@ -4218,6 +4597,9 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
   // Count orders needing confirmation
   const pendingConfirmCount = orders.filter(o => o.status === 'pending_confirmation').length;
 
+  const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
+  const isDineInCaptain   = user.role === 'captain' && captainTableNumbers && captainTableNumbers.length > 0;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -4236,6 +4618,29 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
           ))}
         </div>
       </div>
+
+      {/* Captain Zone Banner */}
+      {user.role === 'captain' && (
+        <div className={`flex items-center gap-3 px-5 py-3 rounded-2xl border ${isDeliveryCaptain ? 'bg-blue-500/10 border-blue-500/30' : 'bg-green-500/10 border-green-500/30'}`}>
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg ${isDeliveryCaptain ? 'bg-blue-500/20' : 'bg-green-500/20'}`}>
+            {isDeliveryCaptain ? '🚗' : '🪑'}
+          </div>
+          <div>
+            <p className={`text-xs font-black uppercase tracking-widest ${isDeliveryCaptain ? 'text-blue-400' : 'text-green-400'}`}>
+              Your Zone · {isDeliveryCaptain ? 'Delivery & Pickup Captain' : `Tables ${captainTableNumbers.map(n => `Table ${n}`).join(', ')}`}
+            </p>
+            <p className="text-[10px] text-text-muted mt-0.5">
+              {isDeliveryCaptain
+                ? 'You see and manage all delivery & pickup orders only. Use 🚗 Dispatch to dispatch ready orders.'
+                : `You see and manage orders for your assigned tables only. Buttons on other-zone tables are locked.`}
+            </p>
+          </div>
+          <div className={`ml-auto px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border ${isDeliveryCaptain ? 'bg-blue-500/20 border-blue-500/30 text-blue-400' : 'bg-green-500/20 border-green-500/30 text-green-400'}`}>
+            {orders.length} order{orders.length !== 1 ? 's' : ''} in zone
+          </div>
+        </div>
+      )}
+
       <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
         <OrderTable orders={filtered} user={user} onStatusUpdate={updateOrderStatus} onConfirmOrder={confirmOrder} onDelete={deleteOrder} statusColors={STATUS_COLORS} captainTableNumbers={captainTableNumbers} />
       </div>
@@ -5458,11 +5863,89 @@ const RidersPanel = ({ currentUserRole }) => {
   const [showForm,     setShowForm]    = useState(false);
   const [delConfirm,   setDelConfirm]  = useState(null);
   const [msg,          setMsg]         = useState({ text: '', type: '' });
-  const [activeRider,  setActiveRider] = useState(null); // for detail drawer
+  const [activeRider,  setActiveRider] = useState(null);
   const [riderDels,    setRiderDels]   = useState([]);
   const [riderDelLoad, setRiderDelLoad] = useState(false);
+  const [liveDeliveries, setLiveDeliveries] = useState([]);
+  const [showMap,      setShowMap]     = useState(true);
+  const mapRef = useRef(null);
+  const leafletMap = useRef(null);
+  const markersRef = useRef([]);
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', vehicle_type: 'bike' });
   const sf = f => e => setForm(p => ({ ...p, [f]: e.target.value }));
+
+  // Load live delivery locations from backend
+  const loadLive = useCallback(async () => {
+    try {
+      const res = await deliveryAPI.getLiveLocations();
+      setLiveDeliveries(res.data || []);
+    } catch {}
+  }, []);
+
+  // Init Leaflet map
+  useEffect(() => {
+    if (!showMap || !mapRef.current || leafletMap.current) return;
+    const loadLeaflet = async () => {
+      if (!window.L) {
+        await new Promise((res, rej) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet'; link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+          document.head.appendChild(link);
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+          s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      const L = window.L;
+      if (!mapRef.current || leafletMap.current) return;
+      leafletMap.current = L.map(mapRef.current, { zoomControl: true }).setView([17.3850, 78.4867], 11);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(leafletMap.current);
+    };
+    loadLeaflet().catch(() => {});
+    return () => {
+      if (leafletMap.current) { leafletMap.current.remove(); leafletMap.current = null; }
+    };
+  }, [showMap]);
+
+  // Update markers whenever liveDeliveries changes
+  useEffect(() => {
+    if (!leafletMap.current || !window.L) return;
+    const L = window.L;
+    // Remove old markers
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+    // Geocode and place markers for each active delivery
+    liveDeliveries.forEach(async (d) => {
+      const addr = d.delivery_address || '';
+      if (!addr) return;
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addr)}&format=json&limit=1`);
+        const data = await r.json();
+        if (data[0] && leafletMap.current) {
+          const { lat, lon } = data[0];
+          const riderName = d.driver_id?.name || 'Rider';
+          const orderNum = d.order_id?.order_number || '—';
+          const statusEmoji = d.status === 'in_transit' ? '🛵' : d.status === 'picked_up' ? '📦' : '✅';
+          const icon = L.divIcon({
+            html: `<div style="background:${d.status==='in_transit'?'#22c55e':d.status==='picked_up'?'#f97316':'#3b82f6'};color:white;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)">${statusEmoji}</div>`,
+            className: '', iconSize: [36, 36], iconAnchor: [18, 18],
+          });
+          const marker = L.marker([parseFloat(lat), parseFloat(lon)], { icon })
+            .addTo(leafletMap.current)
+            .bindPopup(`<b>${riderName}</b><br>Order #${orderNum}<br>${addr}<br><i>${d.status.replace('_',' ')}</i>`);
+          markersRef.current.push(marker);
+        }
+      } catch {}
+    });
+    // Auto-fit bounds
+    if (markersRef.current.length > 0 && leafletMap.current) {
+      const group = L.featureGroup(markersRef.current);
+      leafletMap.current.fitBounds(group.getBounds().pad(0.3));
+    }
+  }, [liveDeliveries]);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -5477,8 +5960,9 @@ const RidersPanel = ({ currentUserRole }) => {
     finally { if (!silent) setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); loadLive(); }, []);
   useAutoRefresh(load, 20000);
+  useAutoRefresh(loadLive, 10000);
 
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3500); };
 
@@ -5659,6 +6143,53 @@ const RidersPanel = ({ currentUserRole }) => {
           )}
         </AnimatePresence>
       )}
+
+      {/* Live Tracking Map */}
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <MapPin size={18} className="text-primary" />
+            <div>
+              <h3 className="text-sm font-black text-white uppercase tracking-widest">Live Rider Tracking</h3>
+              <p className="text-[10px] text-text-muted mt-0.5">{liveDeliveries.length} active delivery{liveDeliveries.length !== 1 ? 'ies' : ''} · refreshes every 10s</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {liveDeliveries.length > 0 && <div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" /><span className="text-[10px] text-green-400 font-bold">LIVE</span></div>}
+            <button onClick={() => setShowMap(m => !m)} className="text-[10px] font-black text-text-muted hover:text-white px-3 py-1.5 bg-white/5 rounded-lg uppercase tracking-widest transition-all">
+              {showMap ? 'Hide' : 'Show'} Map
+            </button>
+          </div>
+        </div>
+        {showMap && (
+          <div className="relative">
+            <div ref={mapRef} style={{ height: 380, width: '100%', background: '#111' }} />
+            {liveDeliveries.length === 0 && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 pointer-events-none">
+                <Truck size={36} className="text-white/20 mb-2" />
+                <p className="text-white/30 text-sm font-bold">No active deliveries to track</p>
+                <p className="text-white/20 text-xs mt-1">Map will populate when riders are on the road</p>
+              </div>
+            )}
+          </div>
+        )}
+        {/* Active delivery legend */}
+        {liveDeliveries.length > 0 && (
+          <div className="px-6 py-3 border-t border-white/5 flex flex-wrap gap-3">
+            {liveDeliveries.map(d => (
+              <div key={d._id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-[10px] font-bold ${
+                d.status === 'in_transit' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
+                d.status === 'picked_up'  ? 'bg-orange-500/10 border-orange-500/20 text-orange-400' :
+                'bg-blue-500/10 border-blue-500/20 text-blue-400'
+              }`}>
+                <span>{d.status === 'in_transit' ? '🛵' : d.status === 'picked_up' ? '📦' : '✅'}</span>
+                <span>{d.driver_id?.name || 'Rider'}</span>
+                <span className="text-text-muted">→ #{d.order_id?.order_number || '—'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Riders table */}
       {loading ? <div className="flex justify-center py-16"><Loader size={24} className="animate-spin text-primary" /></div> : (
@@ -6938,7 +7469,7 @@ const navigate = useNavigate();
   useEffect(() => {
     if (user.role === 'captain') {
       tablesAPI.getMyTables()
-        .then(res => setCaptainTableNumbers((res.data || []).map(t => t.table_number)))
+        .then(res => setCaptainTableNumbers((res.data || []).map(t => parseInt(t.table_number)).filter(n => !isNaN(n))))
         .catch(() => setCaptainTableNumbers([]));
     }
   }, [user.role]);
@@ -6950,7 +7481,7 @@ const navigate = useNavigate();
     announcements: 'Announcements', leaves: 'Leave Module', shifts: 'Shift Logs',
     staffmgmt: 'Staff Management', finance: 'Finance Center', riders: 'Riders Hub', waste_chef: 'Waste Log',
     customers: 'Customers',
-    my_orders: 'My Orders', chef_orders: 'Order History', staff: 'My Profile',
+    my_orders: 'My Orders', captain_bonus: 'My Bonus', chef_orders: 'Order History', staff: 'My Profile',
   };
 
   useEffect(() => {
@@ -7181,6 +7712,13 @@ const navigate = useNavigate();
               <MotionDiv key="my_orders" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
                 <CaptainMyOrders user={user} allOrders={orders} captainTableNumbers={captainTableNumbers} />
+              </MotionDiv>
+            )}
+
+            {/* CAPTAIN BONUS MODULE */}
+            {activeTab === 'captain_bonus' && user.role === 'captain' && (
+              <MotionDiv key="captain_bonus" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CaptainBonusModule user={user} allOrders={orders} captainTableNumbers={captainTableNumbers} />
               </MotionDiv>
             )}
 

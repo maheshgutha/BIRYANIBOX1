@@ -256,6 +256,22 @@ router.get('/', protect, async (req, res, next) => {
       filter.$or = [{ status: 'pending' }, { chef_id: req.user._id }];
       delete filter.chef_id;
     }
+
+    // ── CAPTAIN: only see orders in their zone ────────────────────────────────
+    if (req.user.role === 'captain') {
+      const captainTables = await RestaurantTable.find({ captain_id: req.user._id, is_active: true });
+      const captainTableNums = captainTables.map(t => t.table_number);
+      const isDeliveryCaptain = captainTableNums.length === 0;
+      if (isDeliveryCaptain) {
+        // Delivery captain sees only delivery/pickup/takeaway orders
+        filter.order_type = { $in: ['delivery', 'pickup', 'takeaway'] };
+      } else {
+        // Dine-in captain sees only orders for their tables
+        // table_number stored as "1", "2", "Table 1", "Table 2" — match both formats
+        const tablePatterns = captainTableNums.flatMap(n => [String(n), `Table ${n}`]);
+        filter.table_number = { $in: tablePatterns };
+      }
+    }
     const orders = await Order.find(filter)
       .populate('customer_id', 'name email phone')
       .populate('captain_id', 'name')
@@ -560,6 +576,30 @@ router.patch('/:id/status', protect, async (req, res, next) => {
     if (status === 'start_cooking') {
       if (order.chef_id && order.chef_id.toString() !== req.user._id.toString()) {
         return res.status(409).json({ success: false, message: 'This order has already been accepted by another chef.' });
+      }
+    }
+
+    // ── Captain zone constraint: captain can only serve/pay their own tables ──
+    if (userRole === 'captain' && ['served', 'paid'].includes(status)) {
+      const captainTables = await RestaurantTable.find({ captain_id: req.user._id, is_active: true });
+      const captainTableNums = captainTables.map(t => t.table_number);
+      const isDeliveryCaptain = captainTableNums.length === 0;
+      if (isDeliveryCaptain) {
+        // Delivery captain can only advance delivery/pickup orders
+        if (!['delivery', 'pickup', 'takeaway'].includes(order.order_type)) {
+          return res.status(403).json({ success: false, message: 'You handle delivery & pickup orders only. This is a dine-in order.' });
+        }
+      } else {
+        // Dine-in captain: verify table is in their zone
+        const rawTable = String(order.table_number || '');
+        const match = rawTable.match(/\d+/);
+        const orderTableNum = match ? parseInt(match[0]) : NaN;
+        if (isNaN(orderTableNum) || !captainTableNums.includes(orderTableNum)) {
+          return res.status(403).json({
+            success: false,
+            message: `Table ${order.table_number} is not in your zone. You manage: ${captainTableNums.map(n => `Table ${n}`).join(', ')}.`
+          });
+        }
       }
     }
 

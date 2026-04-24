@@ -6,6 +6,8 @@ const Notification = require('../models/Notification');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+const MenuItem = require('../models/MenuItem');
+
 // Middleware: optionally decode token without blocking unauthenticated requests
 const optionalAuth = async (req, res, next) => {
   try {
@@ -16,6 +18,34 @@ const optionalAuth = async (req, res, next) => {
     }
   } catch (_) { /* token invalid or missing — that's OK */ }
   next();
+};
+
+// Helper: resolve offer_items (array of menu item _id strings) to name objects
+const resolveOfferItems = async (announcements) => {
+  // Collect all unique item IDs across all announcements
+  const allIds = [...new Set(
+    announcements.flatMap(a =>
+      a.has_offer && a.offer_scope === 'selected' ? (a.offer_items || []) : []
+    )
+  )];
+  if (allIds.length === 0) return announcements;
+
+  // Fetch all relevant menu items in one query
+  const items = await MenuItem.find({ _id: { $in: allIds } }).select('_id name');
+  const idToName = {};
+  items.forEach(it => { idToName[String(it._id)] = it.name; });
+
+  // Return announcements with offer_items replaced by { id, name } objects
+  return announcements.map(a => {
+    const obj = a.toObject ? a.toObject() : a;
+    if (obj.has_offer && obj.offer_scope === 'selected' && Array.isArray(obj.offer_items)) {
+      obj.offer_items = obj.offer_items.map(id => ({
+        id,
+        name: idToName[String(id)] || id,
+      }));
+    }
+    return obj;
+  });
 };
 
 // GET /api/announcements — public + authenticated customers see customer-targeted ones
@@ -38,7 +68,9 @@ router.get('/', optionalAuth, async (req, res, next) => {
       .populate('created_by', 'name role')
       .sort({ created_at: -1 });
 
-    res.json({ success: true, data: announcements });
+    // Resolve offer_items (MenuItem ObjectIds) → { _id, name } objects
+    const resolved = await resolveOfferItems(announcements);
+    res.json({ success: true, data: resolved });
   } catch (err) { next(err); }
 });
 
@@ -48,7 +80,8 @@ router.get('/all', protect, authorize('owner', 'manager'), async (req, res, next
     const announcements = await Announcement.find()
       .populate('created_by', 'name role')
       .sort({ created_at: -1 });
-    res.json({ success: true, data: announcements });
+    const resolved = await resolveOfferItems(announcements);
+    res.json({ success: true, data: resolved });
   } catch (err) { next(err); }
 });
 

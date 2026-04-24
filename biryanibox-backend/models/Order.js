@@ -29,6 +29,8 @@ const OrderSchema = new mongoose.Schema({
   // Delivery fields
   delivery_address:  { type: String },
   delivery_notes:    { type: String },
+
+  knock_bell:        { type: Boolean, default: true },  // true = ring doorbell/knock, false = do not disturb
   distance_km:       { type: Number, min: 0 },
   delivery_fee:      { type: Number, min: 0, default: 0 },
 

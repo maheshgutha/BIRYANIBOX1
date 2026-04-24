@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
-import { ordersAPI, addressesAPI, announcementsAPI, feedbackAPI, loyaltyAPI, usersAPI } from '../services/api';
+import { ordersAPI, addressesAPI, announcementsAPI, feedbackAPI, loyaltyAPI, usersAPI, authAPI } from '../services/api';
 
 const MotionDiv = motion.div;
 
@@ -261,6 +261,13 @@ const ProfileHub = () => {
   const [showPass,      setShowPass]     = useState(false);
   const [profileMsg,    setProfileMsg]   = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
+  // Forgot-password OTP flow inside Edit Profile
+  const [fpMode,        setFpMode]       = useState('idle'); // idle | sending | otp_sent | resetting | done
+  const [fpOtp,         setFpOtp]        = useState('');
+  const [fpNewPass,     setFpNewPass]    = useState('');
+  const [fpConfirm,     setFpConfirm]    = useState('');
+  const [fpMsg,         setFpMsg]        = useState('');
+  const [fpError,       setFpError]      = useState('');
 
   useEffect(() => {
     if (!user) navigate('/auth');
@@ -402,6 +409,10 @@ const ProfileHub = () => {
       setProfileMsg('Passwords do not match');
       return;
     }
+    if (passForm.new_password.length < 6) {
+      setProfileMsg('Password must be at least 6 characters');
+      return;
+    }
     setProfileSaving(true);
     setProfileMsg('');
     try {
@@ -415,6 +426,40 @@ const ProfileHub = () => {
       setProfileMsg(err.message || 'Failed to change password');
     }
     setProfileSaving(false);
+  };
+
+  // ── Forgot-password OTP handlers ──────────────────────────────────────────
+  const handleSendFpOTP = async () => {
+    setFpError(''); setFpMsg('');
+    if (!user?.email) return;
+    setFpMode('sending');
+    try {
+      await authAPI.forgotPasswordOTP(user.email);
+      setFpMode('otp_sent');
+      setFpMsg('OTP sent to ' + user.email + '. Check your inbox.');
+    } catch (err) {
+      setFpError(err.message || 'Failed to send OTP');
+      setFpMode('idle');
+    }
+  };
+
+  const handleResetPassOTP = async (e) => {
+    e.preventDefault();
+    setFpError('');
+    if (!fpOtp.trim())    { setFpError('Enter the OTP from your email'); return; }
+    if (!fpNewPass.trim()){ setFpError('Enter a new password'); return; }
+    if (fpNewPass.length < 6) { setFpError('Password must be at least 6 characters'); return; }
+    if (fpNewPass !== fpConfirm) { setFpError('Passwords do not match'); return; }
+    setFpMode('resetting');
+    try {
+      await authAPI.resetPasswordOTP({ email: user.email, otp: fpOtp, new_password: fpNewPass });
+      setFpMode('done');
+      setFpMsg('✅ Password updated successfully!');
+      setFpOtp(''); setFpNewPass(''); setFpConfirm('');
+    } catch (err) {
+      setFpError(err.message || 'Invalid OTP or error resetting password');
+      setFpMode('otp_sent');
+    }
   };
 
   if (!user) return null;
@@ -811,7 +856,10 @@ const ProfileHub = () => {
                               <div className="space-y-2 mb-3">
                                 {(a.offer_items || []).map((item, i) => (
                                   <div key={i} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-2.5">
-                                    <span className="text-sm text-white font-bold">{item}</span>
+                                    <span className="text-sm text-white font-bold">
+                                      {/* item is { id, name } from API, or a raw string fallback */}
+                                      {typeof item === 'object' ? item.name : item}
+                                    </span>
                                     <span className="text-xs font-black text-green-400">{a.offer_discount}% OFF</span>
                                   </div>
                                 ))}
@@ -959,6 +1007,93 @@ const ProfileHub = () => {
                     Update Password
                   </button>
                 </form>
+
+                {/* ── Forgot Password via OTP ─────────────────────────────── */}
+                <div className="bg-secondary/40 border border-white/10 rounded-3xl p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-black text-white">Forgot Password?</h3>
+                    {fpMode === 'idle' && (
+                      <span className="text-[10px] text-white/30 font-bold">Reset without current password</span>
+                    )}
+                  </div>
+
+                  {/* Success state */}
+                  {fpMode === 'done' && (
+                    <div className="flex items-center gap-3 px-4 py-3 bg-green-500/10 border border-green-500/20 rounded-xl">
+                      <CheckCircle size={16} className="text-green-400 shrink-0" />
+                      <span className="text-sm font-bold text-green-400">{fpMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Error */}
+                  {fpError && (
+                    <div className="px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-bold">
+                      {fpError}
+                    </div>
+                  )}
+
+                  {/* Step 1: Send OTP button */}
+                  {(fpMode === 'idle' || fpMode === 'sending') && fpMode !== 'done' && (
+                    <div className="space-y-3">
+                      <p className="text-xs text-white/50">
+                        We'll send a one-time code to <span className="text-primary font-bold">{user?.email}</span>
+                      </p>
+                      <button
+                        type="button"
+                        disabled={fpMode === 'sending'}
+                        onClick={handleSendFpOTP}
+                        className="w-full py-3 bg-primary/10 border border-primary/30 text-primary font-black text-xs uppercase tracking-widest rounded-xl disabled:opacity-60 flex items-center justify-center gap-2 hover:bg-primary/20 transition-all">
+                        {fpMode === 'sending' ? <Loader size={14} className="animate-spin" /> : <Mail size={14} />}
+                        {fpMode === 'sending' ? 'Sending OTP…' : 'Send OTP to Email'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Step 2: OTP + new password form */}
+                  {(fpMode === 'otp_sent' || fpMode === 'resetting') && (
+                    <form onSubmit={handleResetPassOTP} className="space-y-3">
+                      {fpMsg && (
+                        <p className="text-xs text-green-400 font-bold">{fpMsg}</p>
+                      )}
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">OTP Code</label>
+                        <input
+                          type="text" inputMode="numeric" maxLength={6}
+                          value={fpOtp} onChange={e => setFpOtp(e.target.value.replace(/\D/g, ''))}
+                          placeholder="Enter 6-digit OTP"
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white tracking-[0.3em] text-center focus:outline-none focus:border-primary/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">New Password <span className="text-white/20">(min 6 chars)</span></label>
+                        <input
+                          type="password" value={fpNewPass} onChange={e => setFpNewPass(e.target.value)}
+                          placeholder="New password"
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Confirm New Password</label>
+                        <input
+                          type="password" value={fpConfirm} onChange={e => setFpConfirm(e.target.value)}
+                          placeholder="Confirm password"
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary/50"
+                        />
+                      </div>
+                      <div className="flex gap-3">
+                        <button type="button" onClick={() => { setFpMode('idle'); setFpError(''); setFpMsg(''); setFpOtp(''); setFpNewPass(''); setFpConfirm(''); }}
+                          className="flex-1 py-3 bg-white/5 border border-white/10 text-white/50 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-white/10 transition-all">
+                          Cancel
+                        </button>
+                        <button type="submit" disabled={fpMode === 'resetting'}
+                          className="flex-1 py-3 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-xl disabled:opacity-60 flex items-center justify-center gap-2 hover:bg-primary-hover transition-all">
+                          {fpMode === 'resetting' ? <Loader size={14} className="animate-spin" /> : <Lock size={14} />}
+                          {fpMode === 'resetting' ? 'Updating…' : 'Set New Password'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
               </div>
             </MotionDiv>
           )}

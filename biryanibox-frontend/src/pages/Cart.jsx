@@ -399,6 +399,8 @@ const Cart = () => {
   const [tablesLoading, setTablesLoading] = useState(false);
   const [deliveryAddr,  setDeliveryAddr]  = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
+
+  const [knockBell,     setKnockBell]     = useState(true);  // true = ring bell, false = do not disturb
   const [orderError,    setOrderError]    = useState('');
 
   // Gift card state
@@ -564,6 +566,7 @@ const Cart = () => {
         ...(orderMode === 'delivery' ? {
           delivery_address: deliveryAddr.trim(),
           delivery_notes:   deliveryNotes.trim() || undefined,
+          knock_bell:       knockBell,
         } : {}),
         ...(orderMode === 'pickup' ? {
           delivery_notes: deliveryNotes.trim() || undefined,
@@ -1026,6 +1029,20 @@ const Cart = () => {
                     <input value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)}
                       placeholder="Landmark, floor, gate number... (optional)"
                       className="w-full bg-bg-main border border-white/10 px-4 py-2.5 rounded-xl text-white text-xs focus:outline-none focus:border-primary transition-all placeholder:text-text-muted/50" />
+                    {/* Knock bell preference */}
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Arrival Preference</p>
+                      <div className="flex gap-2">
+                        <label className={`flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer transition-all ${knockBell ? 'bg-primary/10 border-primary/40 text-primary' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                          <input type="radio" name="knockBell" checked={knockBell} onChange={() => setKnockBell(true)} className="accent-orange-500 shrink-0" />
+                          <span className="text-xs font-bold">🔔 Ring Bell / Knock</span>
+                        </label>
+                        <label className={`flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer transition-all ${!knockBell ? 'bg-secondary border-white/30 text-white' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                          <input type="radio" name="knockBell" checked={!knockBell} onChange={() => setKnockBell(false)} className="accent-orange-500 shrink-0" />
+                          <span className="text-xs font-bold">🤫 Do Not Disturb</span>
+                        </label>
+                      </div>
+                    </div>
                     {!deliveryAddr.trim() && (
                       <p className="text-[10px] text-yellow-400 font-bold">⚠ Delivery address is required</p>
                     )}

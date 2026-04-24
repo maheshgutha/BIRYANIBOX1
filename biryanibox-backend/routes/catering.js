@@ -136,6 +136,40 @@ router.patch('/:id/status', protect, authorize('owner','manager'), async (req, r
       }
     }
 
+    // ── Completion greeting email to customer ──────────────────────────────
+    if (status === 'completed' && existing.status !== 'completed') {
+      const customerEmail = item.email || item.contact_email;
+      if (customerEmail) {
+        await sendEmail({
+          to: customerEmail,
+          subject: '🎉 Thank You — Catering Event Completed! | Biryani Box',
+          html: `
+            <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+              <h1 style="color:#f97316;margin-bottom:4px;">Biryani Box 🍛</h1>
+              <p style="color:#888;font-size:13px;margin-bottom:28px;">Event Completion</p>
+              <h2 style="font-size:22px;margin-bottom:8px;">Thank you, ${item.contact_name || item.customer_name}! 🎊</h2>
+              <p style="color:#ccc;line-height:1.7;margin-bottom:20px;">
+                It was a pleasure serving you and your guests! We hope the food was exceptional and your event was a grand success.
+              </p>
+              <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin-bottom:20px;border-left:3px solid #f97316;">
+                <table style="width:100%;font-size:14px;">
+                  <tr><td style="color:#888;padding:4px 0;">Event</td><td style="text-align:right;color:#fff;">${item.event_type || 'Catering'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Date</td><td style="text-align:right;color:#fff;">${item.event_date || '—'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${item.guests || item.guest_count || '—'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Status</td><td style="text-align:right;color:#22c55e;font-weight:bold;">✅ Completed</td></tr>
+                </table>
+              </div>
+              <p style="color:#ccc;line-height:1.7;">
+                We would love to hear your feedback! Your experience helps us improve and continue serving amazing food at events.
+                We look forward to being part of your next celebration. 🍛
+              </p>
+              <p style="color:#444;font-size:12px;margin-top:24px;">With warm regards,<br/><strong style="color:#f97316;">The Biryani Box Team</strong></p>
+            </div>
+          `,
+        });
+      }
+    }
+
     res.json({ success: true, data: item });
   } catch (err) { next(err); }
 });
@@ -222,13 +256,63 @@ router.get('/send-reminders', protect, authorize('owner', 'manager'), async (req
 
     let sentCount = 0;
     for (const event of events) {
-      // Notify owner + manager
-      const staff = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
+      // Notify owner, manager AND chefs
+      const staff = await User.find({ role: { $in: ['owner', 'manager', 'chef'] }, is_active: true });
       await Notification.insertMany(staff.map(u => ({
         user_id: u._id, type: 'catering_reminder',
         title: '📅 Catering Event Tomorrow!',
         message: `Reminder: "${event.event_type || 'Catering event'}" for ${event.guest_count || event.guests} guests is scheduled for tomorrow (${tomorrowStr}). Contact: ${event.customer_name || event.contact_name} — ${event.email || event.contact_email}.`,
       })));
+      // Email chefs about tomorrow's catering event
+      const chefs = await User.find({ role: 'chef', is_active: true, email: { $exists: true, $ne: '' } });
+      for (const chef of chefs) {
+        await sendEmail({
+          to: chef.email,
+          subject: '👨‍🍳 Catering Event Tomorrow — Prep Heads Up! | Biryani Box',
+          html: `
+            <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+              <h1 style="color:#f97316;">Biryani Box 🍛</h1>
+              <p>Hi <strong>${chef.name}</strong>,</p>
+              <p style="color:#ccc;">Just a heads-up — there's a <strong style="color:#f97316;">catering event tomorrow</strong> that needs your prep:</p>
+              <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin:20px 0;">
+                <table style="width:100%;font-size:14px;">
+                  <tr><td style="color:#888;padding:4px 0;">Event Type</td><td style="text-align:right;color:#fff;">${event.event_type || 'Catering'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Date</td><td style="text-align:right;color:#f97316;font-weight:bold;">${tomorrowStr}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${event.guest_count || event.guests || 'TBD'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Customer</td><td style="text-align:right;color:#fff;">${event.customer_name || event.contact_name}</td></tr>
+                </table>
+              </div>
+              <p style="color:#666;font-size:12px;">Please coordinate with the manager for any special preparations.</p>
+              <p style="color:#444;font-size:12px;margin-top:20px;">Biryani Box Kitchen Team</p>
+            </div>
+          `,
+        });
+      }
+      // Also email owner + manager
+      const managers = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true, email: { $exists: true, $ne: '' } });
+      for (const mgr of managers) {
+        await sendEmail({
+          to: mgr.email,
+          subject: '📅 Catering Reminder — Event Tomorrow | Biryani Box',
+          html: `
+            <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+              <h1 style="color:#f97316;">Biryani Box 🍛</h1>
+              <p>Hi <strong>${mgr.name}</strong>,</p>
+              <p style="color:#ccc;">Reminder — catering event scheduled for <strong style="color:#f97316;">tomorrow (${tomorrowStr})</strong>:</p>
+              <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin:20px 0;">
+                <table style="width:100%;font-size:14px;">
+                  <tr><td style="color:#888;padding:4px 0;">Event Type</td><td style="text-align:right;color:#fff;">${event.event_type || 'Catering'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${event.guest_count || event.guests || 'TBD'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Contact</td><td style="text-align:right;color:#fff;">${event.customer_name || event.contact_name}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Email</td><td style="text-align:right;color:#fff;">${event.email || event.contact_email || '—'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Status</td><td style="text-align:right;color:#f97316;font-weight:bold;">${event.status}</td></tr>
+                </table>
+              </div>
+              <p style="color:#666;font-size:12px;">Biryani Box Management System</p>
+            </div>
+          `,
+        });
+      }
 
       // Notify customer via email
       const customerEmail = event.email || event.contact_email;

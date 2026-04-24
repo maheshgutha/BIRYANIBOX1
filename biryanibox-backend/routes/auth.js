@@ -17,12 +17,12 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const sendOTPEmail = async (email, otp, name) => {
+const sendOTPEmail = async (email, otp, name, subject = 'Your Biryani Box OTP Code') => {
   try {
     await transporter.sendMail({
       from:    `"Biryani Box" <${process.env.SMTP_USER}>`,
       to:      email,
-      subject: 'Your Biryani Box OTP Code',
+      subject,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#111;color:#fff;border-radius:16px;">
           <h2 style="color:#f97316;">Biryani Box 🍛</h2>
@@ -35,7 +35,6 @@ const sendOTPEmail = async (email, otp, name) => {
     });
   } catch (err) {
     console.error('OTP email error:', err.message);
-    // Don't throw — fallback: log OTP in dev
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[DEV] OTP for ${email}: ${otp}`);
     }
@@ -52,7 +51,6 @@ router.post('/send-otp', async (req, res, next) => {
     const existing = await User.findOne({ email, is_verified: true, role: 'customer' });
     if (existing) return res.status(400).json({ success: false, message: 'Email already registered' });
 
-    // Upsert a temp user or update existing unverified
     let tempUser = await User.findOne({ email, is_verified: false });
     if (!tempUser) {
       tempUser = new User({ name: name || 'Guest', email, password_hash: 'TEMP', role: 'customer', is_verified: false });
@@ -71,6 +69,8 @@ router.post('/verify-otp', async (req, res, next) => {
   try {
     const { email, otp, name, phone, password } = req.body;
     if (!email || !otp) return res.status(400).json({ success: false, message: 'Email and OTP required' });
+    // 6-character minimum password enforcement
+    if (password && password.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
 
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ success: false, message: 'Please request an OTP first' });
@@ -79,7 +79,6 @@ router.post('/verify-otp', async (req, res, next) => {
     if (user.otp_expires < new Date())
       return res.status(400).json({ success: false, message: 'OTP expired. Request a new one.' });
 
-    // Complete registration
     user.name         = name || user.name;
     user.phone        = phone || user.phone;
     user.password_hash = password;
@@ -102,6 +101,8 @@ router.post('/register', async (req, res, next) => {
   try {
     const { name, first_name, last_name, email, phone, password } = req.body;
     if (!name || !password) return res.status(400).json({ success: false, message: 'Name and password required' });
+    // 6-character minimum password enforcement
+    if (password.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
     const existing = email ? await User.findOne({ email, is_verified: true }) : null;
     if (existing) return res.status(400).json({ success: false, message: 'Email already registered' });
 
@@ -158,6 +159,7 @@ router.post('/refresh', protect, (req, res) => {
 });
 
 // ─── POST /api/auth/forgot-password ──────────────────────────────────────────
+// (original token-based, kept for backward compatibility)
 router.post('/forgot-password', async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -175,6 +177,8 @@ router.post('/forgot-password', async (req, res, next) => {
 router.post('/reset-password', async (req, res, next) => {
   try {
     const { token, password } = req.body;
+    // 6-character minimum password enforcement
+    if (!password || password.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
     const hashed = crypto.createHash('sha256').update(token).digest('hex');
     const user = await User.findOne({ reset_token: hashed, reset_expire: { $gt: Date.now() } });
     if (!user) return res.status(400).json({ success: false, message: 'Invalid or expired token' });
@@ -184,6 +188,50 @@ router.post('/reset-password', async (req, res, next) => {
     await user.save();
     const jwt_token = user.getSignedToken();
     res.json({ success: true, token: jwt_token });
+  } catch (err) { next(err); }
+});
+
+// ─── POST /api/auth/forgot-password-otp ─────────────────────────────────────
+// Used in Edit Profile "Forgot Password" — sends OTP to the user's email
+// Does NOT require current password — user must verify via OTP instead
+router.post('/forgot-password-otp', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email required' });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ success: false, message: 'No account found with that email' });
+
+    const otp = user.generateOTP();
+    await user.save({ validateBeforeSave: false });
+
+    await sendOTPEmail(email, otp, user.name, 'Reset Your Biryani Box Password');
+    res.json({ success: true, message: 'OTP sent to your email. Enter it to set a new password.' });
+  } catch (err) { next(err); }
+});
+
+// ─── POST /api/auth/reset-password-otp ──────────────────────────────────────
+// Used in Edit Profile "Forgot Password" — verifies OTP and sets new password
+// Does NOT require current password
+router.post('/reset-password-otp', async (req, res, next) => {
+  try {
+    const { email, otp, new_password } = req.body;
+    if (!email || !otp || !new_password) return res.status(400).json({ success: false, message: 'Email, OTP and new password are required' });
+    // 6-character minimum password enforcement
+    if (new_password.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ success: false, message: 'No account found with that email' });
+    if (!user.otp_code || user.otp_code !== String(otp))
+      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    if (user.otp_expires < new Date())
+      return res.status(400).json({ success: false, message: 'OTP expired. Request a new one.' });
+
+    user.password_hash = new_password;
+    user.otp_code     = undefined;
+    user.otp_expires  = undefined;
+    await user.save();
+
+    res.json({ success: true, message: 'Password updated successfully.' });
   } catch (err) { next(err); }
 });
 

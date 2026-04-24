@@ -20,6 +20,8 @@ const Checkout = () => {
   const [paymentMethod,   setPaymentMethod]   = useState('card');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryNotes,   setDeliveryNotes]   = useState('');
+
+  const [knockBell,       setKnockBell]       = useState(true); // true = ring bell, false = do not disturb
   const [loading,         setLoading]         = useState(false);
   const [error,           setError]           = useState('');
   const [orderNumber,     setOrderNumber]     = useState('');
@@ -75,6 +77,8 @@ const Checkout = () => {
         order_type:       orderType,
         delivery_address: deliveryAddress.trim() || undefined,
         delivery_notes:   deliveryNotes.trim()   || undefined,
+
+        knock_bell:       knockBell,
         coupon_code:      appliedCoupon?.code     || undefined,
         coupon_discount:  couponDiscount           || undefined,
       };
@@ -132,6 +136,20 @@ const Checkout = () => {
                         <textarea value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)}
                           className="w-full bg-bg-main border border-white/10 p-4 rounded-xl text-sm focus:border-primary outline-none transition-colors resize-none"
                           placeholder="Delivery instructions (Gate code, landmark…)" rows={2} />
+                        {/* Knock Bell / Do Not Disturb */}
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Arrival Preference</p>
+                          <div className="flex gap-3">
+                            <label className={`flex-1 flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${knockBell ? 'bg-primary/10 border-primary/40 text-primary' : 'bg-white/5 border-white/10 text-white/50'}`}>
+                              <input type="radio" name="knockBell" checked={knockBell} onChange={() => setKnockBell(true)} className="accent-orange-500" />
+                              <span className="text-xs font-bold">🔔 Ring Doorbell / Knock</span>
+                            </label>
+                            <label className={`flex-1 flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${!knockBell ? 'bg-secondary/60 border-white/30 text-white' : 'bg-white/5 border-white/10 text-white/50'}`}>
+                              <input type="radio" name="knockBell" checked={!knockBell} onChange={() => setKnockBell(false)} className="accent-orange-500" />
+                              <span className="text-xs font-bold">🤫 Do Not Disturb</span>
+                            </label>
+                          </div>
+                        </div>
                         <div className="flex items-center gap-3 p-3 bg-primary/5 border border-primary/20 rounded-xl">
                           <Truck size={14} className="text-primary shrink-0" />
                           <p className="text-xs text-text-muted">Delivery fee of <span className="text-primary font-bold">${DELIVERY_FEE}</span> will be added. Estimated: 30–45 minutes.</p>

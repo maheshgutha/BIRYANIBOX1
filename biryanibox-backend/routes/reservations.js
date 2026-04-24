@@ -168,19 +168,35 @@ router.patch('/:id', protect, async (req, res, next) => {
     const item = await Reservation.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!item) return res.status(404).json({ success: false, message: 'Reservation not found' });
     if (req.body.status === 'cancelled' && prev?.status !== 'cancelled' && item.email) {
+      const cancelReason = req.body.cancellation_reason || req.body.cancel_reason || '';
       await sendEmail({
         to: item.email,
         subject: '❌ Reservation Cancelled — Biryani Box',
-        html: `<div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
-          <h1 style="color:#f97316;">Biryani Box 🍛</h1>
-          <h2>Dear ${item.customer_name},</h2>
-          <p style="color:#ccc;">We are truly sorry — your reservation has been <strong style="color:#ef4444;">cancelled</strong>.</p>
-          <div style="background:#1a0000;border-left:3px solid #ef4444;padding:16px;border-radius:8px;margin:16px 0;">
-            <p style="color:#ef4444;font-weight:bold;">We sincerely apologise for any inconvenience caused.</p>
-            <p style="color:#ccc;">Please feel free to make a new reservation — we would love to make it up to you!</p>
+        html: `
+          <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+            <h1 style="color:#f97316;margin-bottom:4px;">Biryani Box 🍛</h1>
+            <p style="color:#888;font-size:13px;margin-bottom:28px;">Reservation Update</p>
+            <h2 style="font-size:20px;">Dear ${item.customer_name},</h2>
+            <p style="color:#ccc;margin:12px 0;">We are truly sorry to inform you that your reservation has been <strong style="color:#ef4444;">cancelled</strong>.</p>
+            <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin:20px 0;">
+              <table style="width:100%;font-size:14px;">
+                <tr><td style="color:#888;padding:4px 0;">Date</td><td style="text-align:right;color:#fff;">${item.date || '—'}</td></tr>
+                <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${item.guests || '—'}</td></tr>
+                <tr><td style="color:#888;padding:4px 0;">Status</td><td style="text-align:right;color:#ef4444;font-weight:bold;">❌ Cancelled</td></tr>
+              </table>
+            </div>
+            ${cancelReason ? `
+            <div style="background:#1a0000;border-left:3px solid #ef4444;border-radius:8px;padding:16px;margin:16px 0;">
+              <p style="color:#ef4444;font-size:12px;font-weight:bold;margin:0 0 6px;text-transform:uppercase;letter-spacing:1px;">Reason for Cancellation</p>
+              <p style="color:#ccc;font-size:14px;line-height:1.6;margin:0;">${cancelReason}</p>
+            </div>` : ''}
+            <div style="background:#1a0000;border-left:3px solid #ef4444;border-radius:8px;padding:16px;margin:16px 0;">
+              <p style="color:#ef4444;font-weight:bold;margin:0 0 6px;">We sincerely apologise for any inconvenience caused.</p>
+              <p style="color:#ccc;margin:0;">Please feel free to make a new reservation — we would love to make it up to you!</p>
+            </div>
+            <p style="color:#444;font-size:12px;margin-top:24px;">With sincere apologies,<br/><strong style="color:#f97316;">The Biryani Box Team</strong></p>
           </div>
-          <p style="color:#444;">With apologies, <strong style="color:#f97316;">The Biryani Box Team</strong></p>
-        </div>`,
+        `,
       });
     }
     res.json({ success: true, data: item });

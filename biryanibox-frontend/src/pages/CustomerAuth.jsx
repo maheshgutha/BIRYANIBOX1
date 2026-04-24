@@ -60,7 +60,8 @@ const CustomerAuth = () => {
     if (!firstName.trim()) { setError('First name is required'); return; }
     if (!email.trim())     { setError('Email is required'); return; }
     if (!phone.trim())     { setError('Mobile number is required'); return; }
-    if (!password.trim())  { setError('Password is required'); return; }
+    if (!password.trim())         { setError('Password is required'); return; }
+    if (password.length < 6)      { setError('Password must be at least 6 characters'); return; }
     setBusy(true);
     try {
       const fullName = `${firstName} ${lastName}`.trim();

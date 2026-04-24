@@ -42,7 +42,10 @@ export const authAPI = {
   verifyOTP:      (body)         => request('/auth/verify-otp',     { method: 'POST', body: JSON.stringify(body) }),
   me:             ()             => request('/auth/me'),
   logout:         ()             => request('/auth/logout',         { method: 'POST' }),
-  forgotPassword: (email)        => request('/auth/forgot-password',{ method: 'POST', body: JSON.stringify({ email }) }),
+  forgotPassword:    (email)         => request('/auth/forgot-password',     { method: 'POST', body: JSON.stringify({ email }) }),
+  // OTP-based forgot password (used in Edit Profile)
+  forgotPasswordOTP: (email)         => request('/auth/forgot-password-otp',  { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPasswordOTP:  (body)          => request('/auth/reset-password-otp',   { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // ── MENU ──────────────────────────────────────────────────────────

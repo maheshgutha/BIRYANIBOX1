@@ -7,7 +7,7 @@ import {
   ShoppingBag, Plus, Minus, ArrowRight, ChevronLeft,
   Tag, CheckCircle, XCircle, Gift, Copy, TrendingUp, Loader, Package,
   MapPin, RefreshCw, Clock, ChefHat, Star, Utensils, CheckSquare, CreditCard,
-  UtensilsCrossed, Truck, Navigation, ChevronsDown, ChevronDown, ChevronUp,
+  UtensilsCrossed, Truck, ChevronsDown, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
 import heroBiryani   from '../assets/hero-biryani.png';
@@ -64,13 +64,12 @@ const DINEIN_STEPS = [
   { key: 'paid',                 label: 'Done',       icon: CreditCard },
 ];
 const DELIVERY_STEPS = [
-  { key: 'placed',      label: 'Placed',      icon: Package    },   // 0
-  { key: 'preparing',   label: 'Preparing',   icon: ChefHat    },   // 1
-  { key: 'ready',       label: 'Ready',       icon: Utensils   },   // 2
-  { key: 'dispatched',  label: 'Dispatched',  icon: Truck      },   // 3
-  { key: 'delivering',  label: 'Delivering',  icon: Navigation },   // 4
-  { key: 'delivered',   label: 'Delivered',   icon: MapPin     },   // 5
-  { key: 'paid',        label: 'Paid',        icon: CreditCard },   // 6
+  { key: 'pending',           label: 'Placed',    icon: Package    },
+  { key: 'start_cooking',     label: 'Preparing', icon: ChefHat    },
+  { key: 'completed_cooking', label: 'Ready',     icon: Utensils   },
+  { key: 'dispatched',        label: 'Dispatched',icon: Truck      },
+  { key: 'delivered',         label: 'Delivered', icon: MapPin     },
+  { key: 'paid',              label: 'Paid',      icon: CreditCard },
 ];
 const PICKUP_STEPS = [
   { key: 'pending',           label: 'Order Placed',   icon: Package    },
@@ -79,25 +78,11 @@ const PICKUP_STEPS = [
   { key: 'dispatched',        label: 'At Counter',     icon: MapPin     },
   { key: 'paid',              label: 'Completed',      icon: CheckCircle},
 ];
-const DINEIN_STATUS_STEP = { pending_confirmation:0, pending:1, start_cooking:2, completed_cooking:3, served:4, paid:5 };
-const PICKUP_STATUS_STEP = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, paid:4 };
+const DINEIN_STATUS_STEP   = { pending_confirmation:0, pending:1, start_cooking:2, completed_cooking:3, served:4, paid:5 };
+const DELIVERY_STATUS_STEP = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, delivered:4, paid:5 };
+const PICKUP_STATUS_STEP   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, paid:4 };
 const ORDER_STEPS    = DINEIN_STEPS;   // default fallback
 const STATUS_TO_STEP = DINEIN_STATUS_STEP;
-
-// Delivery step uses BOTH the Order status AND the Delivery document status
-// because intermediate states (dispatched, picked_up, in_transit, delivered)
-// live in the Delivery record — not the Order.
-const getDeliveryStep = (order, delivery) => {
-  if (!order) return 0;
-  if (order.status === 'paid') return 6;
-  if (delivery?.status === 'delivered') return 5;
-  if (delivery?.status === 'in_transit' || delivery?.status === 'picked_up') return 4;
-  if (delivery?.captain_dispatched || delivery?.status === 'assigned') return 3;
-  // 'served' on a delivery order is a mis-step — treat as Ready (step 2) not Placed
-  if (order.status === 'completed_cooking' || order.status === 'served') return 2;
-  if (order.status === 'start_cooking') return 1;
-  return 0;
-};
 
 // ── Live Order Tracker ─────────────────────────────────────────────────────────
 // inline=true → compact banner inside cart page; inline=false → full-page view
@@ -105,7 +90,6 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
   const navigate  = useNavigate();
   const [order,      setOrder]      = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [fetchError, setFetchError] = useState(false);
   const [lastRefresh,setLastRefresh]= useState(new Date());
   const [collapsed,  setCollapsed]  = useState(false);
 
@@ -113,47 +97,25 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
   const ot = order?.order_type || orderType || 'dine-in';
   const steps    = ot === 'delivery' ? DELIVERY_STEPS : ot === 'pickup' ? PICKUP_STEPS : DINEIN_STEPS;
   const stepMap  = ot === 'delivery' ? DELIVERY_STATUS_STEP : ot === 'pickup' ? PICKUP_STATUS_STEP : DINEIN_STATUS_STEP;
-  // For delivery orders, use the delivery-document-aware step function.
-  // For dine-in/pickup, use the order-status-based step map.
-  const delivery    = order?.delivery || null; // bundled by backend for delivery orders
-  const currentStep = (ot === 'delivery')
-    ? getDeliveryStep(order, delivery)
-    : (order ? (stepMap[order.status] ?? 0) : 0);
-  const isDone   = order?.status === 'paid' || order?.status === 'delivered';
-  const isServed = order?.status === 'served' && order?.order_type !== 'delivery';
-
-  // Use a ref so the interval callback always reads the latest isDone
-  // without needing to recreate the interval on every status change.
-  const isDoneRef = useRef(isDone);
-  useEffect(() => { isDoneRef.current = isDone; }, [isDone]);
+  const currentStep = order ? (stepMap[order.status] ?? 0) : 0;
+  const isDone      = order?.status === 'paid' || order?.status === 'served' || order?.status === 'delivered';
 
   const fetchOrder = useCallback(async (manual = false) => {
     if (!orderId) return;
     if (manual) setRefreshing(true);
     try {
       const res = await ordersAPI.getOne(orderId);
-      if (res?.data) {
-        setOrder(res.data);
-        setFetchError(false);
-      }
+      if (res?.data) setOrder(res.data);
       setLastRefresh(new Date());
-    } catch (err) {
-      console.warn('[LiveTracker] fetch failed:', err?.message);
-      setFetchError(true);
-    } finally { if (manual) setRefreshing(false); }
+    } catch {}
+    finally { if (manual) setRefreshing(false); }
   }, [orderId]);
 
-  // Poll every 5 seconds using a ref-based interval so isDone is always fresh.
-  // On mount: fetch immediately, then start polling.
-  // On unmount / orderId change: clear interval.
   useEffect(() => {
-    if (!orderId) return;
     fetchOrder();
-    const id = setInterval(() => {
-      if (!isDoneRef.current) fetchOrder();
-    }, 5000);
+    const id = setInterval(() => { if (!isDone) fetchOrder(); }, 12000);
     return () => clearInterval(id);
-  }, [fetchOrder, orderId]);
+  }, [fetchOrder, isDone]);
 
   useEffect(() => { if (isDone) clearActiveOrder(); }, [isDone]);
 
@@ -181,24 +143,7 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-primary">Live Order Tracking</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-xs text-white/60 font-bold">{displayOrderNum ? `#${displayOrderNum}` : 'Processing…'}</p>
-                {order?.status && (
-                  <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${
-                    order.status === 'paid'              ? 'bg-green-500/20 border-green-500/40 text-green-400' :
-                    order.status === 'served'            ? 'bg-amber-500/20 border-amber-500/40 text-amber-400' :
-                    order.status === 'completed_cooking' ? 'bg-blue-500/20 border-blue-500/40 text-blue-400' :
-                    order.status === 'start_cooking'     ? 'bg-orange-500/20 border-orange-500/40 text-orange-400' :
-                    'bg-white/10 border-white/20 text-white/50'
-                  }`}>
-                    {order.status === 'pending_confirmation' ? 'confirming' :
-                     order.status === 'start_cooking'        ? 'preparing' :
-                     order.status === 'completed_cooking'    ? 'ready' :
-                     order.status}
-                  </span>
-                )}
-                {fetchError && <span className="text-[8px] text-red-400 font-bold">⚠ retry…</span>}
-              </div>
+              <p className="text-xs text-white/60 font-bold">{displayOrderNum ? `#${displayOrderNum}` : 'Processing…'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -279,16 +224,6 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
                   </div>
                 )}
 
-                {isServed && (
-                  <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5 animate-pulse">
-                    <span className="text-lg">🍽️</span>
-                    <div>
-                      <p className="text-xs text-amber-300 font-black">Your food has been served!</p>
-                      <p className="text-[10px] text-amber-400/70 mt-0.5">Please ask your captain for the bill to complete your order.</p>
-                    </div>
-                  </div>
-                )}
-
                 {isDone && (
                   <div className="flex items-center gap-2 text-green-400 text-xs font-black">
                     <CheckCircle size={14} /> Order Complete! Thank you 🙏
@@ -303,10 +238,10 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
                       <ChevronsDown size={13} /> Go to Booking
                     </button>
                   )}
-                  <button onClick={() => navigate('/')}
+                  {/* <button onClick={() => navigate('/menu/')}
                     className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center gap-1.5">
                     + Add Items <ArrowRight size={12} />
-                  </button>
+                  </button> */}
                 </div>
               </div>
             </motion.div>
@@ -357,7 +292,7 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
             })}
           </div>
         </div>
-
+         
         {/* Pickup status message (full page) */}
         {order && ot === 'pickup' && order.status && pickupStatusMsg[order.status] && (
           <div className="bg-primary/10 border border-primary/30 rounded-2xl p-4 text-sm text-primary font-black text-center">
@@ -402,15 +337,6 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
             </motion.div>
           )}
         </AnimatePresence>
-
-        {isServed && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-            className="bg-amber-500/10 border border-amber-500/40 rounded-3xl p-6 text-center space-y-3">
-            <div className="text-4xl">🍽️</div>
-            <p className="font-black text-white text-lg">Your food has been served!</p>
-            <p className="text-amber-400 text-sm font-bold">Please ask your captain for the bill.<br />Your order is complete once payment is done.</p>
-          </motion.div>
-        )}
 
         {isDone && (
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-6 space-y-2">
@@ -722,9 +648,13 @@ const Cart = () => {
     <div className="min-h-screen bg-bg-main text-white pt-28 px-6 pb-12 md:px-12">
       <div className="container max-w-4xl mx-auto">
 
-        <button onClick={() => navigate('/')} className="flex items-center gap-2 text-text-muted hover:text-primary transition-colors mb-10 group">
-          <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" /> Back to Menu
-        </button>
+        {/* Top navigation row */}
+        <div className="flex items-center justify-between mb-10">
+          <button onClick={() => navigate('/menu/')} className="flex items-center gap-2 text-text-muted hover:text-primary transition-colors group">
+            <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" /> Back to Menu
+          </button>
+         
+        </div>
 
         <div className="flex flex-col lg:flex-row gap-12">
 
@@ -791,7 +721,7 @@ const Cart = () => {
                       transition={{ duration: 0.8 }} />
                   </div>
                 </div>
-
+                
                 {isUnlocked && activeCoupon && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     className="bg-gradient-to-r from-primary/20 to-yellow-500/10 border border-primary/30 rounded-2xl p-4 space-y-2">
@@ -807,7 +737,19 @@ const Cart = () => {
                 )}
               </div>
             )}
-
+           <button
+            onClick={() => {
+              navigate('/');
+              setTimeout(() => {
+                document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
+              }, 100);
+            }}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary/10 border border-primary/30 text-primary rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all group"
+          >
+            <Plus size={14} className="group-hover:rotate-90 transition-transform" />
+            Add Items
+            <ArrowRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
+          </button>
             {/* Cart items */}
             {cart.length === 0 ? (
               <div className="py-20 text-center space-y-6 bg-white/5 rounded-3xl border border-dashed border-white/10">
@@ -1102,11 +1044,28 @@ const Cart = () => {
               <button
                 onClick={handlePlaceOrder}
                 disabled={placing || cart.length === 0 || (orderMode === 'dinein' && !selectedTable) || (orderMode === 'delivery' && !deliveryAddr.trim())}
-                className="btn-primary w-full py-5 flex items-center justify-center gap-3 group disabled:opacity-60 disabled:cursor-not-allowed">
-                {placing
-                  ? <><Loader size={20} className="animate-spin" /> Placing Order...</>
-                  : <><Package size={20} /> Place Order <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>
-                }
+                className="relative w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest overflow-hidden group disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', boxShadow: '0 4px 24px rgba(245,158,11,0.35)' }}
+              >
+                {/* Shine effect */}
+                <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                  style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 60%)' }} />
+                <span className="relative flex items-center justify-center gap-3 text-white">
+                  {placing ? (
+                    <>
+                      <Loader size={18} className="animate-spin" />
+                      <span>Placing Order...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingBag size={18} />
+                      <span>Place Order</span>
+                      <span className="flex items-center justify-center w-7 h-7 bg-white/20 rounded-full group-hover:translate-x-1 transition-transform">
+                        <ArrowRight size={14} />
+                      </span>
+                    </>
+                  )}
+                </span>
               </button>
             </div>
           )}

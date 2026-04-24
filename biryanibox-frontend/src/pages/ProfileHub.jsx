@@ -72,7 +72,7 @@ const PICKUP_STEPS = [
 ];
 
 const DINEIN_STEP_IDX   = { pending:0, start_cooking:1, completed_cooking:2, served:3, paid:4 };
-const DELIVERY_STEP_IDX = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, delivered:4, paid:5 };
+const DELIVERY_STEP_IDX = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, in_transit:3, delivered:4, paid:5 };
 const PICKUP_STEP_IDX   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, paid:4 };
 
 function getStepsForOrder(order) {
@@ -116,11 +116,12 @@ const OrderTracker = ({ order }) => {
   const statusMsg = {
     pending:           'Your order has been placed and is waiting to be prepared.',
     start_cooking:     'Your order is being prepared by our kitchen team.',
-    completed_cooking: 'Your order is ready! Waiting to be served.',
+    completed_cooking: 'Your order is ready! Waiting to be dispatched.',
     served:            'Your order has been served. Enjoy your meal! 🍽',
     paid:              'Thank you! Your order is complete. See you soon! 😊',
-    dispatched:        'Your order is on the way / at the counter!',
-    delivered:         'Your order has been delivered! Enjoy!',
+    dispatched:        'Your order has been dispatched and is on the way! 🚗',
+    in_transit:        'Your rider is on the way — almost there! 🛵',
+    delivered:         'Your order has been delivered! Enjoy your meal! 🎉',
   };
 
   return (

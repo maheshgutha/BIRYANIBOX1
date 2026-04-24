@@ -156,6 +156,11 @@ router.patch('/:id/dispatch', protect, authorize('captain', 'manager', 'owner'),
     delivery.dispatched_at = new Date();
     delivery.dispatched_by = req.user._id;
     await delivery.save();
+    // Also advance the linked Order status to 'dispatched' so live tracking reflects it
+    if (delivery.order_id) {
+      const orderId = delivery.order_id._id || delivery.order_id;
+      await Order.findByIdAndUpdate(orderId, { status: 'dispatched' });
+    }
     if (delivery.driver_id) {
       await Notification.create({
         user_id: delivery.driver_id, type: 'delivery',
@@ -191,6 +196,15 @@ router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', '
     if (status === 'in_transit') delivery.in_transit_at = new Date();
     if (status === 'delivered')  delivery.delivered_at  = new Date();
     await delivery.save();
+    // Sync order status so customer live tracking stays accurate
+    const orderStatusMap = {
+      picked_up:  'dispatched',   // rider picked up — still shows dispatched on customer side
+      in_transit: 'dispatched',   // on the way — still dispatched from order perspective
+      delivered:  'delivered',
+    };
+    if (orderStatusMap[status] && delivery.order_id) {
+      await Order.findByIdAndUpdate(delivery.order_id, { status: orderStatusMap[status] });
+    }
     if (status === 'delivered') {
       const managers = await User.find({ role: { $in: ['owner','manager'] }, is_active: true });
       await Notification.insertMany(managers.map(u => ({

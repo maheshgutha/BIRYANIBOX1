@@ -64,6 +64,7 @@ const getCaptainForTable = async (tableNumber) => {
 const STATUS_PERMISSIONS = {
   start_cooking:     ['chef'],
   completed_cooking: ['chef'],
+  dispatched:        ['captain', 'manager', 'owner'],
   served:            ['captain', 'manager', 'owner'],
   paid:              ['captain', 'manager', 'owner'],
   cancelled:         ['manager', 'owner'],
@@ -71,7 +72,8 @@ const STATUS_PERMISSIONS = {
 const VALID_TRANSITIONS = {
   pending:           ['start_cooking', 'cancelled'],
   start_cooking:     ['completed_cooking', 'cancelled'],
-  completed_cooking: ['served'],
+  completed_cooking: ['dispatched', 'served'],
+  dispatched:        ['served', 'paid'],
   served:            ['paid'],
   paid:              [],
   cancelled:         [],

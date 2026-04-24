@@ -1,796 +1,872 @@
-const express = require('express');
-const router  = express.Router();
-const Order              = require('../models/Order');
-const OrderItem          = require('../models/OrderItem');
-const MenuItem           = require('../models/MenuItem');
-const MenuRecipe         = require('../models/MenuRecipe');
-const Ingredient         = require('../models/Ingredient');
-const User               = require('../models/User');
-const RestaurantTable    = require('../models/RestaurantTable');
-const LoyaltyTransaction = require('../models/LoyaltyTransaction');
-const Notification       = require('../models/Notification');
-const Delivery           = require('../models/Delivery');
-const ChefOrderAssignment = require('../models/ChefOrderAssignment');
-const nodemailer         = require('nodemailer');
-const { protect, authorize } = require('../middleware/auth');
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../context/useContextHooks';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { deliveryAPI, notificationsAPI } from '../services/api';
+import {
+  Package, MapPin, Clock, CheckCircle, XCircle, LogOut, Bell, RefreshCw,
+  Truck, DollarSign, TrendingUp, Loader, Navigation, Phone, User,
+  Activity, CheckSquare, ArrowRight, Info, SkipForward, History,
+  Award, Zap, Shield, Star, ChevronRight, AlertTriangle, Map,
+} from 'lucide-react';
 
-// ── Email transporter ──────────────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  host:   process.env.SMTP_HOST   || 'smtp.gmail.com',
-  port:   parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-});
-
-const sendEmail = async ({ to, subject, html }) => {
-  if (!process.env.SMTP_USER) return;
-  try {
-    await transporter.sendMail({ from: `"Biryani Box" <${process.env.SMTP_USER}>`, to, subject, html });
-  } catch (err) { console.error('[Email]', err.message); }
+const useAutoRefresh = (cb, ms = 5000) => {
+  const ref = useRef(cb);
+  useEffect(() => { ref.current = cb; }, [cb]);
+  useEffect(() => {
+    const id = setInterval(() => ref.current(), ms);
+    return () => clearInterval(id);
+  }, [ms]);
 };
 
-// ── Helper: notify users by role ───────────────────────────────────────────
-const notifyRoles = async (roles, { type, title, message }) => {
-  const users = await User.find({ role: { $in: roles }, is_active: true });
-  await Notification.insertMany(users.map(u => ({ user_id: u._id, type, title, message })));
+// Fires callback immediately whenever the browser tab becomes visible again
+// (rider switches back from another app / screen)
+const useVisibilityRefresh = (cb) => {
+  const ref = useRef(cb);
+  useEffect(() => { ref.current = cb; }, [cb]);
+  useEffect(() => {
+    const h = () => { if (document.visibilityState === 'visible') ref.current(); };
+    document.addEventListener('visibilitychange', h);
+    return () => document.removeEventListener('visibilitychange', h);
+  }, []);
 };
 
-// ── Helper: get captain for a table number ────────────────────────────────
-// Tables 1-3 → captain 1, 4-6 → captain 2, 7-9 → captain 3 (dynamic, based on DB assignments)
-// Takeaway/Delivery → captain with role 'captain' who handles delivery (4th captain)
-const getCaptainForTable = async (tableNumber) => {
-  if (!tableNumber || tableNumber === 'Takeaway') {
-    // Captain 4: delivery/pickup captain — no tables assigned
-    const allCaptains = await User.find({ role: 'captain', is_active: true });
-    for (const cap of allCaptains) {
-      const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
-      if (!hasTables) return cap; // captain with no tables = delivery captain
-    }
-    return null;
-  }
-  // Try label match first (e.g. "Table 7", "Table 2")
-  const byLabel = await RestaurantTable.findOne({ label: tableNumber }).populate('captain_id');
-  if (byLabel) return byLabel.captain_id || null;
-  // Fallback: numeric match
-  const tNum = parseInt(tableNumber);
-  if (!isNaN(tNum)) {
-    const byNum = await RestaurantTable.findOne({ table_number: tNum }).populate('captain_id');
-    return byNum?.captain_id || null;
-  }
-  return null;
+// Haversine distance (km) between two lat/lng pairs
+const haversine = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 };
 
-// ── Status permission rules ────────────────────────────────────────────────
-const STATUS_PERMISSIONS = {
-  start_cooking:     ['chef'],
-  completed_cooking: ['chef'],
-  served:            ['captain', 'manager', 'owner'],
-  paid:              ['captain', 'manager', 'owner'],
-  cancelled:         ['manager', 'owner'],
-};
-const VALID_TRANSITIONS = {
-  pending:           ['start_cooking', 'cancelled'],
-  start_cooking:     ['completed_cooking', 'cancelled'],
-  completed_cooking: ['served'],
-  served:            ['paid'],
-  paid:              [],
-  cancelled:         [],
+// Fee based on distance tiers
+const calcFee = (km) => {
+  if (!km || km <= 0) return 40;
+  if (km <= 2)  return 40;
+  if (km <= 5)  return 60;
+  if (km <= 10) return 80;
+  if (km <= 15) return 100;
+  return Math.round(100 + (km - 15) * 8);
 };
 
-// ── GET /api/orders/financials ────────────────────────────────────────────
-router.get('/financials', protect, authorize('owner', 'manager'), async (req, res, next) => {
-  try {
-    const paidOrders = await Order.find({ status: 'paid' });
-    let revenue = 0, costOfGoods = 0;
-    for (const order of paidOrders) {
-      revenue += order.total;
-      const items = await OrderItem.find({ order_id: order._id });
-      for (const item of items) {
-        const recipes = await MenuRecipe.find({ menu_item_id: item.menu_item_id }).populate('ingredient_id');
-        for (const r of recipes) {
-          if (r.ingredient_id) costOfGoods += r.qty_per_serving * item.quantity * (r.ingredient_id.unit_cost || 0);
-        }
-      }
-    }
-    const profit = revenue - costOfGoods;
+const STATUS_CONFIG = {
+  pending:    { label: 'Available',  color: 'text-amber-400',   bg: 'bg-amber-500/15 border-amber-500/40',   dot: 'bg-amber-400',   glow: 'shadow-amber-500/30' },
+  assigned:   { label: 'Accepted',   color: 'text-blue-400',    bg: 'bg-blue-500/15 border-blue-500/40',    dot: 'bg-blue-400',    glow: 'shadow-blue-500/30' },
+  picked_up:  { label: 'Picked Up',  color: 'text-orange-400',  bg: 'bg-orange-500/15 border-orange-500/40', dot: 'bg-orange-400',  glow: 'shadow-orange-500/30' },
+  in_transit: { label: 'On the Way', color: 'text-emerald-400', bg: 'bg-emerald-500/15 border-emerald-500/40', dot: 'bg-emerald-400', glow: 'shadow-emerald-500/30' },
+  delivered:  { label: 'Delivered',  color: 'text-green-400',   bg: 'bg-green-500/15 border-green-500/40',  dot: 'bg-green-400',   glow: 'shadow-green-500/30' },
+  failed:     { label: 'Failed',     color: 'text-red-400',     bg: 'bg-red-500/15 border-red-500/40',    dot: 'bg-red-400',     glow: 'shadow-red-500/30' },
+};
 
-    // Breakeven analysis
-    const fixedCosts = parseFloat(process.env.MONTHLY_FIXED_COSTS || '5000');
-    const avgOrderValue = paidOrders.length > 0 ? revenue / paidOrders.length : 0;
-    const avgCostPerOrder = paidOrders.length > 0 ? costOfGoods / paidOrders.length : 0;
-    const contributionMargin = avgOrderValue - avgCostPerOrder;
-    const breakevenOrders = contributionMargin > 0 ? Math.ceil(fixedCosts / contributionMargin) : 0;
-    const breakevenRevenue = breakevenOrders * avgOrderValue;
+// ── Mini Map Component ────────────────────────────────────────────────────
+const DeliveryMap = ({ address, label = 'Delivery Location', onDistanceCalc }) => {
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-    res.json({
-      success: true,
-      data: {
-        revenue: +revenue.toFixed(2),
-        costOfGoods: +costOfGoods.toFixed(2),
-        profit: +profit.toFixed(2),
-        profitMargin: revenue > 0 ? +((profit / revenue) * 100).toFixed(2) : 0,
-        totalOrders: paidOrders.length,
-        avgOrderValue: +avgOrderValue.toFixed(2),
-        breakeven: {
-          fixedCosts: +fixedCosts.toFixed(2),
-          contributionMarginPerOrder: +contributionMargin.toFixed(2),
-          ordersNeeded: breakevenOrders,
-          revenueNeeded: +breakevenRevenue.toFixed(2),
-          achieved: revenue >= breakevenRevenue,
-        }
-      }
-    });
-  } catch (err) { next(err); }
-});
+  useEffect(() => {
+    if (!address || !mapRef.current) return;
+    let cancelled = false;
 
-// ── GET /api/orders/history/:customerId ───────────────────────────────────
-router.get('/history/:customerId', protect, async (req, res, next) => {
-  try {
-    // Customers can only retrieve their own order history
-    if (req.user.role === 'customer' && req.user._id.toString() !== req.params.customerId) {
-      return res.status(403).json({ success: false, message: 'Access denied' });
-    }
-    const orders = await Order.find({ customer_id: req.params.customerId }).sort({ created_at: -1 });
-    const result = [];
-    for (const o of orders) {
-      const items = await OrderItem.find({ order_id: o._id }).populate('menu_item_id', 'name image_url category price');
-      result.push({
-        ...o.toObject(),
-        items: items.map(item => ({
-          _id: item._id,
-          menu_item_id: item.menu_item_id?._id || item.menu_item_id,
-          name: item.name || item.menu_item_id?.name || 'Item',
-          category: item.menu_item_id?.category || '',
-          image_url: item.menu_item_id?.image_url || '',
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          price: item.unit_price,
-        })),
-      });
-    }
-    res.json({ success: true, data: result });
-  } catch (err) { next(err); }
-});
-
-// ── GET /api/orders/live/:customerId — ALL active orders for THIS customer ─
-router.get('/live/:customerId', protect, async (req, res, next) => {
-  try {
-    // Customers can only see their own live orders
-    if (req.user.role === 'customer' && req.user._id.toString() !== req.params.customerId) {
-      return res.status(403).json({ success: false, message: 'Access denied' });
-    }
-    const orders = await Order.find({
-      customer_id: req.params.customerId,
-      status: { $nin: ['paid', 'cancelled', 'delivered'] },
-    })
-      .populate('captain_id', 'name')
-      .populate('chef_id', 'name')
-      .sort({ created_at: -1 });
-    if (!orders.length) return res.json({ success: true, data: null, all: [] });
-    // Return first as 'data' for backward compat, plus full array as 'all'
-    const all = [];
-    for (const order of orders) {
-      const items = await OrderItem.find({ order_id: order._id }).populate('menu_item_id', 'name');
-      all.push({ ...order.toObject(), items });
-    }
-    res.json({ success: true, data: all[0], all });
-  } catch (err) { next(err); }
-});
-
-// ── GET /api/orders/my-captain-orders/:captainId ──────────────────────────
-router.get('/my-captain-orders/:captainId', protect, async (req, res, next) => {
-  try {
-    const { period } = req.query;
-    let dateFilter = {};
-    const now = new Date();
-    if (period === 'today') dateFilter = { created_at: { $gte: new Date(now.setHours(0,0,0,0)) } };
-    else if (period === 'weekly') { const w = new Date(); w.setDate(w.getDate()-7); dateFilter = { created_at: { $gte: w } }; }
-    else if (period === 'monthly') { const m = new Date(); m.setMonth(m.getMonth()-1); dateFilter = { created_at: { $gte: m } }; }
-    const orders = await Order.find({ captain_id: req.params.captainId, status: { $in: ['served','paid'] }, ...dateFilter })
-      .populate('customer_id', 'name phone').sort({ created_at: -1 });
-    const result = [];
-    for (const o of orders) {
-      const items = await OrderItem.find({ order_id: o._id }).populate('menu_item_id', 'name');
-      result.push({ ...o.toObject(), items: items.map(i => ({ _id: i._id, name: i.name || i.menu_item_id?.name || 'Unknown', quantity: i.quantity, unit_price: i.unit_price })) });
-    }
-    res.json({ success: true, data: result });
-  } catch (err) { next(err); }
-});
-
-// ── GET /api/orders/my-chef-orders/:chefId ───────────────────────────────
-router.get('/my-chef-orders/:chefId', protect, async (req, res, next) => {
-  try {
-    const { period } = req.query;
-    let dateFilter = {};
-    if (period === 'today') { const t = new Date(); t.setHours(0,0,0,0); dateFilter = { created_at: { $gte: t } }; }
-    else if (period === 'weekly') { const w = new Date(); w.setDate(w.getDate()-7); dateFilter = { created_at: { $gte: w } }; }
-    else if (period === 'monthly') { const m = new Date(); m.setMonth(m.getMonth()-1); dateFilter = { created_at: { $gte: m } }; }
-    const orders = await Order.find({ chef_id: req.params.chefId, status: { $in: ['completed_cooking','served','paid'] }, ...dateFilter })
-      .populate('customer_id', 'name phone').sort({ created_at: -1 });
-    const result = [];
-    for (const o of orders) {
-      const items = await OrderItem.find({ order_id: o._id }).populate('menu_item_id', 'name category');
-      result.push({ ...o.toObject(), items: items.map(i => ({ _id: i._id, name: i.name || i.menu_item_id?.name || 'Unknown', category: i.menu_item_id?.category || '', quantity: i.quantity, unit_price: i.unit_price })) });
-    }
-    res.json({ success: true, data: result });
-  } catch (err) { next(err); }
-});
-
-// ── GET /api/orders ───────────────────────────────────────────────────────
-router.get('/', protect, async (req, res, next) => {
-  try {
-    const { status, table, captain_id, chef_id, order_type, period, customer_id } = req.query;
-    const filter = {};
-
-    // ── CUSTOMER: only see their own orders ───────────────────────────────────
-    if (req.user.role === 'customer') {
-      filter.customer_id = req.user._id;
-      if (status) filter.status = status;
-      const orders = await Order.find(filter).sort({ created_at: -1 }).limit(50);
-      const orderIds = orders.map(o => o._id);
-      const allItems = await OrderItem.find({ order_id: { $in: orderIds } })
-        .populate('menu_item_id', 'name category image_url');
-      const itemsByOrder = {};
-      allItems.forEach(item => {
-        const key = item.order_id.toString();
-        if (!itemsByOrder[key]) itemsByOrder[key] = [];
-        itemsByOrder[key].push({ _id: item._id, name: item.name || item.menu_item_id?.name || 'Item', category: item.menu_item_id?.category || '', quantity: item.quantity, unit_price: item.unit_price, price: item.unit_price });
-      });
-      const data = orders.map(o => ({ ...o.toObject(), items: itemsByOrder[o._id.toString()] || [] }));
-      return res.json({ success: true, count: data.length, data });
-    }
-
-    // ── STAFF: full query support ─────────────────────────────────────────────
-    if (status) filter.status = status;
-    if (table) filter.table_number = table;
-    if (captain_id) filter.captain_id = captain_id;
-    if (chef_id) filter.chef_id = chef_id;
-    if (order_type) filter.order_type = order_type;
-    if (customer_id) filter.customer_id = customer_id;
-    if (period) {
-      if (period === 'today') filter.created_at = { $gte: new Date(new Date().setHours(0,0,0,0)) };
-      else if (period === 'weekly') { const w = new Date(); w.setDate(w.getDate()-7); filter.created_at = { $gte: w }; }
-      else if (period === 'monthly') { const m = new Date(); m.setMonth(m.getMonth()-1); filter.created_at = { $gte: m }; }
-    }
-    if (req.user.role === 'chef') {
-      filter.$or = [{ status: 'pending' }, { chef_id: req.user._id }];
-      delete filter.chef_id;
-    }
-
-    // ── CAPTAIN: only see orders in their zone ────────────────────────────────
-    if (req.user.role === 'captain') {
-      const captainTables = await RestaurantTable.find({ captain_id: req.user._id, is_active: true });
-      const captainTableNums = captainTables.map(t => t.table_number);
-      const isDeliveryCaptain = captainTableNums.length === 0;
-      if (isDeliveryCaptain) {
-        // Delivery captain sees only delivery/pickup/takeaway orders
-        filter.order_type = { $in: ['delivery', 'pickup', 'takeaway'] };
-      } else {
-        // Dine-in captain sees only orders for their tables
-        // table_number stored as "1", "2", "Table 1", "Table 2" — match both formats
-        const tablePatterns = captainTableNums.flatMap(n => [String(n), `Table ${n}`]);
-        filter.table_number = { $in: tablePatterns };
-      }
-    }
-    const orders = await Order.find(filter)
-      .populate('customer_id', 'name email phone')
-      .populate('captain_id', 'name')
-      .populate('chef_id', 'name')
-      .sort({ created_at: -1 });
-    const orderIds = orders.map(o => o._id);
-    const allItems = await OrderItem.find({ order_id: { $in: orderIds } })
-      .populate('menu_item_id', 'name category image_url');
-    const itemsByOrder = {};
-    allItems.forEach(item => {
-      const key = item.order_id.toString();
-      if (!itemsByOrder[key]) itemsByOrder[key] = [];
-      itemsByOrder[key].push({ _id: item._id, menu_item_id: item.menu_item_id?._id || item.menu_item_id, name: item.name || item.menu_item_id?.name || 'Unknown Item', category: item.menu_item_id?.category || '', image_url: item.menu_item_id?.image_url || '', quantity: item.quantity, unit_price: item.unit_price, price: item.unit_price });
-    });
-    const data = orders.map(o => ({ ...o.toObject(), items: itemsByOrder[o._id.toString()] || [] }));
-    res.json({ success: true, count: data.length, data });
-  } catch (err) { next(err); }
-});
-
-// ── GET /api/orders/:id ───────────────────────────────────────────────────
-router.get('/:id', protect, async (req, res, next) => {
-  try {
-    const order = await Order.findById(req.params.id)
-      .populate('customer_id', 'name email phone')
-      .populate('captain_id', 'name')
-      .populate('chef_id', 'name');
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    const items = await OrderItem.find({ order_id: order._id }).populate('menu_item_id', 'name image_url category');
-    res.json({ success: true, data: { ...order.toObject(), items } });
-  } catch (err) { next(err); }
-});
-
-// ── POST /api/orders ───────────────────────────────────────────────────────
-router.post('/', protect, async (req, res, next) => {
-  try {
-    const { items, table_number, order_type, payment_method, spiceness,
-            delivery_address, delivery_notes, distance_km } = req.body;
-
-    // For customers: always use their own ID as customer_id; ignore any captain_id from body
-    // For staff (POS): use the customer_id from body if provided
-    const customer_id = req.user.role === 'customer'
-      ? req.user._id
-      : (req.body.customer_id || null);
-
-    // captain_id: only trust it from staff, never from customers
-    const captain_id = req.user.role === 'customer' ? null : (req.body.captain_id || null);
-
-    if (!items || !items.length) return res.status(400).json({ success: false, message: 'No items in order' });
-
-    const isTakeaway  = order_type === 'takeaway' || order_type === 'pickup' || table_number === 'Takeaway';
-    const isDelivery  = order_type === 'delivery';
-    const needsAddress = isDelivery;
-    if (needsAddress && (!delivery_address || !delivery_address.trim()))
-      return res.status(400).json({ success: false, message: 'Delivery address is required for home delivery orders.' });
-
-    // Validate items
-    for (const item of items) {
-      const menuItem = await MenuItem.findById(item.menu_item_id);
-      if (!menuItem) return res.status(404).json({ success: false, message: `Menu item not found` });
-      if (!menuItem.is_available) return res.status(400).json({ success: false, message: `${menuItem.name} is unavailable` });
-    }
-
-    let total = 0;
-    const orderItems = [];
-    for (const item of items) {
-      const menuItem = await MenuItem.findById(item.menu_item_id);
-      total += menuItem.price * item.quantity;
-      orderItems.push({ menu_item_id: item.menu_item_id, name: menuItem.name, quantity: item.quantity, unit_price: menuItem.price });
-    }
-
-    const dist = parseFloat(distance_km) || 0;
-    const deliveryFee = isDelivery ? (dist > 0 ? Math.round(dist * 2) : 5) : 0;
-
-    // Resolve numeric table number — handles both '1' and 'Table 1' formats
-    let resolvedTableNum = null;
-    if (table_number && table_number !== 'Takeaway') {
-      const parsed = parseInt(table_number);
-      if (!isNaN(parsed)) {
-        resolvedTableNum = parsed;
-      } else {
-        // Try to extract number from label like "Table 1" or "Table 7"
-        const match = String(table_number).match(/\d+/);
-        if (match) resolvedTableNum = parseInt(match[0]);
-      }
-    }
-
-    // Auto-assign captain based on table
-    let assignedCaptainId = captain_id;
-    if (!assignedCaptainId && resolvedTableNum) {
-      const tableRec = await RestaurantTable.findOne({ table_number: resolvedTableNum });
-      if (tableRec?.captain_id) assignedCaptainId = tableRec.captain_id;
-    }
-
-    const finalOrderType = isDelivery ? 'delivery' : isTakeaway ? 'pickup' : (order_type || 'dine-in');
-
-    // Dine-in orders require owner/manager confirmation within 10 minutes
-    const isDineIn = finalOrderType === 'dine-in';
-    const initialStatus = isDineIn ? 'pending_confirmation' : 'pending';
-    const confirmationExpiresAt = isDineIn ? new Date(Date.now() + 10 * 60 * 1000) : undefined;
-
-    const order = await Order.create({
-      customer_id, captain_id: assignedCaptainId, table_number,
-      total: +(total + deliveryFee).toFixed(2),
-      order_type: finalOrderType,
-      payment_method, status: initialStatus,
-      confirmation_expires_at: confirmationExpiresAt,
-      spiceness: spiceness || 'medium',
-      delivery_address: needsAddress ? delivery_address.trim() : undefined,
-      delivery_notes:   needsAddress ? (delivery_notes || '') : undefined,
-      distance_km:      needsAddress ? dist : undefined,
-      delivery_fee:     deliveryFee,
-    });
-
-    const createdItems = await OrderItem.insertMany(orderItems.map(i => ({ ...i, order_id: order._id })));
-
-    // Deduct ingredients
-    for (const item of items) {
-      const recipes = await MenuRecipe.find({ menu_item_id: item.menu_item_id });
-      for (const r of recipes) {
-        await Ingredient.findByIdAndUpdate(r.ingredient_id, { $inc: { stock: -(r.qty_per_serving * item.quantity) } });
-      }
-    }
-
-    if (customer_id) await User.findByIdAndUpdate(customer_id, { $inc: { order_count: 1 } });
-
-    if (isDineIn) {
-      // ── Dine-in: notify owner + manager to ACCEPT or REJECT within 10 min ──
-      const managersAndOwners = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
-      await Notification.insertMany(managersAndOwners.map(u => ({
-        user_id: u._id, type: 'order_confirm_required',
-        title: '⏰ Dine-In Order — Action Required',
-        message: `Order #${order.order_number} at Table ${table_number} needs your approval within 10 minutes. Total: $${order.total}. Accept or reject now.`,
-        order_id: order._id,
-      })));
-    } else {
-      // ── Non dine-in: notify owner + manager (info only) ─────────────────────
-      const managersAndOwners = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
-      await Notification.insertMany(managersAndOwners.map(u => ({
-        user_id: u._id, type: 'new_order', title: '🛒 New Order Placed',
-        message: `Order #${order.order_number} — ${finalOrderType}. Total: $${order.total}`,
-      })));
-
-      // Notify chefs for non-dine-in orders immediately
-      const chefs = await User.find({ role: 'chef', is_active: true });
-      await Notification.insertMany(chefs.map(u => ({
-        user_id: u._id, type: 'new_order', title: '👨‍🍳 New Order in Kitchen',
-        message: `Order #${order.order_number} is waiting. ${orderItems.map(i => `${i.name} ×${i.quantity}`).join(', ')}`,
-      })));
-    }
-
-    // ── Notify ONLY the captain assigned to this specific table ──────────────
-    if (isDineIn && assignedCaptainId) {
-      await Notification.create({
-        user_id: assignedCaptainId, type: 'new_order', title: '🪑 New Order – Your Table',
-        message: `Order #${order.order_number} placed on Table ${table_number}. Awaiting manager confirmation. Total: $${order.total}`,
-      });
-    }
-
-    // ── For delivery/pickup: notify ONLY captain4 (no-table captain) ─────────
-    if (finalOrderType === 'delivery' || isTakeaway) {
-      const allCaptains = await User.find({ role: 'captain', is_active: true });
-      for (const cap of allCaptains) {
-        const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
-        if (!hasTables) {
-          await Notification.create({
-            user_id: cap._id, type: 'new_order',
-            title: finalOrderType === 'delivery' ? '🚗 New Delivery Order' : '📦 New Pickup Order',
-            message: `Order #${order.order_number} — ${finalOrderType}. Total: $${order.total}`,
-          });
-        }
-      }
-      // Also notify all riders for delivery orders
-      if (finalOrderType === 'delivery') {
-        const riders = await User.find({ role: 'delivery', is_active: true });
-        await Notification.insertMany(riders.map(u => ({
-          user_id: u._id, type: 'delivery', title: '🚴 New Delivery Order',
-          message: `Order #${order.order_number} — ${order.delivery_address || 'Address not set'}. Fee: $${order.delivery_fee || 0}`,
-        })));
-      }
-    }
-
-    // ── Auto-expire: schedule rejection if dine-in not confirmed in 10 min ──
-    if (isDineIn) {
-      setTimeout(async () => {
-        try {
-          const fresh = await Order.findById(order._id);
-          if (fresh && fresh.status === 'pending_confirmation') {
-            fresh.status = 'cancelled';
-            fresh.confirmation_expires_at = undefined;
-            await fresh.save();
-            // Notify customer
-            if (customer_id) {
-              await Notification.create({
-                user_id: customer_id, type: 'order_rejected',
-                title: '❌ Order Auto-Cancelled',
-                message: `Order #${order.order_number} was not confirmed within 10 minutes and has been automatically cancelled. Please try again.`,
-              });
+    const init = async () => {
+      setLoading(true); setError('');
+      try {
+        // Load Leaflet CSS + JS if not already loaded
+        if (!window.L) {
+          await new Promise((res, rej) => {
+            // Inject CSS only once
+            if (!document.querySelector('#leaflet-css')) {
+              const link = document.createElement('link');
+              link.id = 'leaflet-css'; link.rel = 'stylesheet';
+              link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+              document.head.appendChild(link);
             }
-            // Notify manager/owner
-            const mgrs = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
-            await Notification.insertMany(mgrs.map(u => ({
-              user_id: u._id, type: 'order_expired',
-              title: '⏱ Order Expired',
-              message: `Order #${order.order_number} was auto-cancelled after 10 min confirmation timeout.`,
-            })));
-          }
-        } catch (e) { console.error('[AutoExpire]', e.message); }
-      }, 10 * 60 * 1000);
-    }
-
-    res.status(201).json({ success: true, data: { ...order.toObject(), items: createdItems } });
-  } catch (err) { next(err); }
-});
-
-// ── PATCH /api/orders/:id/confirm — Accept or Reject a dine-in order ──────
-router.patch('/:id/confirm', protect, authorize('owner', 'manager'), async (req, res, next) => {
-  try {
-    const { action } = req.body; // 'accept' | 'reject'
-    if (!['accept', 'reject'].includes(action))
-      return res.status(400).json({ success: false, message: 'action must be accept or reject' });
-
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    if (order.status !== 'pending_confirmation')
-      return res.status(400).json({ success: false, message: 'Order is not awaiting confirmation' });
-
-    // Check if expired
-    if (order.confirmation_expires_at && order.confirmation_expires_at < new Date()) {
-      order.status = 'cancelled';
-      await order.save();
-      return res.status(400).json({ success: false, message: 'Confirmation window expired — order auto-cancelled' });
-    }
-
-    if (action === 'reject') {
-      order.status = 'cancelled';
-      order.confirmation_expires_at = undefined;
-      await order.save();
-
-      // Notify customer
-      if (order.customer_id) {
-        await Notification.create({
-          user_id: order.customer_id, type: 'order_rejected',
-          title: '❌ Order Rejected',
-          message: `Sorry, Order #${order.order_number} has been rejected. Please contact the restaurant or try a different table.`,
-        });
-      }
-      return res.json({ success: true, message: 'Order rejected', data: order });
-    }
-
-    // Accept: move to pending, mark table occupied, notify chefs
-    order.status = 'pending';
-    order.confirmation_expires_at = undefined;
-    await order.save();
-
-    // Mark table occupied
-    if (order.table_number) {
-      const match = String(order.table_number).match(/\d+/);
-      const tNum = match ? parseInt(match[0]) : null;
-      if (tNum) await RestaurantTable.findOneAndUpdate({ table_number: tNum }, { status: 'occupied' });
-    }
-
-    // Notify chefs
-    const chefs = await User.find({ role: 'chef', is_active: true });
-    const orderItems = await OrderItem.find({ order_id: order._id });
-    await Notification.insertMany(chefs.map(u => ({
-      user_id: u._id, type: 'new_order', title: '👨‍🍳 New Order in Kitchen',
-      message: `Order #${order.order_number} confirmed. ${orderItems.map(i => `${i.name} ×${i.quantity}`).join(', ')}`,
-    })));
-
-    // Notify customer: order confirmed
-    if (order.customer_id) {
-      await Notification.create({
-        user_id: order.customer_id, type: 'order_accepted',
-        title: '✅ Order Confirmed!',
-        message: `Your Order #${order.order_number} has been accepted and is being prepared. Sit tight!`,
-      });
-    }
-
-    res.json({ success: true, message: 'Order accepted', data: order });
-  } catch (err) { next(err); }
-});
-
-// ── PATCH /api/orders/:id/status ──────────────────────────────────────────
-router.patch('/:id/status', protect, async (req, res, next) => {
-  try {
-    const { status } = req.body;
-    const userRole = req.user.role;
-
-    const allowedRoles = STATUS_PERMISSIONS[status];
-    if (!allowedRoles) return res.status(400).json({ success: false, message: `Invalid status: ${status}` });
-    if (!allowedRoles.includes(userRole))
-      return res.status(403).json({ success: false, message: `Role '${userRole}' cannot set status to '${status}'` });
-
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-
-    const validNext = VALID_TRANSITIONS[order.status] || [];
-    if (!validNext.includes(status))
-      return res.status(400).json({ success: false, message: `Cannot transition from '${order.status}' to '${status}'` });
-
-    // ── Chef constraint: if another chef already accepted this order, block ──
-    if (status === 'start_cooking') {
-      if (order.chef_id && order.chef_id.toString() !== req.user._id.toString()) {
-        return res.status(409).json({ success: false, message: 'This order has already been accepted by another chef.' });
-      }
-    }
-
-    // ── Captain zone constraint: captain can only serve/pay their own tables ──
-    if (userRole === 'captain' && ['served', 'paid'].includes(status)) {
-      const captainTables = await RestaurantTable.find({ captain_id: req.user._id, is_active: true });
-      const captainTableNums = captainTables.map(t => t.table_number);
-      const isDeliveryCaptain = captainTableNums.length === 0;
-      if (isDeliveryCaptain) {
-        // Delivery captain can only advance delivery/pickup orders
-        if (!['delivery', 'pickup', 'takeaway'].includes(order.order_type)) {
-          return res.status(403).json({ success: false, message: 'You handle delivery & pickup orders only. This is a dine-in order.' });
-        }
-      } else {
-        // Dine-in captain: verify table is in their zone
-        const rawTable = String(order.table_number || '');
-        const match = rawTable.match(/\d+/);
-        const orderTableNum = match ? parseInt(match[0]) : NaN;
-        if (isNaN(orderTableNum) || !captainTableNums.includes(orderTableNum)) {
-          return res.status(403).json({
-            success: false,
-            message: `Table ${order.table_number} is not in your zone. You manage: ${captainTableNums.map(n => `Table ${n}`).join(', ')}.`
+            // If JS tag already exists, wait for it (another map may be loading it)
+            const existing = document.querySelector('#leaflet-js');
+            if (existing) {
+              if (window.L) { res(); return; }
+              existing.addEventListener('load', res);
+              existing.addEventListener('error', rej);
+              return;
+            }
+            // Inject JS and wait for it to fully load before resolving
+            const s = document.createElement('script');
+            s.id = 'leaflet-js';
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+            s.onload = res; s.onerror = rej;
+            document.head.appendChild(s);
           });
         }
-      }
-    }
+        if (cancelled) return;
+        const L = window.L;
 
-    const timeUpdate = {};
-    if (status === 'start_cooking')    timeUpdate.cooking_started_at   = new Date();
-    if (status === 'completed_cooking') timeUpdate.cooking_completed_at = new Date();
-    if (status === 'served')            timeUpdate.served_at             = new Date();
-    if (status === 'paid')              timeUpdate.paid_at               = new Date();
+        // Geocode address
+        const geo = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`);
+        const geoData = await geo.json();
+        if (cancelled) return;
 
-    const updateData = { status, ...timeUpdate };
-    if ((status === 'start_cooking' || status === 'completed_cooking') && userRole === 'chef') {
-      updateData.chef_id = req.user._id;
-    }
+        if (!geoData[0]) { setError('Could not locate address on map'); setLoading(false); return; }
+        const { lat, lon } = geoData[0];
+        const latNum = parseFloat(lat); const lonNum = parseFloat(lon);
 
-    // ── Create/update ChefOrderAssignment when chef starts or completes cooking ──
-    if (status === 'start_cooking' && userRole === 'chef') {
-      const existing = await ChefOrderAssignment.findOne({ order_id: order._id, chef_id: req.user._id });
-      if (!existing) {
-        await ChefOrderAssignment.create({
-          order_id:   order._id,
-          chef_id:    req.user._id,
-          status:     'cooking',
-          started_at: new Date(),
+        // Init map
+        if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
+        if (!mapRef.current) return;
+
+        mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([latNum, lonNum], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors'
+        }).addTo(mapInstance.current);
+        L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
+        // Force recalculate size in case map was hidden/toggled when initialised
+        setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 100);
+
+        // Destination marker (red pin)
+        const destIcon = L.divIcon({
+          html: `<div style="background:#ef4444;color:white;border-radius:50% 50% 50% 0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;transform:rotate(-45deg);border:3px solid white;box-shadow:0 3px 10px rgba(0,0,0,0.5)"><span style="transform:rotate(45deg)">📍</span></div>`,
+          className: '', iconSize: [32, 32], iconAnchor: [16, 32],
         });
-      } else {
-        existing.status = 'cooking'; existing.started_at = new Date(); await existing.save();
-      }
-    }
-    if (status === 'completed_cooking' && userRole === 'chef') {
-      await ChefOrderAssignment.findOneAndUpdate(
-        { order_id: order._id },
-        { status: 'done', completed_at: new Date() }
-      );
-    }
-    if (status === 'served' && ['captain','manager','owner'].includes(userRole)) {
-      updateData.captain_id = req.user._id;
-    }
+        L.marker([latNum, lonNum], { icon: destIcon })
+          .addTo(mapInstance.current)
+          .bindPopup(`<b>${label}</b><br>${address}`).openPopup();
 
-    const updated = await Order.findByIdAndUpdate(req.params.id, updateData, { new: true });
+        // Try to get user's current position for distance
+        if (navigator.geolocation && onDistanceCalc) {
+          navigator.geolocation.getCurrentPosition((pos) => {
+            const userLat = pos.coords.latitude;
+            const userLon = pos.coords.longitude;
+            const distKm = haversine(userLat, userLon, latNum, lonNum);
+            onDistanceCalc(distKm);
 
-    // ── Loyalty points on paid ─────────────────────────────────────────────
-    if (status === 'paid' && updated.customer_id) {
-      const pts = 10; // base points per order
-      const bonusPts = updated.total > 500 ? 25 : 0;
-      const totalPts = pts + bonusPts;
-      await User.findByIdAndUpdate(updated.customer_id, { $inc: { loyalty_points: totalPts } });
-      await LoyaltyTransaction.create({ user_id: updated.customer_id, order_id: updated._id, type: 'earn', points: totalPts, description: `Points for order #${updated.order_number}` });
-    }
-
-    // ── Create Delivery record when chef starts COOKING (new flow) ──────────
-    // Delivery appears in rider dashboard as soon as cooking starts.
-    // Riders can ACCEPT it, but cannot PICKUP until captain dispatches.
-    if (status === 'start_cooking' && updated.order_type === 'delivery') {
-      const alreadyExists = await Delivery.findOne({ order_id: updated._id });
-      if (!alreadyExists) {
-        const customer = updated.customer_id ? await User.findById(updated.customer_id).select('name phone email') : null;
-        // Prefer delivery_customer_* fields (set from POS form) over linked user profile
-        const deliveryName  = updated.delivery_customer_name  || customer?.name  || 'Walk-in';
-        const deliveryEmail = updated.delivery_customer_email || customer?.email || '';
-        const deliveryPhone = updated.delivery_customer_phone || customer?.phone || '';
-        await Delivery.create({
-          order_id:         updated._id,
-          customer_id:      updated.customer_id || null,
-          customer_name:    deliveryName,
-          customer_email:   deliveryEmail,
-          phone:            deliveryPhone,
-          delivery_address: updated.delivery_address || 'Address not set',
-          delivery_notes:   updated.delivery_notes  || '',
-          distance_km:      updated.distance_km     || 0,
-          delivery_fee:     updated.delivery_fee    || 0,
-          status:           'pending',
-          order_placed_at:  new Date(),
-          captain_dispatched: false,
-        });
-        // Notify ALL riders immediately
-        const riders = await User.find({ role: 'delivery', is_active: true });
-        await Notification.insertMany(riders.map(u => ({
-          user_id: u._id, type: 'delivery', title: '🍳 New Order Being Prepared',
-          message: `Order #${updated.order_number} is now cooking — accept it now to claim delivery. You can pick up once captain dispatches.`,
-        })));
-      }
-    }
-
-    // ── Notify when cooking starts ─────────────────────────────────────────
-    if (status === 'start_cooking') {
-      // Notify owner/manager
-      const managers = await User.find({ role: { $in: ['owner','manager'] }, is_active: true });
-      await Notification.insertMany(managers.map(u => ({
-        user_id: u._id, type: 'cooking', title: '🔥 Cooking Started',
-        message: `Order #${updated.order_number} — chef started cooking`,
-      })));
-      // For delivery/pickup: also notify captain4 that cooking has started
-      if (['delivery','pickup','takeaway'].includes(updated.order_type)) {
-        const allCaptains = await User.find({ role: 'captain', is_active: true });
-        for (const cap of allCaptains) {
-          const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
-          if (!hasTables) {
-            await Notification.create({
-              user_id: cap._id, type: 'cooking',
-              title: '🍳 Cooking Started — Pickup/Delivery',
-              message: `Order #${updated.order_number} is now cooking. Type: ${updated.order_type}. Prepare for dispatch.`,
-            });
-          }
+            // Add user location marker
+            if (mapInstance.current) {
+              const userIcon = L.divIcon({
+                html: `<div style="background:#3b82f6;color:white;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)">🏍️</div>`,
+                className: '', iconSize: [24, 24], iconAnchor: [12, 12],
+              });
+              L.marker([userLat, userLon], { icon: userIcon })
+                .addTo(mapInstance.current)
+                .bindPopup('You (Rider)');
+              // Draw line
+              L.polyline([[userLat, userLon], [latNum, lonNum]], { color: '#f97316', weight: 3, dashArray: '8,6' })
+                .addTo(mapInstance.current);
+              mapInstance.current.fitBounds([[userLat, userLon], [latNum, lonNum]], { padding: [30, 30] });
+            }
+          }, () => {});
         }
-      }
-    }
+        setLoading(false);
+      } catch (e) { if (!cancelled) { setError('Map unavailable'); setLoading(false); } }
+    };
 
-    // ── Notify when cooking done — ONLY relevant captain ────────────────────
-    if (status === 'completed_cooking') {
-      // Always notify owner + manager
-      const managers = await User.find({ role: { $in: ['owner', 'manager'] }, is_active: true });
-      await Notification.insertMany(managers.map(c => ({
-        user_id: c._id, type: 'order_ready', title: '✅ Order Ready to Serve',
-        message: `Order #${updated.order_number} cooking done — ${updated.table_number ? `Table ${updated.table_number}` : updated.order_type}`,
-      })));
+    init();
+    return () => {
+      cancelled = true;
+      if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
+    };
+  }, [address]);
 
-      if (updated.order_type === 'dine-in' && updated.captain_id) {
-        // Notify only the captain assigned to this table
-        await Notification.create({
-          user_id: updated.captain_id, type: 'order_ready',
-          title: '✅ Order Ready — Your Table',
-          message: `Order #${updated.order_number} is ready. Table ${updated.table_number} — serve now!`,
-        });
-      } else if (['delivery','pickup','takeaway'].includes(updated.order_type)) {
-        // Notify captain4 (no-table captain) for pickup/delivery
-        const allCaptains4 = await User.find({ role: 'captain', is_active: true });
-        for (const cap of allCaptains4) {
-          const hasTables = await RestaurantTable.findOne({ captain_id: cap._id, is_active: true });
-          if (!hasTables) {
-            await Notification.create({
-              user_id: cap._id, type: 'order_ready',
-              title: '✅ Order Ready — Dispatch Now',
-              message: `Order #${updated.order_number} cooking complete. Type: ${updated.order_type}. Ready for dispatch to rider.`,
-            });
-          }
+  return (
+    <div className="rounded-2xl overflow-hidden border border-white/10 relative" style={{ height: 220 }}>
+      {loading && (
+        <div className="absolute inset-0 bg-[#111] flex items-center justify-center z-10">
+          <Loader size={20} className="animate-spin text-orange-400" />
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-0 bg-[#111] flex flex-col items-center justify-center z-10">
+          <Map size={28} className="text-white/20 mb-2" />
+          <p className="text-white/30 text-xs">{error}</p>
+        </div>
+      )}
+      <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
+    </div>
+  );
+};
+
+// ── Notification Bell ──────────────────────────────────────────────────────
+const NotifBell = () => {
+  const [open, setOpen] = useState(false);
+  const [notifs, setNotifs] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const ref = useRef(null);
+  const load = useCallback(async () => {
+    try { const r = await notificationsAPI.getAll(); setNotifs(r.data || []); setUnread(r.unreadCount || 0); } catch {}
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load, 15000);
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => { setOpen(o => !o); load(); }}
+        className="relative w-10 h-10 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-white/60 hover:text-orange-400 hover:bg-orange-500/10 transition-all">
+        <Bell size={16} />
+        {unread > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[#0d0d0d]">{unread > 9 ? '9+' : unread}</span>}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, y: 8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            className="absolute right-0 top-full mt-2 w-80 bg-[#181818] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <span className="text-xs font-black uppercase tracking-widest text-white/50">Notifications</span>
+              {unread > 0 && <button onClick={() => { notificationsAPI.markAllRead(); setUnread(0); }} className="text-[10px] text-orange-400 font-bold hover:underline">Mark all read</button>}
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {notifs.length === 0 ? <div className="py-8 text-center text-white/30 text-xs font-bold">No notifications</div> :
+                notifs.slice(0, 15).map(n => (
+                  <div key={n._id} className={`px-4 py-3 border-b border-white/5 hover:bg-white/5 cursor-pointer ${!n.is_read ? 'bg-orange-500/5' : ''}`}>
+                    <p className={`text-xs font-bold ${!n.is_read ? 'text-white' : 'text-white/50'}`}>{n.title}</p>
+                    <p className="text-[10px] text-white/40 mt-0.5 leading-relaxed">{n.message}</p>
+                    <p className="text-[9px] text-white/20 mt-1">{new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                  </div>
+                ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// ── Stat Card ──────────────────────────────────────────────────────────────
+const StatCard = ({ icon: Icon, label, value, color = 'text-orange-400', bg = 'bg-orange-500/10', border = 'border-orange-500/20' }) => (
+  <div className={`${bg} border ${border} rounded-2xl p-4 flex items-center gap-3`}>
+    <div className={`w-11 h-11 rounded-xl bg-white/5 flex items-center justify-center ${color} shrink-0`}><Icon size={18} /></div>
+    <div>
+      <p className={`text-xl font-black ${color}`}>{value}</p>
+      <p className="text-xs text-white/40 font-semibold leading-tight">{label}</p>
+    </div>
+  </div>
+);
+
+// ── Delivery Card ──────────────────────────────────────────────────────────
+const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, onRefresh, actLoading }) => {
+  const order = delivery.order_id || {};
+  const cfg = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
+  const canAccept  = delivery.status === 'pending';
+  const canPickup  = delivery.status === 'assigned';
+  const dispatched = !!delivery.captain_dispatched;
+  const canTransit = delivery.status === 'picked_up';
+  const canDeliver = delivery.status === 'in_transit';
+  const [distKm, setDistKm] = useState(delivery.distance_km || 0);
+  const [showMap, setShowMap] = useState(false);
+
+  const fee = delivery.delivery_fee || calcFee(distKm);
+
+  const handleDistanceCalc = useCallback((km) => {
+    setDistKm(parseFloat(km.toFixed(1)));
+  }, []);
+
+  const STEPS = [
+    { status: 'assigned',   label: 'Accepted',  icon: '✅' },
+    { status: 'picked_up',  label: 'Picked Up', icon: '📦' },
+    { status: 'in_transit', label: 'On the Way',icon: '🛵' },
+    { status: 'delivered',  label: 'Delivered', icon: '🏠' },
+  ];
+  const STEP_ORDER = ['assigned','picked_up','in_transit','delivered'];
+  const curIdx = STEP_ORDER.indexOf(delivery.status);
+
+  return (
+    <motion.div layout initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+      className={`rounded-3xl overflow-hidden border-2 ${
+        delivery.status === 'pending'    ? 'border-amber-500/40 bg-gradient-to-b from-amber-500/5 to-transparent' :
+        delivery.status === 'assigned'   ? 'border-blue-500/40 bg-gradient-to-b from-blue-500/5 to-transparent' :
+        delivery.status === 'picked_up'  ? 'border-orange-500/40 bg-gradient-to-b from-orange-500/5 to-transparent' :
+        delivery.status === 'in_transit' ? 'border-emerald-500/40 bg-gradient-to-b from-emerald-500/5 to-transparent' :
+        'border-white/10 bg-[#111]'
+      }`}>
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/8">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl ${
+            delivery.status === 'pending' ? 'bg-amber-500/20' :
+            delivery.status === 'assigned' ? 'bg-blue-500/20' :
+            delivery.status === 'picked_up' ? 'bg-orange-500/20' :
+            'bg-emerald-500/20'
+          }`}>
+            {delivery.status === 'pending' ? '📦' : delivery.status === 'assigned' ? '🏍️' : delivery.status === 'picked_up' ? '🚀' : '🛵'}
+          </div>
+          <div>
+            <p className="text-white font-black text-sm">Order #{order.order_number || '—'}</p>
+            <p className="text-white/40 text-[10px] font-bold">{new Date(delivery.order_placed_at || delivery.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+          </div>
+        </div>
+        <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
+      </div>
+
+      {/* Body */}
+      <div className="px-5 py-4 space-y-3">
+        {/* Address */}
+        <div className="flex items-start gap-2.5 bg-white/5 rounded-xl px-3 py-2.5">
+          <MapPin size={14} className="text-orange-400 mt-0.5 flex-shrink-0" />
+          <span className="text-white/80 text-sm leading-relaxed">{delivery.delivery_address || order.delivery_address || '—'}</span>
+        </div>
+
+        {/* Customer + Fee row */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {delivery.customer_name && (
+            <div className="flex items-center gap-1.5 bg-white/5 rounded-lg px-2.5 py-1.5">
+              <User size={11} className="text-white/40" />
+              <span className="text-white/60 text-xs font-bold">{delivery.customer_name}</span>
+              {delivery.phone && (
+                <a href={`tel:${delivery.phone}`} className="flex items-center gap-1 text-blue-400 text-[10px] hover:underline ml-1">
+                  <Phone size={9} />{delivery.phone}
+                </a>
+              )}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 bg-green-500/15 border border-green-500/30 rounded-lg px-3 py-1.5">
+            <DollarSign size={12} className="text-green-400" />
+            <span className="text-green-400 font-black text-sm">${fee}</span>
+            {distKm > 0 && <span className="text-green-400/60 text-[10px]">· {distKm}km</span>}
+          </div>
+          {distKm > 0 && (
+            <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg px-2.5 py-1.5">
+              <Navigation size={11} className="text-blue-400" />
+              <span className="text-blue-400 text-[10px] font-bold">~{Math.round(distKm / 20 * 60)} min</span>
+            </div>
+          )}
+        </div>
+
+        {/* Items */}
+        {order.items?.length > 0 && (
+          <div className="bg-white/5 rounded-xl px-3 py-2.5">
+            <p className="text-[10px] text-white/30 font-black uppercase mb-1">Order Items</p>
+            <p className="text-xs text-white/60">{order.items.slice(0,3).map(i=>`${i.name} ×${i.quantity}`).join(' · ')}{order.items.length>3?` +${order.items.length-3} more`:''}</p>
+          </div>
+        )}
+
+        {/* Dispatch status alert */}
+        {canPickup && !dispatched && (
+          <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
+            <AlertTriangle size={13} className="text-amber-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-amber-300 font-bold">Waiting for Dispatch</p>
+              <p className="text-[10px] text-amber-400/70 mt-0.5">Captain, manager, or owner must dispatch this order before you can pick it up. You'll get a notification.</p>
+            </div>
+          </div>
+        )}
+        {canPickup && dispatched && (
+          <div className="flex items-start gap-2 bg-green-500/10 border border-green-500/30 rounded-xl px-3 py-2.5">
+            <CheckCircle size={13} className="text-green-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-green-300 font-bold">Dispatched! Head to restaurant 🏍️</p>
+              <p className="text-[10px] text-green-400/70 mt-0.5">Order is packed and ready for pickup. Ride safe!</p>
+            </div>
+          </div>
+        )}
+
+        {/* Map toggle */}
+        {(delivery.delivery_address || order.delivery_address) && (
+          <button onClick={() => setShowMap(m => !m)}
+            className="w-full flex items-center justify-center gap-2 py-2 bg-white/5 border border-white/10 rounded-xl text-[11px] font-black text-white/50 hover:text-white hover:bg-white/10 transition-all uppercase tracking-widest">
+            <Map size={12} /> {showMap ? 'Hide Map' : 'Show Map & Distance'}
+          </button>
+        )}
+        {showMap && (
+          <DeliveryMap
+            address={delivery.delivery_address || order.delivery_address}
+            label="Delivery Destination"
+            onDistanceCalc={handleDistanceCalc}
+          />
+        )}
+      </div>
+
+      {/* Step Progress Tracker */}
+      <div className="px-5 pb-3">
+        <div className="flex items-center">
+          {STEPS.map((step, i) => {
+            const stepIdx = STEP_ORDER.indexOf(step.status);
+            const done   = curIdx > stepIdx;
+            const active = curIdx === stepIdx;
+            return (
+              <div key={step.status} className="flex items-center flex-1">
+                <div className="flex flex-col items-center gap-1">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] border-2 transition-all ${
+                    done   ? 'bg-green-500 border-green-500 shadow-lg shadow-green-500/40' :
+                    active ? 'bg-orange-500 border-orange-500 shadow-lg shadow-orange-500/40 animate-pulse' :
+                    'bg-white/5 border-white/15'
+                  }`}>{done ? '✓' : step.icon}</div>
+                  <span className={`text-[8px] font-black uppercase tracking-wider ${active ? 'text-orange-400' : done ? 'text-green-400' : 'text-white/20'}`}>{step.label}</span>
+                </div>
+                {i < STEPS.length - 1 && (
+                  <div className={`flex-1 h-0.5 mb-4 mx-1 transition-all ${done ? 'bg-green-500' : 'bg-white/10'}`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="px-5 pb-5 flex flex-wrap gap-2">
+        {canAccept && (
+          <>
+            <button onClick={() => onAccept(delivery._id)} disabled={actLoading}
+              className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black py-3 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-orange-500/30">
+              <CheckSquare size={14} /> Accept Delivery
+            </button>
+            <button onClick={() => onSkip(delivery._id)} disabled={actLoading}
+              className="px-4 py-3 bg-white/8 border border-white/15 text-white/50 text-xs font-black rounded-xl hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 transition-all flex items-center gap-1.5">
+              <SkipForward size={12} /> Skip
+            </button>
+          </>
+        )}
+        {canPickup && !dispatched && (
+          <button
+            onClick={() => onRefresh && onRefresh()}
+            className="flex-1 flex items-center justify-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-black py-3 px-4 rounded-xl hover:bg-amber-500/20 transition-all">
+            <RefreshCw size={13} className="animate-spin" style={{ animationDuration: '3s' }} />
+            🔒 Waiting for Dispatch — Tap to Check
+          </button>
+        )}
+        {canPickup && dispatched && (
+          <button onClick={() => onPickup(delivery._id)} disabled={actLoading}
+            className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white text-xs font-black py-3 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-blue-500/30">
+            <Package size={14} /> 📦 Mark Picked Up
+          </button>
+        )}
+        {canTransit && (
+          <button onClick={() => onTransit(delivery._id)} disabled={actLoading}
+            className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-600 hover:to-violet-600 text-white text-xs font-black py-3 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-purple-500/30">
+            <Navigation size={14} /> 🛵 I'm On the Way
+          </button>
+        )}
+        {canDeliver && (
+          <>
+            <button onClick={() => onDeliver(delivery._id)} disabled={actLoading}
+              className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white text-xs font-black py-3 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-green-500/30">
+              <CheckCircle size={14} /> 🏠 Mark Delivered!
+            </button>
+            <button onClick={() => onFail(delivery._id)} disabled={actLoading}
+              className="px-4 py-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-black rounded-xl hover:bg-red-500 hover:text-white transition-all">
+              Failed
+            </button>
+          </>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+
+// ── Skipped History Card ───────────────────────────────────────────────────
+const SkippedCard = ({ delivery }) => {
+  const order = delivery.order_id || {};
+  return (
+    <div className="bg-[#111] border border-red-500/15 rounded-2xl p-4 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-red-500/10 rounded-xl flex items-center justify-center text-lg flex-shrink-0">⏭️</div>
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="text-white font-bold text-sm">Order #{order.order_number || '—'}</p>
+            <span className="text-[9px] px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/20 rounded-full font-black uppercase">Skipped</span>
+          </div>
+          <p className="text-white/40 text-[10px] mt-0.5 truncate max-w-[180px]">{(delivery.delivery_address || '—').slice(0,40)}</p>
+        </div>
+      </div>
+      <div className="text-right shrink-0">
+        <p className="text-red-400/60 text-xs font-bold">—</p>
+        <p className="text-white/20 text-[10px]">Skipped</p>
+      </div>
+    </div>
+  );
+};
+
+// ── Main Component ─────────────────────────────────────────────────────────
+export default function DeliveryDashboard() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTabState] = useState(searchParams.get('tab') || 'available');
+
+  const setTab = useCallback((t) => {
+    setTabState(t);
+    setSearchParams({ tab: t }, { replace: false });
+  }, [setSearchParams]);
+
+  const urlTab = searchParams.get('tab');
+  useEffect(() => { if (urlTab && urlTab !== tab) setTabState(urlTab); }, [urlTab]);
+
+  const [available, setAvailable] = useState([]);
+  const [myActive,  setMyActive]  = useState(null);
+  const [completed, setCompleted] = useState([]);
+  const [skipped,   setSkipped]   = useState([]);
+  const [stats,     setStats]     = useState({});
+  const [actLoading, setActLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [flash, setFlash] = useState({ text: '', type: '' });
+
+  const showFlash = (text, type = 'success') => {
+    setFlash({ text, type });
+    setTimeout(() => setFlash({ text: '', type: '' }), 4000);
+  };
+
+  const loadAll = useCallback(async () => {
+    try {
+      const [avail, active, done, st, skip] = await Promise.allSettled([
+        deliveryAPI.getAvailable(),
+        deliveryAPI.getMyActive(),
+        deliveryAPI.getCompleted(),
+        deliveryAPI.getStats(),
+        deliveryAPI.getMySkipped(),
+      ]);
+      if (avail.status === 'fulfilled')  setAvailable(avail.value.data || []);
+      if (active.status === 'fulfilled') setMyActive(active.value.data || null);
+      if (done.status === 'fulfilled')   setCompleted(done.value.data || []);
+      if (st.status === 'fulfilled')     setStats(st.value.data || {});
+      if (skip.status === 'fulfilled')   setSkipped(skip.value.data || []);
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+  useAutoRefresh(loadAll, 5000);        // poll every 5 s for fast pickup button enable
+  useVisibilityRefresh(loadAll);        // immediate refresh when rider switches back to app
+
+  // Poll notifications every 4 s — when a 'dispatch' notification arrives,
+  // call loadAll() immediately so the Pickup button enables without waiting
+  useEffect(() => {
+    let lastNotifId = null;
+    const checkDispatch = async () => {
+      try {
+        const r = await notificationsAPI.getAll();
+        const notifs = r.data || [];
+        const dispatchNotif = notifs.find(n =>
+          n.type === 'delivery' &&
+          n.title?.toLowerCase().includes('dispatch') &&
+          !n.is_read
+        );
+        if (dispatchNotif && dispatchNotif._id !== lastNotifId) {
+          lastNotifId = dispatchNotif._id;
+          loadAll(); // immediately refresh delivery data
         }
-        // Also notify all riders — delivery is now ready for pickup
-        const riders = await User.find({ role: 'delivery', is_active: true });
-        await Notification.insertMany(riders.map(u => ({
-          user_id: u._id, type: 'order_ready', title: '🟢 Order Ready for Pickup',
-          message: `Order #${updated.order_number} is cooked and ready. You can now accept this delivery.`,
-        })));
-      }
-    }
+      } catch {}
+    };
+    const id = setInterval(checkDispatch, 4000);
+    return () => clearInterval(id);
+  }, [loadAll]);
 
-    // ── Mark table available only when order is PAID (not served) ─────────
-    if (status === 'paid' && updated.order_type === 'dine-in' && updated.table_number) {
-      let tNum = parseInt(updated.table_number);
-      if (isNaN(tNum)) {
-        const m = String(updated.table_number).match(/\d+/);
-        if (m) tNum = parseInt(m[0]);
-      }
-      if (!isNaN(tNum)) {
-        const activeOnTable = await Order.findOne({
-          table_number: updated.table_number,
-          status: { $nin: ['paid', 'cancelled', 'served'] },
-          _id: { $ne: updated._id }
-        });
-        if (!activeOnTable) {
-          await RestaurantTable.findOneAndUpdate({ table_number: tNum }, { status: 'available' });
-        }
-      }
-    }
+  const refresh = async () => { setRefreshing(true); await loadAll(); setRefreshing(false); };
 
-    res.json({ success: true, data: updated });
-  } catch (err) { next(err); }
-});
+  const handleAccept = async (id) => {
+    setActLoading(true);
+    try {
+      await deliveryAPI.accept(id);
+      showFlash('✅ Accepted! Waiting for captain to dispatch before pickup.', 'success');
+      await loadAll(); setTab('active');
+    } catch (e) { showFlash(e.message || 'Failed to accept', 'error'); }
+    finally { setActLoading(false); }
+  };
 
-// ── PATCH /api/orders/:id/rating ─────────────────────────────────────────
-router.patch('/:id/rating', protect, async (req, res, next) => {
-  try {
-    const { rating, feedback } = req.body;
-    const order = await Order.findByIdAndUpdate(req.params.id, { rating, feedback }, { new: true });
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    // Award loyalty points for feedback
-    if (order.customer_id) {
-      await User.findByIdAndUpdate(order.customer_id, { $inc: { loyalty_points: 5 } });
-      await LoyaltyTransaction.create({ user_id: order.customer_id, order_id: order._id, type: 'earn', points: 5, description: 'Rating submitted' });
-    }
-    res.json({ success: true, data: order });
-  } catch (err) { next(err); }
-});
+  const handleSkip = async (id) => {
+    try {
+      await deliveryAPI.skip(id);
+      showFlash('⏭️ Order skipped. Owner & manager notified.', 'info');
+      await loadAll();
+    } catch (e) { showFlash(e.message || 'Error', 'error'); }
+  };
 
-// ── DELETE /api/orders/:id ────────────────────────────────────────────────
-router.delete('/:id', protect, authorize('owner'), async (req, res, next) => {
-  try {
-    await OrderItem.deleteMany({ order_id: req.params.id });
-    const order = await Order.findByIdAndDelete(req.params.id);
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    res.json({ success: true, message: 'Order deleted' });
-  } catch (err) { next(err); }
-});
+  const handlePickup = async (id) => {
+    setActLoading(true);
+    try {
+      await deliveryAPI.updateStatus(id, 'picked_up');
+      showFlash('📦 Picked up! Now on the way to customer.', 'success');
+      await loadAll();
+    } catch (e) { showFlash(e.message || 'Cannot pick up yet — captain must dispatch first!', 'error'); }
+    finally { setActLoading(false); }
+  };
 
-module.exports = router;
+  const handleTransit = async (id) => {
+    setActLoading(true);
+    try {
+      await deliveryAPI.updateStatus(id, 'in_transit');
+      showFlash('🛵 You\'re on the way! Ride safe.', 'success');
+      await loadAll();
+    } catch (e) { showFlash(e.message || 'Failed', 'error'); }
+    finally { setActLoading(false); }
+  };
+
+  const handleDeliver = async (id) => {
+    setActLoading(true);
+    try {
+      await deliveryAPI.updateStatus(id, 'delivered');
+      showFlash('🎉 Delivery completed! Great job!', 'success');
+      await loadAll(); setTab('done');
+    } catch (e) { showFlash(e.message || 'Failed', 'error'); }
+    finally { setActLoading(false); }
+  };
+
+  const handleFail = async (id) => {
+    setActLoading(true);
+    try {
+      await deliveryAPI.updateStatus(id, 'failed');
+      showFlash('Delivery marked as failed.', 'error');
+      await loadAll();
+    } catch (e) { showFlash(e.message || 'Failed', 'error'); }
+    finally { setActLoading(false); }
+  };
+
+  const TABS = [
+    { id: 'available', label: 'Available', icon: '📦', count: available.length },
+    { id: 'active',    label: 'Active',    icon: '🛵', count: myActive ? 1 : 0 },
+    { id: 'done',      label: 'History',   icon: '✅', count: null },
+    { id: 'skipped',   label: 'Skipped',   icon: '⏭️', count: skipped.length > 0 ? skipped.length : null },
+    { id: 'stats',     label: 'Stats',     icon: '📊', count: null },
+  ];
+
+  const tierInfo = (() => {
+    const e = stats.total_earnings || 0;
+    if (e >= 500) return { label: 'Gold Rider', color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: '🥇' };
+    if (e >= 200) return { label: 'Silver Rider', color: 'text-slate-300', bg: 'bg-slate-500/10', icon: '🥈' };
+    return { label: 'Bronze Rider', color: 'text-amber-600', bg: 'bg-amber-700/10', icon: '🥉' };
+  })();
+
+  return (
+    <div className="min-h-screen text-white" style={{ background: 'linear-gradient(135deg, #0d0d0d 0%, #111218 50%, #0a0f0d 100%)' }}>
+
+      {/* Header */}
+      <header className="sticky top-0 z-40 backdrop-blur-xl border-b" style={{ background: 'rgba(13,13,13,0.92)', borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl" style={{ background: 'linear-gradient(135deg,#f97316,#ef4444)' }}>🛵</div>
+            <div>
+              <p className="text-white font-black text-sm leading-none">Rider Hub</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#f97316' }}>{user?.name || 'Rider'} · {tierInfo.icon} {tierInfo.label}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={refresh} disabled={refreshing}
+              className="w-9 h-9 rounded-full bg-white/8 border border-white/10 flex items-center justify-center text-white/50 hover:text-orange-400 transition-all">
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+            <NotifBell />
+            <button onClick={() => { logout(); navigate('/login'); }}
+              className="w-9 h-9 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all">
+              <LogOut size={14} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 pb-12">
+
+        {/* Flash Message */}
+        <AnimatePresence>
+          {flash.text && (
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+              className={`mt-4 rounded-2xl px-4 py-3 text-sm font-bold flex items-center gap-2 border ${
+                flash.type === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' :
+                flash.type === 'info'  ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' :
+                'bg-green-500/10 border-green-500/30 text-green-400'
+              }`}>
+              {flash.type === 'error' ? <XCircle size={15} /> : flash.type === 'info' ? <Info size={15} /> : <CheckCircle size={15} />}
+              {flash.text}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 gap-3 mt-5">
+          <StatCard icon={DollarSign} label="Today's Earnings" value={`$${(stats.today_earnings||0).toFixed(2)}`} color="text-green-400" bg="bg-green-500/10" border="border-green-500/20" />
+          <StatCard icon={Truck} label="Today's Trips" value={stats.today_deliveries||0} color="text-orange-400" bg="bg-orange-500/10" border="border-orange-500/20" />
+        </div>
+
+        {/* Active delivery banner */}
+        {myActive && (
+          <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => setTab('active')}
+            className="mt-3 w-full flex items-center justify-between bg-orange-500/10 border border-orange-500/30 rounded-2xl px-4 py-3 hover:bg-orange-500/15 transition-all">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse" />
+              <span className="text-sm font-bold text-orange-300">Active delivery in progress</span>
+              <span className="text-[10px] text-orange-400/60">#{myActive.order_id?.order_number || '—'}</span>
+            </div>
+            <div className="flex items-center gap-1 text-orange-400">
+              <span className="text-xs font-black">View</span>
+              <ArrowRight size={13} />
+            </div>
+          </motion.button>
+        )}
+
+        {/* Tab Bar */}
+        <div className="flex gap-1 mt-4 p-1.5 rounded-2xl border" style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wide transition-all ${
+                tab === t.id
+                  ? 'text-white shadow-lg'
+                  : 'text-white/30 hover:text-white/60'
+              }`}
+              style={tab === t.id ? { background: 'linear-gradient(135deg,#f97316,#ef4444)', boxShadow: '0 4px 14px rgba(249,115,22,0.3)' } : {}}>
+              <span className="text-base leading-none">{t.icon}</span>
+              <span>{t.label}</span>
+              {t.count !== null && t.count > 0 && (
+                <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black leading-none ${tab === t.id ? 'bg-white/20' : 'bg-orange-500 text-white'}`}>{t.count}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <div className="mt-4 space-y-4">
+
+          {/* AVAILABLE */}
+          {tab === 'available' && (
+            <AnimatePresence mode="popLayout">
+              {available.length === 0 ? (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-24">
+                  <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl">📭</div>
+                  <p className="text-white/40 font-bold text-sm">No available deliveries</p>
+                  <p className="text-white/20 text-xs mt-1">New orders appear here when food is ready</p>
+                </motion.div>
+              ) : available.map(d => (
+                <DeliveryCard key={d._id} delivery={d} onAccept={handleAccept} onSkip={handleSkip}
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
+              ))}
+            </AnimatePresence>
+          )}
+
+          {/* ACTIVE */}
+          {tab === 'active' && (
+            <AnimatePresence mode="popLayout">
+              {!myActive ? (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-24">
+                  <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl">🏍️</div>
+                  <p className="text-white/40 font-bold text-sm">No active delivery</p>
+                  <p className="text-white/20 text-xs mt-1">Accept an order from the Available tab</p>
+                  <button onClick={() => setTab('available')} className="mt-4 px-5 py-2 bg-orange-500/20 border border-orange-500/30 text-orange-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-orange-500 hover:text-white transition-all">
+                    Browse Available
+                  </button>
+                </motion.div>
+              ) : (
+                <DeliveryCard key={myActive._id} delivery={myActive} onAccept={handleAccept} onSkip={handleSkip}
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
+              )}
+            </AnimatePresence>
+          )}
+
+          {/* HISTORY / DONE */}
+          {tab === 'done' && (
+            <AnimatePresence mode="popLayout">
+              {completed.length === 0 ? (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-24">
+                  <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl">✅</div>
+                  <p className="text-white/40 font-bold text-sm">No completed deliveries yet</p>
+                </motion.div>
+              ) : completed.map(d => {
+                const o = d.order_id || {};
+                return (
+                  <motion.div key={d._id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="bg-[#111] border border-green-500/15 rounded-2xl p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 bg-green-500/10 rounded-xl flex items-center justify-center text-xl flex-shrink-0">✅</div>
+                      <div>
+                        <p className="text-white font-bold text-sm">Order #{o.order_number || '—'}</p>
+                        <p className="text-white/40 text-[10px] mt-0.5">{(d.delivery_address || '').slice(0, 40)}</p>
+                        {d.delivered_at && <p className="text-white/25 text-[10px]">{new Date(d.delivered_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-green-400 font-black text-base">+${d.delivery_fee || 0}</p>
+                      <p className="text-white/20 text-[10px]">Earned</p>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          )}
+
+          {/* SKIPPED */}
+          {tab === 'skipped' && (
+            <AnimatePresence mode="popLayout">
+              {skipped.length === 0 ? (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-24">
+                  <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl">⏭️</div>
+                  <p className="text-white/40 font-bold text-sm">No skipped orders</p>
+                  <p className="text-white/20 text-xs mt-1">Orders you skip will appear here</p>
+                </motion.div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 px-4 py-3 bg-red-500/5 border border-red-500/15 rounded-2xl">
+                    <AlertTriangle size={14} className="text-red-400" />
+                    <p className="text-red-400 text-xs font-bold">{skipped.length} skipped order{skipped.length !== 1 ? 's' : ''} — managers have been notified</p>
+                  </div>
+                  {skipped.map(d => <SkippedCard key={d._id} delivery={d} />)}
+                </>
+              )}
+            </AnimatePresence>
+          )}
+
+          {/* STATS */}
+          {tab === 'stats' && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              {/* Tier card */}
+              <div className={`${tierInfo.bg} border border-white/10 rounded-3xl p-6 text-center relative overflow-hidden`}>
+                <div className="absolute inset-0 opacity-10" style={{ background: 'radial-gradient(circle at center, #f97316, transparent 70%)' }} />
+                <p className="text-5xl mb-3 relative z-10">{tierInfo.icon}</p>
+                <p className={`text-2xl font-black ${tierInfo.color} relative z-10`}>{tierInfo.label}</p>
+                <p className="text-white/40 text-xs mt-1 relative z-10">Based on total earnings</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <StatCard icon={Truck}      label="Total Deliveries" value={stats.total_deliveries||0}                     color="text-orange-400" bg="bg-orange-500/10" border="border-orange-500/20" />
+                <StatCard icon={DollarSign} label="Total Earned"     value={`$${(stats.total_earnings||0).toFixed(2)}`}    color="text-green-400"  bg="bg-green-500/10"  border="border-green-500/20" />
+                <StatCard icon={Activity}   label="Today's Trips"    value={stats.today_deliveries||0}                     color="text-blue-400"   bg="bg-blue-500/10"   border="border-blue-500/20" />
+                <StatCard icon={SkipForward}label="Skipped Orders"   value={stats.total_skipped||0}                        color="text-red-400"    bg="bg-red-500/10"    border="border-red-500/20" />
+              </div>
+
+              {/* Delivery fee guide */}
+              <div className="bg-[#111] border border-white/8 rounded-3xl p-5">
+                <p className="text-xs font-black uppercase tracking-widest text-white/40 mb-4 flex items-center gap-2"><DollarSign size={12} /> Distance-Based Delivery Fees</p>
+                <div className="space-y-2">
+                  {[
+                    ['0–2 km',  '$40',  'bg-blue-500/20 text-blue-400'],
+                    ['2–5 km',  '$60',  'bg-green-500/20 text-green-400'],
+                    ['5–10 km', '$80',  'bg-yellow-500/20 text-yellow-400'],
+                    ['10–15 km','$100', 'bg-orange-500/20 text-orange-400'],
+                    ['15+ km',  '$100 + $8/km', 'bg-red-500/20 text-red-400'],
+                  ].map(([range, fee, cls]) => (
+                    <div key={range} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Navigation size={11} className="text-white/30" />
+                        <span className="text-white/60 text-sm">{range}</span>
+                      </div>
+                      <span className={`text-[11px] font-black px-2.5 py-1 rounded-full ${cls}`}>{fee}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* How it works */}
+              <div className="bg-[#111] border border-white/8 rounded-3xl p-5">
+                <p className="text-xs font-black uppercase tracking-widest text-white/40 mb-4">How Delivery Works</p>
+                <div className="space-y-3">
+                  {[
+                    { icon: '🍳', step: 'Chef starts cooking',    desc: 'Order shows in your Available tab' },
+                    { icon: '✋', step: 'Accept the order',        desc: 'Reserved for you — hidden from others' },
+                    { icon: '📡', step: 'Captain dispatches',      desc: 'You\'ll get a notification — pickup unlocked' },
+                    { icon: '📦', step: 'Pick up from restaurant', desc: 'Head to restaurant and collect order' },
+                    { icon: '🛵', step: 'Mark "On the Way"',       desc: 'Customer knows you\'re coming' },
+                    { icon: '🏠', step: 'Mark Delivered',          desc: 'Earn your delivery fee!' },
+                  ].map((s, i) => (
+                    <div key={i} className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-white/5 rounded-xl flex items-center justify-center text-base flex-shrink-0">{s.icon}</div>
+                      <div>
+                        <p className="text-white text-sm font-bold">{s.step}</p>
+                        <p className="text-white/40 text-xs">{s.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

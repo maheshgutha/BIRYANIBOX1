@@ -7,7 +7,7 @@ import {
   ShoppingBag, Plus, Minus, ArrowRight, ChevronLeft,
   Tag, CheckCircle, XCircle, Gift, Copy, TrendingUp, Loader, Package,
   MapPin, RefreshCw, Clock, ChefHat, Star, Utensils, CheckSquare, CreditCard,
-  UtensilsCrossed, Truck, ChevronsDown, ChevronDown, ChevronUp,
+  UtensilsCrossed, Truck, Navigation, ChevronsDown, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
 import heroBiryani   from '../assets/hero-biryani.png';
@@ -64,12 +64,13 @@ const DINEIN_STEPS = [
   { key: 'paid',                 label: 'Done',       icon: CreditCard },
 ];
 const DELIVERY_STEPS = [
-  { key: 'pending',           label: 'Placed',    icon: Package    },
-  { key: 'start_cooking',     label: 'Preparing', icon: ChefHat    },
-  { key: 'completed_cooking', label: 'Ready',     icon: Utensils   },
-  { key: 'dispatched',        label: 'Dispatched',icon: Truck      },
-  { key: 'delivered',         label: 'Delivered', icon: MapPin     },
-  { key: 'paid',              label: 'Paid',      icon: CreditCard },
+  { key: 'placed',      label: 'Placed',      icon: Package    },   // 0
+  { key: 'preparing',   label: 'Preparing',   icon: ChefHat    },   // 1
+  { key: 'ready',       label: 'Ready',       icon: Utensils   },   // 2
+  { key: 'dispatched',  label: 'Dispatched',  icon: Truck      },   // 3
+  { key: 'delivering',  label: 'Delivering',  icon: Navigation },   // 4
+  { key: 'delivered',   label: 'Delivered',   icon: MapPin     },   // 5
+  { key: 'paid',        label: 'Paid',        icon: CreditCard },   // 6
 ];
 const PICKUP_STEPS = [
   { key: 'pending',           label: 'Order Placed',   icon: Package    },
@@ -78,11 +79,25 @@ const PICKUP_STEPS = [
   { key: 'dispatched',        label: 'At Counter',     icon: MapPin     },
   { key: 'paid',              label: 'Completed',      icon: CheckCircle},
 ];
-const DINEIN_STATUS_STEP   = { pending_confirmation:0, pending:1, start_cooking:2, completed_cooking:3, served:4, paid:5 };
-const DELIVERY_STATUS_STEP = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, delivered:4, paid:5 };
-const PICKUP_STATUS_STEP   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, paid:4 };
+const DINEIN_STATUS_STEP = { pending_confirmation:0, pending:1, start_cooking:2, completed_cooking:3, served:4, paid:5 };
+const PICKUP_STATUS_STEP = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, paid:4 };
 const ORDER_STEPS    = DINEIN_STEPS;   // default fallback
 const STATUS_TO_STEP = DINEIN_STATUS_STEP;
+
+// Delivery step uses BOTH the Order status AND the Delivery document status
+// because intermediate states (dispatched, picked_up, in_transit, delivered)
+// live in the Delivery record — not the Order.
+const getDeliveryStep = (order, delivery) => {
+  if (!order) return 0;
+  if (order.status === 'paid') return 6;
+  if (delivery?.status === 'delivered') return 5;
+  if (delivery?.status === 'in_transit' || delivery?.status === 'picked_up') return 4;
+  if (delivery?.captain_dispatched || delivery?.status === 'assigned') return 3;
+  // 'served' on a delivery order is a mis-step — treat as Ready (step 2) not Placed
+  if (order.status === 'completed_cooking' || order.status === 'served') return 2;
+  if (order.status === 'start_cooking') return 1;
+  return 0;
+};
 
 // ── Live Order Tracker ─────────────────────────────────────────────────────────
 // inline=true → compact banner inside cart page; inline=false → full-page view
@@ -98,9 +113,14 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
   const ot = order?.order_type || orderType || 'dine-in';
   const steps    = ot === 'delivery' ? DELIVERY_STEPS : ot === 'pickup' ? PICKUP_STEPS : DINEIN_STEPS;
   const stepMap  = ot === 'delivery' ? DELIVERY_STATUS_STEP : ot === 'pickup' ? PICKUP_STATUS_STEP : DINEIN_STATUS_STEP;
-  const currentStep = order ? (stepMap[order.status] ?? 0) : 0;
-  const isDone      = order?.status === 'paid' || order?.status === 'delivered';
-  const isServed    = order?.status === 'served'; // food served but bill not yet paid
+  // For delivery orders, use the delivery-document-aware step function.
+  // For dine-in/pickup, use the order-status-based step map.
+  const delivery    = order?.delivery || null; // bundled by backend for delivery orders
+  const currentStep = (ot === 'delivery')
+    ? getDeliveryStep(order, delivery)
+    : (order ? (stepMap[order.status] ?? 0) : 0);
+  const isDone   = order?.status === 'paid' || order?.status === 'delivered';
+  const isServed = order?.status === 'served' && order?.order_type !== 'delivery';
 
   // Use a ref so the interval callback always reads the latest isDone
   // without needing to recreate the interval on every status change.

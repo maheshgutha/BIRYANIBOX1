@@ -5,7 +5,7 @@ import { ordersAPI, addressesAPI, feedbackAPI, announcementsAPI, loyaltyAPI } fr
 import { useAuth } from '../context/useContextHooks';
 import { useLocation } from 'react-router-dom';
 import {
-  Truck, MapPin, Package, Clock, CheckCircle,
+  Truck, MapPin, Navigation, Package, Clock, CheckCircle,
   ChevronRight, Home, Building, Plus, Loader,
   Megaphone, Star, MessageSquare, Phone, Send, RefreshCw,
   ShoppingBag, ChefHat, Bell, Utensils, CreditCard, X,
@@ -53,6 +53,29 @@ const StarRating = ({ value, onChange }) => (
   </div>
 );
 
+// Delivery-aware step: uses both Order status + Delivery document status.
+// Mirrors getDeliveryStep in Cart.jsx so both trackers are consistent.
+const getDeliveryStep = (order, delivery) => {
+  if (!order) return 0;
+  if (order.status === 'paid') return 5;
+  if (delivery?.status === 'delivered') return 4;
+  if (delivery?.status === 'in_transit' || delivery?.status === 'picked_up') return 3;
+  if (delivery?.captain_dispatched || delivery?.status === 'assigned') return 2;
+  if (order.status === 'completed_cooking' || order.status === 'served') return 1;
+  if (order.status === 'start_cooking') return 1;
+  return 0;
+};
+
+// Delivery tracking steps for the OrderHistory live card
+const DELIVERY_ORDER_STEPS = [
+  { key: 'placed',      label: 'PLACED',      icon: Package    },
+  { key: 'preparing',   label: 'PREPARING',   icon: ChefHat    },
+  { key: 'dispatched',  label: 'DISPATCHED',  icon: Truck      },
+  { key: 'delivering',  label: 'DELIVERING',  icon: Navigation },
+  { key: 'delivered',   label: 'DELIVERED',   icon: MapPin     },
+  { key: 'paid',        label: 'PAID',        icon: CreditCard },
+];
+
 /* ─── Status badge helper ──────────────────────────────────────── */
 const STATUS_BADGE = {
   pending_confirmation: { label: 'Awaiting Confirmation', color: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-400' },
@@ -66,9 +89,16 @@ const STATUS_BADGE = {
 
 /* ─── Live Order Card ──────────────────────────────────────────── */
 const LiveOrderCard = ({ order, onRefresh }) => {
-  const stepIdx = STATUS_TO_STEP[order.status] ?? 0;
+  const isDelivery  = order.order_type === 'delivery';
+  const delivery    = order.delivery || null;  // bundled by backend
   const isCancelled = order.status === 'cancelled';
-  const badge = STATUS_BADGE[order.status] || { label: order.status, color: 'bg-white/10 border-white/20 text-white/50' };
+  const badge       = STATUS_BADGE[order.status] || { label: order.status, color: 'bg-white/10 border-white/20 text-white/50' };
+
+  // Use delivery-aware steps for delivery orders, standard steps for dine-in
+  const steps   = isDelivery ? DELIVERY_ORDER_STEPS : ORDER_STEPS;
+  const stepIdx = isDelivery
+    ? getDeliveryStep(order, delivery)
+    : (STATUS_TO_STEP[order.status] ?? 0);
 
   return (
     <div className="bg-secondary/40 rounded-3xl border border-primary/20 overflow-hidden">
@@ -97,7 +127,7 @@ const LiveOrderCard = ({ order, onRefresh }) => {
           </div>
         ) : (
           <div className="flex items-center">
-            {ORDER_STEPS.map((step, i) => {
+            {steps.map((step, i) => {
               const done = i < stepIdx;
               const active = i === stepIdx;
               const Icon = step.icon;
@@ -114,7 +144,7 @@ const LiveOrderCard = ({ order, onRefresh }) => {
                       {step.label}
                     </span>
                   </div>
-                  {i < ORDER_STEPS.length - 1 && (
+                  {i < steps.length - 1 && (
                     <div className={`flex-1 h-0.5 mb-5 mx-1 ${done ? 'bg-primary/40' : 'bg-white/10'}`} />
                   )}
                 </React.Fragment>

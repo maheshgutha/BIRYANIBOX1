@@ -55,7 +55,7 @@ const STATUS_LABELS = {
 };
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
-const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements, onLogout, captainTableNumbers }) => {
+const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements, onLogout, captainTableNumbers, open, onClose }) => {
   // No hooks that subscribe to external contexts — keeps memo effective
   // logout and navigate are passed in as a stable callback from Dashboard
 
@@ -93,44 +93,53 @@ const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements
     return true;
   });
 
+  const handleNav = (id) => { setActiveTab(id); onClose && onClose(); };
+
   return (
-    <div className="w-64 bg-bg-main border-r border-white/5 h-screen fixed left-0 top-0 flex flex-col z-50 overflow-y-auto shrink-0">
-      <div className="p-5 border-b border-white/5">
-        <div className="flex items-center gap-3 bg-primary/10 p-3 rounded-xl border border-primary/20">
-          <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center">
-            <Command size={18} className="text-white" />
-          </div>
-          <div>
-            <p className="text-white font-bold text-sm">BIRYANI BOX</p>
-            <p className="text-primary text-[10px] font-bold uppercase tracking-widest">SYSTEM.v2</p>
-          </div>
-        </div>
-      </div>
-      <nav className="flex-1 px-3 py-3 space-y-1">
-        {items.map(item => (
-          <button key={item.id} onClick={() => setActiveTab(item.id)}
-            className={`w-full flex items-center justify-between gap-3 p-3 rounded-xl text-xs font-bold transition-all ${activeTab === item.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-text-muted hover:bg-white/5 hover:text-white'}`}>
-            <div className="flex items-center gap-3">
-              <item.icon size={16} className={activeTab === item.id ? 'text-white' : 'text-primary/70'} />
-              {item.label}
+    <>
+      {/* Mobile backdrop */}
+      {open && (
+        <div className="fixed inset-0 bg-black/60 z-40 md:hidden" onClick={onClose} />
+      )}
+      <div className={`w-64 bg-bg-main border-r border-white/5 h-screen fixed left-0 top-0 flex flex-col z-50 overflow-y-auto scrollbar-hide shrink-0 transition-transform duration-300
+        ${open ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+        <div className="p-5 border-b border-white/5">
+          <div className="flex items-center gap-3 bg-primary/10 p-3 rounded-xl border border-primary/20">
+            <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center shrink-0">
+              <Command size={18} className="text-white" />
             </div>
-            {item.id === 'announcements' && unreadAnnouncements > 0 && (
-              <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">{unreadAnnouncements}</span>
-            )}
-          </button>
-        ))}
-      </nav>
-      <div className="p-3 border-t border-white/5">
-        <div className="bg-white/5 rounded-xl p-3 mb-2 text-xs text-text-muted">
-          <p className="font-bold text-white truncate">{user.name}</p>
-          <p className="text-primary uppercase tracking-wider text-[10px]">{user.role}</p>
+            <div className="min-w-0">
+              <p className="text-white font-bold text-sm">BIRYANI BOX</p>
+              <p className="text-primary text-[10px] font-bold uppercase tracking-widest">SYSTEM.v2</p>
+            </div>
+          </div>
         </div>
-        <button onClick={onLogout}
-          className="w-full flex items-center gap-2 p-3 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/10 transition-all">
-          <LogOut size={14} /> Sign Out
-        </button>
+        <nav className="flex-1 px-3 py-3 space-y-1">
+          {items.map(item => (
+            <button key={item.id} onClick={() => handleNav(item.id)}
+              className={`w-full flex items-center justify-between gap-3 p-3 rounded-xl text-xs font-bold transition-all ${activeTab === item.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-text-muted hover:bg-white/5 hover:text-white'}`}>
+              <div className="flex items-center gap-3">
+                <item.icon size={16} className={activeTab === item.id ? 'text-white' : 'text-primary'} />
+                {item.label}
+              </div>
+              {item.id === 'announcements' && unreadAnnouncements > 0 && (
+                <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">{unreadAnnouncements}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+        <div className="p-3 border-t border-white/5">
+          <div className="bg-white/5 rounded-xl p-3 mb-2 text-xs text-text-muted">
+            <p className="font-bold text-white truncate">{user.name}</p>
+            <p className="text-primary uppercase tracking-wider text-[10px]">{user.role}</p>
+          </div>
+          <button onClick={onLogout}
+            className="w-full flex items-center gap-2 p-3 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/10 transition-all">
+            <LogOut size={14} /> Sign Out
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 });
 
@@ -184,7 +193,7 @@ const NotificationBell = ({ userId }) => {
       <AnimatePresence>
         {open && (
           <MotionDiv initial={{ opacity: 0, y: 8, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.97 }}
-            className="absolute right-0 top-full mt-3 w-80 bg-secondary border border-white/10 rounded-2xl shadow-2xl z-[9999] overflow-hidden">
+            className="absolute right-0 top-full mt-3 w-72 sm:w-80 bg-secondary border border-white/10 rounded-2xl shadow-2xl z-[9999] overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
               <span className="text-xs font-black uppercase tracking-widest text-white/60">Notifications</span>
               {unread > 0 && (
@@ -216,24 +225,31 @@ const NotificationBell = ({ userId }) => {
   );
 };
 
-const Header = ({ title, onRefresh, loading }) => {
+const Header = ({ title, onRefresh, loading, onMenuToggle }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   return (
-    <div className="h-16 flex items-center justify-between px-8 border-b border-white/5 bg-bg-main/95 backdrop-blur-xl sticky top-0 z-40 shrink-0">
-      <h2 className="text-lg font-bold text-white">{title}</h2>
+    <div className="h-16 flex items-center justify-between px-4 md:px-8 border-b border-white/5 bg-bg-main/95 backdrop-blur-xl sticky top-0 z-40 shrink-0">
       <div className="flex items-center gap-3">
+        {/* Hamburger — mobile only */}
+        <button onClick={onMenuToggle}
+          className="md:hidden w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-text-muted hover:text-primary transition-all shrink-0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <h2 className="text-sm md:text-lg font-bold text-white truncate max-w-[140px] sm:max-w-none">{title}</h2>
+      </div>
+      <div className="flex items-center gap-2 md:gap-3">
         <NotificationBell userId={user?.id} />
         <button onClick={onRefresh}
           className={`w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-text-muted hover:text-primary transition-all ${loading ? 'animate-spin' : ''}`}>
           <RefreshCw size={14} />
         </button>
-        <div className="flex items-center gap-3 pl-3 border-l border-white/10">
+        <div className="flex items-center gap-2 md:gap-3 pl-2 md:pl-3 border-l border-white/10">
           <div className="text-right hidden sm:block">
             <p className="text-sm font-bold text-white uppercase tracking-wider">{user.name}</p>
             <p className="text-[10px] text-primary font-bold uppercase tracking-widest leading-none mt-1">{user.role}</p>
           </div>
-          <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-primary/20 shrink-0">
+          <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-primary/40 shrink-0 shadow-md shadow-primary/20">
             <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.role}`} alt="Profile" className="w-full h-full" />
           </div>
         </div>
@@ -383,7 +399,7 @@ const ConfirmDialog = ({ open, title, message, confirmText = 'Confirm', cancelTe
   return (
     <AnimatePresence>
       <MotionDiv initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4"
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-4"
         onClick={onCancel}>
         <MotionDiv initial={{ scale: 0.9, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }}
           onClick={e => e.stopPropagation()}
@@ -487,8 +503,8 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
   };
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+    <div className="overflow-x-auto rounded-2xl -mx-1 md:mx-0">
+      <table className="w-full text-xs min-w-[640px]">
         <thead>
           <tr className="text-text-muted uppercase tracking-widest border-b border-white/5">
             <th className="text-left px-4 py-3 font-bold">Order</th>
@@ -582,7 +598,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                   <CookDurationCell order={ord} />
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                  <div className="flex items-center justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
                     {/* pending_confirmation: Accept / Reject (owner + manager only) */}
                     {ord.status === 'pending_confirmation' && ['owner', 'manager'].includes(user.role) && onConfirmOrder && (
                       <>
@@ -688,7 +704,7 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
     <div className="space-y-8">
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-4xl font-black text-white flex items-center gap-3"><ChefHat size={32} className="text-primary" />My Kitchen</h2>
+          <h2 className="text-2xl md:text-4xl font-black text-white flex items-center gap-3"><ChefHat size={32} className="text-primary" />My Kitchen</h2>
           <p className="text-text-muted mt-1 text-sm">Your active cooking queue</p>
           <div className="flex items-center gap-2 mt-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-xl w-fit">
             <ChefHat size={11} className="text-orange-400" />
@@ -702,14 +718,14 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
         {[
           { label: 'Pending', value: orders.filter(o => o.status === 'pending').length, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
           { label: 'Cooking', value: orders.filter(o => o.status === 'start_cooking').length, color: 'text-orange-400', bg: 'bg-orange-500/10' },
           { label: 'Completed Orders', value: orders.filter(o => o.status === 'completed_cooking' || o.status === 'served' || o.status === 'paid').length, color: 'text-green-400', bg: 'bg-green-500/10' },
         ].map((s, i) => (
           <div key={i} className={`${s.bg} rounded-2xl border border-white/5 p-5 text-center`}>
-            <p className={`text-4xl font-black ${s.color}`}>{s.value}</p>
+            <p className={`text-2xl md:text-4xl font-black ${s.color}`}>{s.value}</p>
             <p className="text-[10px] text-text-muted uppercase tracking-widest font-bold mt-1">{s.label}</p>
           </div>
         ))}
@@ -897,7 +913,7 @@ const ChefOrderHistory = ({ user, allOrders }) => {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><ClipboardList size={28} className="text-primary" />My Order History</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><ClipboardList size={28} className="text-primary" />My Order History</h2>
           <p className="text-text-muted text-sm mt-1">All orders you have cooked</p>
         </div>
         <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
@@ -909,7 +925,7 @@ const ChefOrderHistory = ({ user, allOrders }) => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
         {[
           { label: 'Orders Cooked', value: stats.total, color: 'text-primary' },
           { label: 'Total Items', value: stats.items, color: 'text-orange-400' },
@@ -1040,7 +1056,7 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3">
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
             <Award size={28} className="text-yellow-400" />My Bonus
           </h2>
           <p className="text-text-muted text-sm mt-1">
@@ -1072,7 +1088,7 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
           </div>
           <div className="text-right">
             <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mb-1">Bonus Rate</p>
-            <p className={`text-5xl font-black ${tier.color}`}>{tier.pct}%</p>
+            <p className={`text-3xl md:text-5xl font-black ${tier.color}`}>{tier.pct}%</p>
             <p className="text-[10px] text-text-muted mt-1">of total revenue</p>
           </div>
         </div>
@@ -1169,7 +1185,7 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
             <p className="text-[10px] text-text-muted">Based on your total lifetime revenue in your zone</p>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-2 md:gap-4">
           {[
             { label: 'All-Time Revenue',  value: `$${allTimeRevenue.toFixed(0)}`,                           color: 'text-white' },
             { label: 'Lifetime Tier',     value: `${allTimeTier.icon} ${allTimeTier.label}`,                 color: allTimeTier.color },
@@ -1294,7 +1310,7 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><ClipboardList size={28} className="text-primary" />My Orders</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><ClipboardList size={28} className="text-primary" />My Orders</h2>
           <p className="text-text-muted text-sm mt-1">All orders you have served</p>
           {/* Zone badge */}
           {captainTableNumbers && captainTableNumbers.length > 0 ? (
@@ -1346,7 +1362,7 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
                 {stats.bonusTier} Tier · {stats.bonusPct}%
               </span>
             </div>
-            <p className="text-4xl font-black text-white">${stats.bonusAmt.toFixed(2)}</p>
+            <p className="text-2xl md:text-4xl font-black text-white">${stats.bonusAmt.toFixed(2)}</p>
             <p className="text-text-muted text-xs mt-1">Based on ${stats.revenue.toFixed(0)} revenue generated · {period}</p>
           </div>
           <div className="space-y-1 text-right">
@@ -1525,7 +1541,7 @@ const TableStatus = ({ user }) => {
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Truck size={28} className="text-primary" />Your Zone: Delivery & Pickup</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><Truck size={28} className="text-primary" />Your Zone: Delivery & Pickup</h2>
           <p className="text-text-muted text-sm mt-1">You are assigned to manage delivery and pickup orders — no dine-in tables in your zone.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
@@ -1554,7 +1570,7 @@ const TableStatus = ({ user }) => {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3">
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
             <LayoutDashboard size={28} className="text-primary" />Table Status
           </h2>
           <p className="text-text-muted text-sm mt-1">
@@ -1620,7 +1636,7 @@ const TableStatus = ({ user }) => {
                     className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3">
                   <div>
                     <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">CAPACITY</label>
                     <input
@@ -1879,7 +1895,7 @@ const ReservationsPanel = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3">
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
             <Calendar size={28} className="text-primary" />Reservations
             {reservations.filter(r => r.status === 'pending').length > 0 && (
               <span className="bg-yellow-500 text-black text-xs px-2.5 py-1 rounded-full font-black animate-pulse">
@@ -1904,7 +1920,7 @@ const ReservationsPanel = () => {
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
       {/* Status group tabs with counts */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 md:gap-3">
         {(['pending','confirmed','completed','cancelled']).map(s => (
           <button key={s} onClick={() => setFilterStatus(filterStatus === s ? 'all' : s)}
             className={`rounded-2xl border p-4 text-center transition-all ${filterStatus === s ? 'ring-2 ring-primary' : ''} ${STATUS_BG[s]}`}>
@@ -1918,7 +1934,7 @@ const ReservationsPanel = () => {
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
-            className="bg-secondary/40 rounded-3xl border border-primary/30 p-8">
+            className="bg-secondary/40 rounded-3xl border border-primary/30 p-4 md:p-8">
             <h3 className="text-lg font-bold mb-6 text-white flex items-center gap-2"><Calendar size={18} className="text-primary" /> New Reservation</h3>
             <form onSubmit={handleSubmit} className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
@@ -1947,8 +1963,8 @@ const ReservationsPanel = () => {
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Date *</label>
-                <input type="date" required value={form.date} onChange={sf('date')} min={new Date().toISOString().split('T')[0]}
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                <input type="date" required value={form.date} style={{ colorScheme: "dark" }} onChange={sf('date')} min={new Date().toISOString().split('T')[0]}
+                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Time *</label>
@@ -2039,7 +2055,7 @@ const ReservationsPanel = () => {
                 {confirmingId === r._id && (
                   <div className="border-b border-primary/20 bg-primary/5 px-6 py-4 space-y-3">
                     <p className="text-xs font-black uppercase tracking-widest text-primary">✉ Confirm & Send Email to Customer</p>
-                    <div className="grid md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Assign Table</label>
                         <select value={tableAssign} onChange={e => setTableAssign(e.target.value)}
@@ -2165,7 +2181,7 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3">
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
             <MessageSquare size={28} className="text-primary" />Feedback Box
             {unread > 0 && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-black">{unread}</span>}
             <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase border ${userRole === 'owner' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
@@ -2380,7 +2396,7 @@ const AnnouncementsPanel = ({ isAdmin }) => {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Megaphone size={28} className="text-primary" />Announcements</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><Megaphone size={28} className="text-primary" />Announcements</h2>
           <p className="text-text-muted text-sm mt-1">Post manually or schedule for festivals & events</p>
         </div>
         {isAdmin && (
@@ -2408,7 +2424,7 @@ const AnnouncementsPanel = ({ isAdmin }) => {
       <AnimatePresence>
         {showForm && isAdmin && (
           <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
-            className="bg-secondary/40 rounded-3xl border border-primary/30 p-8 space-y-5">
+            className="bg-secondary/40 rounded-3xl border border-primary/30 p-4 md:p-8 space-y-5">
             <h3 className="text-lg font-bold text-white">New Announcement</h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Staff-only toggle */}
@@ -2422,12 +2438,12 @@ const AnnouncementsPanel = ({ isAdmin }) => {
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Title *</label>
                 <input required value={form.title} onChange={sf('title')}
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Message *</label>
                 <textarea required value={form.message} onChange={sf('message')} rows={3}
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Priority</label>
@@ -2508,7 +2524,7 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                 {form.is_scheduled && (
                   <div>
                     <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Date & Time</label>
-                    <input type="datetime-local" value={form.scheduled_date} onChange={sf('scheduled_date')} required={form.is_scheduled}
+                    <input type="datetime-local" value={form.scheduled_date} style={{ colorScheme: "dark" }} onChange={sf('scheduled_date')} required={form.is_scheduled}
                       className="bg-bg-main border border-blue-500/30 p-2.5 rounded-xl focus:border-blue-400 outline-none text-white text-sm" />
                     <p className="text-[10px] text-text-muted mt-1">Announcement will be visible from this date/time</p>
                   </div>
@@ -2730,7 +2746,7 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><UserCheck size={28} className="text-primary" />Shift Logs</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><UserCheck size={28} className="text-primary" />Shift Logs</h2>
           <p className="text-text-muted text-sm mt-1">Attendance analytics & check-in tracking</p>
         </div>
         <div className="flex items-center gap-2">
@@ -2762,7 +2778,7 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
       )}
 
       {/* Analytics cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
         {[
           { label: 'Total Hours', value: totalHours.toFixed(1) + 'h', icon: Clock, color: 'text-primary' },
           { label: 'Avg Hours/Session', value: avgHours.toFixed(1) + 'h', icon: BarChart3, color: 'text-blue-400' },
@@ -2873,8 +2889,8 @@ const ShiftLogs = ({ user, isAdmin, onViewProfile }) => {
           grouped[key].sessions.push(s);
         });
         return (
-          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
-            <div className="flex items-center justify-between mb-5">
+          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 md:mb-5">
               <h3 className="text-sm font-black text-white flex items-center gap-2">
                 <Calendar size={16} className="text-primary" /> Shift Calendar
               </h3>
@@ -3090,17 +3106,17 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
   };
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 md:space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-3xl font-bold text-white mb-1">Staff Management</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">Staff Management</h2>
           <p className="text-text-muted text-sm">{currentUserRole === 'owner' ? 'Manage all managers, captains & chefs' : 'Manage captains and chefs'}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
-            <RefreshCw size={13} /> Refresh
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={load} className="flex items-center gap-2 px-3 md:px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} /> <span className="hidden sm:inline">Refresh</span>
           </button>
-          <button onClick={openAdd} className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover">
+          <button onClick={openAdd} className="flex items-center gap-2 px-4 md:px-6 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover shadow-lg shadow-primary/25">
             <Plus size={14} /> Add Staff
           </button>
         </div>
@@ -3109,11 +3125,11 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
       {/* Role filter buttons */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] text-text-muted font-black uppercase tracking-widest">Filter:</span>
         {['all', ...allowedRoles].map(r => (
           <button key={r} onClick={() => setRoleFilter(r)}
-            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${roleFilter === r
+            className={`px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${roleFilter === r
               ? r === 'all' ? 'bg-primary text-white border-primary' : roleColor[r] + ' opacity-100'
               : 'bg-white/5 border-white/10 text-text-muted hover:text-white'}`}>
             {r} {r !== 'all' && `(${staff.filter(u => u.role === r).length})`}
@@ -3233,7 +3249,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                     <Plus size={12} /> Additional Details (optional)
                   </summary>
                   <div className="mt-4 space-y-3 pt-3 border-t border-white/10">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3">
                       {[
                         { label: 'Date of Birth', field: 'dob', type: 'date' },
                         { label: 'Joining Date', field: 'joining_date', type: 'date' },
@@ -3266,8 +3282,8 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
       {/* Staff table */}
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
-          {/* Column Headers */}
-          <div className="flex items-center px-6 py-3 bg-white/3 border-b border-white/8">
+          {/* Column Headers — hidden on mobile, shown md+ */}
+          <div className="hidden md:flex items-center px-6 py-3 bg-white/3 border-b border-white/8">
             <div className="flex-1 min-w-0 text-[10px] font-black uppercase tracking-widest text-text-muted">Staff Member</div>
             <div className="w-[15%] text-[10px] font-black uppercase tracking-widest text-text-muted">Role</div>
             <div className="w-[15%] text-[10px] font-black uppercase tracking-widest text-text-muted">Mobile Number</div>
@@ -3281,7 +3297,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                 ? allTables.filter(t => (t.captain_id?._id || t.captain_id) === u._id)
                 : [];
               return (
-                <div key={u._id} className="flex items-center px-6 py-5 hover:bg-white/3 group">
+                <div key={u._id} className="flex flex-col md:flex-row md:items-center px-4 md:px-6 py-4 md:py-5 hover:bg-white/3 group gap-3 md:gap-0">
                   <button
                     onClick={() => onViewProfile && onViewProfile(u)}
                     className="flex items-center gap-4 flex-1 min-w-0 text-left"
@@ -3289,7 +3305,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                     <div className="w-11 h-11 rounded-full border border-primary/30 overflow-hidden shrink-0">
                       <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${u.name}`} alt="" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-bold text-white group-hover:text-primary transition-colors">{u.name}</p>
                       <p className="text-[10px] text-text-muted">{u.email}</p>
                       {u.role === 'captain' && (
@@ -3299,18 +3315,26 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                             : '🚗 Delivery & Pickup'}
                         </p>
                       )}
+                      {/* Mobile-only inline badges */}
+                      <div className="flex items-center gap-2 mt-1.5 md:hidden flex-wrap">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${roleColor[u.role] || 'text-text-muted bg-white/5 border-white/10'}`}>{u.role}</span>
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase border ${u.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>{u.is_active ? 'Active' : 'Disabled'}</span>
+                        {(() => { const onShift = activeShiftIds.has(String(u._id)); return <span className={`flex items-center gap-1 text-[9px] font-bold uppercase ${onShift ? 'text-green-400' : 'text-text-muted'}`}><span className={`w-1.5 h-1.5 rounded-full ${onShift ? 'bg-green-400' : 'bg-white/20'}`}/>{onShift ? 'On Shift' : 'Off Shift'}</span>; })()}
+                        {u.phone && <span className="text-[9px] text-text-muted">📞 {u.phone}</span>}
+                      </div>
                     </div>
                   </button>
-                  <div className="w-[15%]">
+                  {/* Desktop-only columns */}
+                  <div className="hidden md:block w-[15%]">
                     <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase border ${roleColor[u.role] || 'text-text-muted bg-white/5 border-white/10'}`}>{u.role}</span>
                   </div>
-                  <div className="w-[15%] text-xs text-text-muted">{u.phone || '—'}</div>
-                  <div className="w-[10%]">
+                  <div className="hidden md:block w-[15%] text-xs text-text-muted">{u.phone || '—'}</div>
+                  <div className="hidden md:block w-[10%]">
                     <span className={`text-[9px] font-bold px-2 py-1 rounded-full uppercase border ${u.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
                       {u.is_active ? 'Active' : 'Disabled'}
                     </span>
                   </div>
-                  <div className="w-[10%] flex items-center gap-1.5">
+                  <div className="hidden md:flex w-[10%] items-center gap-1.5">
                     {(() => { const onShift = activeShiftIds.has(String(u._id)); return (<>
                       <span className={`w-2 h-2 rounded-full shrink-0 ${onShift ? 'bg-green-400 shadow-sm shadow-green-400/60 animate-pulse' : 'bg-white/20'}`} />
                       <span className={`text-[9px] font-bold uppercase ${onShift ? 'text-green-400' : 'text-text-muted'}`}>
@@ -3318,9 +3342,9 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                       </span>
                     </>); })()}
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                  <div className="flex items-center gap-1 md:gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
                     {onViewProfile && (
-                      <button onClick={() => onViewProfile(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition-all" title="View Profile">
+                      <button onClick={() => onViewProfile(u)} className="p-1.5 md:p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition-all" title="View Profile">
                         <Eye size={13} />
                       </button>
                     )}
@@ -3351,9 +3375,9 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
       <AnimatePresence>
         {delConfirm && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6">
             <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
-              className="bg-secondary rounded-3xl border border-red-500/30 p-10 max-w-md w-full text-center space-y-6">
+              className="bg-secondary rounded-3xl border border-white/10 p-6 md:p-10 max-w-md w-full mx-4 sm:mx-auto text-center space-y-6">
               <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto">
                 <Trash2 size={28} className="text-red-400" />
               </div>
@@ -3460,7 +3484,7 @@ const LeaveModule = ({ user }) => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Briefcase size={28} className="text-primary" />Leave Module</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><Briefcase size={28} className="text-primary" />Leave Module</h2>
           <p className="text-text-muted text-sm mt-1">
             {isStaff ? 'Apply and track your leave requests' : 'Manage and approve leave applications'}
           </p>
@@ -3481,7 +3505,7 @@ const LeaveModule = ({ user }) => {
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
         {[
           { label: 'Pending',  value: pending,  color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', filter: 'pending'  },
           { label: 'Approved', value: approved, color: 'text-green-400',  bg: 'bg-green-500/10',  border: 'border-green-500/30',  filter: 'approved' },
@@ -3494,7 +3518,7 @@ const LeaveModule = ({ user }) => {
               onClick={() => setFilterStatus(isActive ? 'all' : filter)}
               className={`${bg} rounded-2xl border p-5 text-center transition-all hover:scale-[1.03] active:scale-100 cursor-pointer ${isActive ? `${border} ring-2 ring-offset-1 ring-offset-bg-main ${border.replace('border-', 'ring-')}` : 'border-white/5'}`}
             >
-              <p className={`text-3xl font-black ${color}`}>{value}</p>
+              <p className={`text-2xl md:text-3xl font-black ${color}`}>{value}</p>
               <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mt-1">{label}</p>
               {isActive && <p className={`text-[9px] font-black uppercase tracking-widest mt-1 ${color} opacity-70`}>● Filtered</p>}
             </button>
@@ -3506,18 +3530,18 @@ const LeaveModule = ({ user }) => {
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
-            className="bg-secondary/40 rounded-3xl border border-primary/30 p-8">
+            className="bg-secondary/40 rounded-3xl border border-primary/30 p-4 md:p-8">
             <h3 className="text-lg font-bold mb-6 text-white">New Leave Application</h3>
-            <form onSubmit={handleApply} className="grid md:grid-cols-2 gap-4">
+            <form onSubmit={handleApply} className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">From Date *</label>
-                <input type="date" required value={form.from_date} onChange={sf('from_date')} style={{ colorScheme: 'dark' }}
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                <input type="date" required value={form.from_date} style={{ colorScheme: "dark" }} onChange={sf('from_date')} style={{ colorScheme: "dark" }}
+                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">To Date *</label>
-                <input type="date" required value={form.to_date} onChange={sf('to_date')} style={{ colorScheme: 'dark' }}
-                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                <input type="date" required value={form.to_date} style={{ colorScheme: "dark" }} onChange={sf('to_date')} style={{ colorScheme: "dark" }}
+                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Leave Type</label>
@@ -3599,7 +3623,7 @@ const LeaveModule = ({ user }) => {
                     )}
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-3">
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2 md:gap-3">
                   <div className="bg-white/5 rounded-xl p-3">
                     <p className="text-[9px] text-text-muted uppercase font-bold mb-1">Period</p>
                     <p className="text-xs font-bold text-white">
@@ -3730,7 +3754,7 @@ const CateringPanel = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Utensils size={28} className="text-primary" />Catering Orders</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><Utensils size={28} className="text-primary" />Catering Orders</h2>
           <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ${totalRevenue.toLocaleString()} confirmed revenue</p>
         </div>
         <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
@@ -3831,7 +3855,7 @@ const CateringPanel = () => {
           </div>
         </div>
       )}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {['pending', 'confirmed', 'completed', 'cancelled'].map(s => (
           <button key={s} onClick={() => setFilterStatus(filterStatus === s ? 'all' : s)}
             className={`rounded-2xl border p-4 text-center transition-all ${filterStatus === s ? 'ring-2 ring-primary' : ''} ${statusColors[s] || 'bg-white/5 border-white/10'}`}>
@@ -3984,7 +4008,7 @@ const CateringPanel = () => {
                   <p className="text-xs font-black uppercase tracking-widest text-primary">✉ Quotation Details — Sent to Customer & Confirms Order</p>
 
                   {/* Summary row */}
-                  <div className="grid grid-cols-3 gap-3 bg-white/5 rounded-2xl p-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 md:gap-3 bg-white/5 rounded-2xl p-4">
                     <div>
                       <p className="text-[9px] text-text-muted uppercase font-black tracking-widest mb-1">Guests</p>
                       <p className="text-xl font-black text-white">{o.guest_count || o.guests || '—'}</p>
@@ -4003,7 +4027,7 @@ const CateringPanel = () => {
                     </div>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">
                         Your Quote ($) *
@@ -4144,7 +4168,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><FileText size={28} className="text-primary" />Menu Master</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><FileText size={28} className="text-primary" />Menu Master</h2>
           <p className="text-text-muted text-sm mt-1">{menuItems.length} items · {filtered.length} shown</p>
         </div>
         <button onClick={openAdd}
@@ -4456,7 +4480,7 @@ const WasteManagement = ({ ingredients }) => {
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
             className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6">
             <h4 className="text-base font-bold text-white mb-4">Log Waste Entry</h4>
-            <form onSubmit={handleAdd} className="grid md:grid-cols-2 gap-4">
+            <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div>
                 {/* Type selector */}
           <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
@@ -4496,7 +4520,7 @@ const WasteManagement = ({ ingredients }) => {
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block flex items-center gap-1">
                   <Calendar size={10} /> Date of Waste
                 </label>
-                <input type="date" value={form.waste_date}
+                <input type="date" value={form.waste_date} style={{ colorScheme: "dark" }}
                   max={new Date().toISOString().split('T')[0]}
                   onChange={e => setForm(p => ({ ...p, waste_date: e.target.value }))}
                   placeholder="Leave blank for today"
@@ -4514,8 +4538,8 @@ const WasteManagement = ({ ingredients }) => {
       {/* Waste Log Table */}
       {filteredEntries.length > 0 ? (
         <div className="bg-bg-main/50 border border-white/10 rounded-2xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-2xl -mx-1 md:mx-0">
+            <table className="w-full text-sm min-w-[560px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/5">
                   <th className="text-left p-3 text-[10px] text-text-muted font-black uppercase tracking-widest">Date</th>
@@ -4690,8 +4714,8 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
             className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <motion.div initial={{ scale: 0.92 }} animate={{ scale: 1 }} exit={{ scale: 0.92 }}
               className="bg-[#1a1a1a] rounded-3xl border border-primary/30 w-full max-w-lg shadow-2xl p-6">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-black text-white flex items-center gap-2"><Edit2 size={16} className="text-primary" />Edit Ingredient</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4 md:mb-5">
+                <h3 className="text-base md:text-lg font-black text-white flex items-center gap-2"><Edit2 size={16} className="text-primary" />Edit Ingredient</h3>
                 <button onClick={() => setEditItem(null)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"><X size={16} /></button>
               </div>
               <form onSubmit={handleUpdate} className="grid grid-cols-2 gap-4">
@@ -4836,7 +4860,7 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><OrderIcon size={28} className="text-primary" />Orders</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><OrderIcon size={28} className="text-primary" />Orders</h2>
           <p className="text-text-muted text-sm mt-1">{orders.length} orders
             {pendingConfirmCount > 0 && <span className="ml-2 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-full text-[10px] font-black animate-pulse">⏰ {pendingConfirmCount} awaiting confirmation</span>}
           </p>
@@ -4984,7 +5008,7 @@ const Overview = ({ orders }) => {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-4xl font-black font-heading text-white mb-1">Command Hub</h2>
+          <h2 className="text-2xl md:text-4xl font-black font-heading text-white mb-1">Command Hub</h2>
           <p className="text-text-muted text-sm">Live business intelligence — all data from database</p>
         </div>
         <button onClick={() => loadHub(false)} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-black text-text-muted hover:text-white hover:bg-white/10 transition-all">
@@ -5042,7 +5066,7 @@ const Overview = ({ orders }) => {
       </div>
 
       {/* ── Revenue Trend Chart — paid orders only ── */}
-      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6 relative overflow-hidden">
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6 relative overflow-hidden">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-primary/10 blur-[60px] rounded-full pointer-events-none" />
         <div className="flex items-start justify-between mb-6 relative z-10">
           <div>
@@ -5148,7 +5172,7 @@ const Overview = ({ orders }) => {
                   })}
                 </svg>
               </div>
-              <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-white/5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 md:gap-3 mt-4 pt-4 border-t border-white/5">
                 <div className="text-center">
                   <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Orders Paid</p>
                   <p className="text-lg font-black text-white">{chartPoints.reduce((s, p) => s + p.orders, 0)}</p>
@@ -5171,11 +5195,11 @@ const Overview = ({ orders }) => {
       </div>
 
       {/* ── Order Pipeline + Calendar ── */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         {/* Order Pipeline */}
-        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h4 className="text-lg font-bold text-white flex items-center gap-2"><Zap size={18} className="text-primary" />Order Pipeline</h4>
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 md:mb-5">
+            <h4 className="text-base md:text-lg font-bold text-white flex items-center gap-2"><span className="w-7 h-7 rounded-lg bg-yellow-500/20 border border-yellow-500/30 inline-flex items-center justify-center mr-1"><Zap size={14} className="text-yellow-400" /></span>Order Pipeline</h4>
             <div className="flex gap-1">
               <button onClick={() => setActiveSection('pipeline')}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${activeSection === 'pipeline' ? 'bg-primary text-white' : 'bg-white/5 text-text-muted hover:text-white'}`}>
@@ -5249,15 +5273,19 @@ const Overview = ({ orders }) => {
         </div>
 
         {/* Calendar — Sales by date */}
-        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6">
           <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <Calendar size={18} className="text-primary" />Sales Calendar
+            <span className="w-8 h-8 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
+              <Calendar size={16} className="text-primary" />
+            </span>
+            Sales Calendar
           </h4>
           <div className="flex items-center gap-3 mb-4">
             <input type="date" value={calDate} onChange={e => setCalDate(e.target.value)}
-              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-primary transition-all" />
+              style={{ colorScheme: "dark" }}
+              className="flex-1 bg-bg-main border-2 border-white/20 hover:border-primary/40 focus:border-primary rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition-all cursor-pointer font-medium" />
             {calDate && (
-              <button onClick={() => setCalDate('')} className="px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-text-muted hover:text-white transition-all">
+              <button onClick={() => setCalDate('')} className="w-10 h-10 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all shrink-0">
                 <X size={14} />
               </button>
             )}
@@ -5309,12 +5337,12 @@ const Overview = ({ orders }) => {
       </div>
 
       {/* ── Top Dishes ── */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         {/* Bar list + Show More */}
-        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h4 className="text-lg font-bold text-white flex items-center gap-2">
-              <BarChart3 size={18} className="text-primary" />Top Dishes
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 md:mb-5">
+            <h4 className="text-base md:text-lg font-bold text-white flex items-center gap-2">
+              <span className="w-7 h-7 rounded-lg bg-primary/20 border border-primary/30 inline-flex items-center justify-center mr-1"><BarChart3 size={14} className="text-primary" /></span>Top Dishes
             </h4>
             {d && d.top_dishes_all && d.top_dishes_all.length > 5 && (
               <button onClick={() => setShowAllDishes(s => !s)}
@@ -5359,7 +5387,7 @@ const Overview = ({ orders }) => {
         </div>
 
         {/* Pie chart — top 10 */}
-        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6">
           <h4 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
             <PieChart size={18} className="text-primary" />Top 10 Dish Distribution
           </h4>
@@ -5522,7 +5550,7 @@ const FinanceCenter = ({ orders }) => {
       {/* Header — matches screenshot */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-4xl font-black text-white flex items-center gap-3">
+          <h2 className="text-2xl md:text-4xl font-black text-white flex items-center gap-3">
             <DollarSign size={32} className="text-primary" />Finance Center
           </h2>
           <p className="text-text-muted mt-1 text-sm">Revenue auto-tracked from paid orders · Add budget manually or import from bills</p>
@@ -5671,7 +5699,7 @@ const FinanceCenter = ({ orders }) => {
                   </button>
                 </div>
                 <div className="bg-black/20 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
-                  <table className="w-full text-xs">
+                  <table className="w-full text-xs min-w-[640px]">
                     <thead className="bg-white/5 sticky top-0">
                       <tr>
                         {['#','Title','Amount','Type','Category','Date'].map(h => (
@@ -5739,11 +5767,11 @@ const FinanceCenter = ({ orders }) => {
         {showBudgetForm && (
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
             className="bg-secondary/40 border border-primary/30 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 md:mb-4">
               <h4 className="text-base font-bold text-white">New Budget Entry</h4>
               <button type="button" onClick={() => setShowBudgetForm(false)} className="text-text-muted hover:text-white"><X size={16} /></button>
             </div>
-            <form onSubmit={handleAddBudget} className="grid md:grid-cols-2 gap-4">
+            <form onSubmit={handleAddBudget} className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1 block">Label *</label>
                 <input required value={budgetForm.label} onChange={e => setBudgetForm(p => ({ ...p, label: e.target.value }))} placeholder="e.g. Gas bill, Salary..."
@@ -5878,9 +5906,9 @@ const FinanceCenter = ({ orders }) => {
       </div>
 
       {/* Revenue Last 7 Days Chart */}
-      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6">
         <h4 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
-          <BarChart3 size={18} className="text-primary" />Revenue — Last 7 Days
+          <span className="w-7 h-7 rounded-lg bg-primary/20 border border-primary/30 inline-flex items-center justify-center mr-1"><BarChart3 size={14} className="text-primary" /></span>Revenue — Last 7 Days
         </h4>
         <div className="flex items-end gap-2" style={{ height: '120px' }}>
           {last7.map((d, i) => (
@@ -5931,8 +5959,8 @@ const FinanceCenter = ({ orders }) => {
           <span className="text-xs text-text-muted">{filteredBudget.length} entries</span>
         </div>
         {filteredBudget.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-2xl -mx-1 md:mx-0">
+            <table className="w-full text-sm min-w-[560px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/5">
                   {['Date', 'Label', 'Type', 'Amount'].map(h => (
@@ -5992,10 +6020,10 @@ const FinanceCenter = ({ orders }) => {
         const chartW = 100; // percent units for SVG viewBox
 
         return (
-          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 md:mb-4 flex-wrap gap-3">
               <div>
-                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                <h4 className="text-base md:text-lg font-bold text-white flex items-center gap-2">
                   <BarChart2 size={18} className="text-primary" />Break-Even Analysis
                 </h4>
                 <p className="text-xs text-text-muted mt-0.5">Based on current revenue, expenses &amp; order data</p>
@@ -6052,7 +6080,7 @@ const FinanceCenter = ({ orders }) => {
             </div>
 
             {/* KPI row */}
-            <div className="grid grid-cols-3 gap-3 mt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 md:gap-3 mt-4">
               {[
                 { label: 'Fixed Costs', val: `$${fixedCosts.toFixed(0)}`, color: 'text-red-400' },
                 { label: 'Break-Even Orders', val: breakevenUnits, color: 'text-primary' },
@@ -6075,8 +6103,8 @@ const FinanceCenter = ({ orders }) => {
           <p className="text-xs text-text-muted mt-1">{paidOrders.length} paid orders · ${revenue.toFixed(0)} total</p>
         </div>
         {paidOrders.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-2xl -mx-1 md:mx-0">
+            <table className="w-full text-sm min-w-[560px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/5">
                   {['Order', 'Table', 'Items', 'Amount'].map(h => (
@@ -6297,7 +6325,7 @@ const RidersPanel = ({ currentUserRole }) => {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3"><Truck size={28} className="text-primary" />Riders Hub</h2>
+          <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><Truck size={28} className="text-primary" />Riders Hub</h2>
           <p className="text-text-muted text-sm mt-1">
             {['owner', 'manager'].includes(currentUserRole)
               ? 'Manage delivery riders, track live deliveries and performance'
@@ -6393,9 +6421,9 @@ const RidersPanel = ({ currentUserRole }) => {
         <AnimatePresence>
           {showForm && (
             <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
-              className="bg-secondary/40 rounded-3xl border border-primary/30 p-8">
+              className="bg-secondary/40 rounded-3xl border border-primary/30 p-4 md:p-8">
               <h3 className="text-lg font-bold mb-6 text-white flex items-center gap-2"><Truck size={18} className="text-primary" />Create Rider Account</h3>
-              <form onSubmit={handleCreate} className="grid md:grid-cols-2 gap-4">
+              <form onSubmit={handleCreate} className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                 {[
                   { label: 'Full Name',    field: 'name',     type: 'text',     req: true },
                   { label: 'Email',        field: 'email',    type: 'email',    req: true },
@@ -6405,7 +6433,7 @@ const RidersPanel = ({ currentUserRole }) => {
                   <div key={field}>
                     <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">{label}{req && ' *'}</label>
                     <input type={type} required={req} value={form[field]} onChange={sf(field)}
-                      className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                      className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                   </div>
                 ))}
                 <div>
@@ -6490,7 +6518,7 @@ const RidersPanel = ({ currentUserRole }) => {
                 const count   = totalForRider(r._id);
                 const statusCfg = live ? statusDot[live.status] : null;
                 return (
-                  <div key={r._id} className="flex items-center px-6 py-5 hover:bg-white/3 group gap-4">
+                  <div key={r._id} className="flex items-center px-4 md:px-6 py-4 md:py-5 hover:bg-white/3 group gap-4">
                     {/* Avatar + name */}
                     <button onClick={() => openRiderDrawer(r)} className="flex items-center gap-4 flex-1 min-w-0 text-left">
                       <div className="relative shrink-0">
@@ -6535,7 +6563,7 @@ const RidersPanel = ({ currentUserRole }) => {
                     </div>
 
                     {/* Actions — view always visible; edit/delete only for owner & manager */}
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <div className="flex items-center gap-1 md:gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
                       <button onClick={() => openRiderDrawer(r)}
                         className="p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary hover:text-white transition-all" title="View profile">
                         <Eye size={13} />
@@ -6564,9 +6592,9 @@ const RidersPanel = ({ currentUserRole }) => {
       <AnimatePresence>
         {delConfirm && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6">
             <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
-              className="bg-secondary rounded-3xl border border-red-500/30 p-10 max-w-md w-full text-center space-y-6">
+              className="bg-secondary rounded-3xl border border-white/10 p-6 md:p-10 max-w-md w-full mx-4 sm:mx-auto text-center space-y-6">
               <Truck size={32} className="text-red-400 mx-auto" />
               <div>
                 <h3 className="text-2xl font-bold mb-2 text-white">Remove Rider?</h3>
@@ -6610,7 +6638,7 @@ const RidersPanel = ({ currentUserRole }) => {
                 </button>
               </div>
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-3 p-6 border-b border-white/10">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 md:gap-3 p-6 border-b border-white/10">
                 {[
                   { label: 'Total', value: riderDels.filter(d => d.status === 'delivered').length, color: 'text-primary' },
                   { label: 'Earned', value: `$${riderDels.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 40), 0)}`, color: 'text-green-400' },
@@ -6824,7 +6852,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
       </button>
 
       {/* Profile header */}
-      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8">
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-8">
         <div className="flex items-center gap-8 flex-wrap">
           <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-primary/40 shrink-0 shadow-xl shadow-primary/10">
             <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${staffUser.name || staffUser._id}`} alt="" className="w-full h-full" />
@@ -6900,8 +6928,8 @@ const StaffProfileView = ({ staffUser, onBack }) => {
             <div className="space-y-6">
 
               {/* Bar chart */}
-              <div className="bg-secondary/40 rounded-3xl border border-white/5 p-6">
-                <div className="flex items-center justify-between mb-4">
+              <div className="bg-secondary/40 rounded-3xl border border-white/5 p-4 md:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3 md:mb-4">
                   <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
                     <BarChart2 size={16} className="text-primary" /> {graphTitle[period]}
                   </h3>
@@ -6918,7 +6946,7 @@ const StaffProfileView = ({ staffUser, onBack }) => {
                         {/* Tooltip */}
                         {bar.hours > 0 && (
                           <div style={{ position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 6, zIndex: 20, pointerEvents: 'none' }}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                             <div className="bg-[#111] border border-primary/40 rounded-lg px-2 py-1 text-[9px] text-white font-bold whitespace-nowrap shadow-xl">
                               {bar.tip}
                             </div>
@@ -6944,10 +6972,10 @@ const StaffProfileView = ({ staffUser, onBack }) => {
               </div>
 
               {/* Leave summary + performance */}
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                 <div className="bg-secondary/40 rounded-2xl border border-white/5 p-5">
                   <h4 className="text-xs font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2"><Briefcase size={13} className="text-primary" />Leave Summary</h4>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 md:gap-3">
                     {[
                       { label:'Total',    value:leaves.length,                                  color:'text-white'      },
                       { label:'Approved', value:leaves.filter(l => l.status === 'approved').length, color:'text-green-400'  },
@@ -7179,7 +7207,7 @@ const CustomersPanel = () => {
         </button>
 
         {/* Customer header */}
-        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8 flex items-center gap-8 flex-wrap">
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-8 flex items-center gap-8 flex-wrap">
           <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-primary/40 shrink-0">
             <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selected.name || selected._id}`} alt="" className="w-full h-full" />
           </div>
@@ -7438,7 +7466,7 @@ const MyProfilePanel = ({ user }) => {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Profile Hero Card */}
-      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8">
+      <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-8">
         <div className="flex items-center gap-6 flex-wrap">
           {/* Avatar */}
           <div className="relative shrink-0">
@@ -7474,7 +7502,7 @@ const MyProfilePanel = ({ user }) => {
         </div>
 
         {/* Quick stats row */}
-        <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/5">
+        <div className="grid grid-cols-3 gap-2 md:gap-4 mt-6 pt-6 border-t border-white/5">
           {[
             { label: 'Total Shifts',  value: shiftStats.total,          color: 'text-primary'    },
             { label: 'Hours Worked',  value: shiftStats.hours + 'h',    color: 'text-green-400'  },
@@ -7503,9 +7531,9 @@ const MyProfilePanel = ({ user }) => {
 
       {/* ── PROFILE TAB ─────────────────────────────────────────── */}
       {tab === 'profile' && (
-        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8 space-y-6">
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-8 space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-black text-white flex items-center gap-2"><User size={18} className="text-primary" />Personal Information</h3>
+            <h3 className="text-base md:text-lg font-black text-white flex items-center gap-2"><User size={18} className="text-primary" />Personal Information</h3>
             <button onClick={() => setEditing(e => !e)}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${editing ? 'bg-white/10 text-text-muted' : 'bg-primary/10 border border-primary/30 text-primary hover:bg-primary hover:text-white'}`}>
               {editing ? <><X size={13} /> Cancel</> : <><Edit2 size={13} /> Edit Profile</>}
@@ -7514,24 +7542,24 @@ const MyProfilePanel = ({ user }) => {
 
           {editing ? (
             <form onSubmit={handleSaveProfile} className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                 {/* Name */}
                 <div>
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Full Name *</label>
                   <input required value={form.name} onChange={sf('name')}
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                 </div>
                 {/* Phone */}
                 <div>
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Phone</label>
                   <input value={form.phone} onChange={sf('phone')} placeholder="+1 555 000 0000"
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                 </div>
                 {/* DOB */}
                 <div>
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Date of Birth</label>
                   <input type="date" value={form.dob} onChange={sf('dob')}
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                 </div>
                 {/* Gender */}
                 <div>
@@ -7548,31 +7576,31 @@ const MyProfilePanel = ({ user }) => {
                 <div className="md:col-span-2">
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Address</label>
                   <input value={form.address} onChange={sf('address')} placeholder="Street address"
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                 </div>
                 {/* City */}
                 <div>
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">City</label>
                   <input value={form.city} onChange={sf('city')}
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                 </div>
                 {/* State */}
                 <div>
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">State</label>
                   <input value={form.state} onChange={sf('state')}
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                 </div>
                 {/* Emergency Contact Name */}
                 <div>
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Emergency Contact Name</label>
                   <input value={form.emergency_contact_name} onChange={sf('emergency_contact_name')}
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                 </div>
                 {/* Emergency Contact Phone */}
                 <div>
                   <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Emergency Contact Phone</label>
                   <input value={form.emergency_contact_phone} onChange={sf('emergency_contact_phone')}
-                    className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                    className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
@@ -7588,7 +7616,7 @@ const MyProfilePanel = ({ user }) => {
               </div>
             </form>
           ) : (
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               {[
                 { label: 'Full Name',        value: user.name },
                 { label: 'Email',            value: user.email },
@@ -7617,20 +7645,20 @@ const MyProfilePanel = ({ user }) => {
 
       {/* ── SECURITY TAB ────────────────────────────────────────── */}
       {tab === 'security' && (
-        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-8 space-y-6">
-          <h3 className="text-lg font-black text-white flex items-center gap-2"><Shield size={18} className="text-primary" />Change Password</h3>
+        <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-8 space-y-6">
+          <h3 className="text-base md:text-lg font-black text-white flex items-center gap-2"><Shield size={18} className="text-primary" />Change Password</h3>
           <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
             <div>
               <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Current Password *</label>
               <input type="password" required value={pwForm.current_password} onChange={spw('current_password')}
                 placeholder="Enter current password"
-                className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
             </div>
             <div>
               <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">New Password *</label>
               <input type="password" required value={pwForm.new_password} onChange={spw('new_password')}
                 placeholder="At least 6 characters"
-                className="w-full bg-bg-main border border-white/10 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
+                className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
             </div>
             <div>
               <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Confirm New Password *</label>
@@ -7679,11 +7707,11 @@ const MyProfilePanel = ({ user }) => {
           </div>
 
           {/* Account info summary */}
-          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-6 space-y-4">
+          <div className="bg-secondary/40 rounded-3xl border border-white/10 p-4 md:p-6 space-y-4">
             <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
               <User size={15} className="text-primary" /> Account Summary
             </h4>
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {[
                 { label: 'Account Status', value: user.is_active !== false ? '✅ Active' : '❌ Disabled',        color: user.is_active !== false ? 'text-green-400' : 'text-red-400' },
                 { label: 'Verified Email', value: user.is_verified ? '✅ Verified' : '⏳ Pending',              color: user.is_verified ? 'text-green-400' : 'text-yellow-400' },
@@ -7729,6 +7757,7 @@ const navigate = useNavigate();
   const [unreadAnnouncements, setUnreadAnnouncements] = useState(0);
   const [profileViewUser, setProfileViewUser] = useState(null);
   const [captainTableNumbers, setCaptainTableNumbers] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   // Check-in gate for non-owner staff
   const [checkedIn, setCheckedIn] = useState(
     user.role === 'owner' || user.role === 'customer'
@@ -7858,10 +7887,10 @@ const navigate = useNavigate();
 
   return (
     <div className="min-h-screen bg-bg-main flex">
-      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} onLogout={handleLogout} captainTableNumbers={captainTableNumbers} />
-      <div className="flex-1 ml-64 flex flex-col min-h-screen overflow-hidden">
-        <Header title={profileViewUser ? `${profileViewUser.name || 'Staff'} — Profile` : (TITLE_MAP[activeTab] || '')} onRefresh={handleRefresh} loading={refreshing} />
-        <main className="flex-1 overflow-y-auto px-8 py-6">
+      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} onLogout={handleLogout} captainTableNumbers={captainTableNumbers} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex-1 md:ml-64 flex flex-col min-h-screen overflow-hidden">
+        <Header title={profileViewUser ? `${profileViewUser.name || 'Staff'} — Profile` : (TITLE_MAP[activeTab] || '')} onRefresh={handleRefresh} loading={refreshing} onMenuToggle={() => setSidebarOpen(o => !o)} />
+        <main className="flex-1 overflow-y-auto px-4 md:px-8 py-3 md:py-4 md:py-6">
           {/* ── Shift Badge — hidden for owner ───────────────────────────── */}
           {user.role !== 'owner' && (
             <div className="flex justify-end mb-4">
@@ -7871,7 +7900,7 @@ const navigate = useNavigate();
 
           {/* ── CHECK-IN GATE: staff must check in to access dashboard ──── */}
           {['manager','captain','chef','delivery'].includes(user.role) && !checkedIn ? (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4 md:px-8">
               <div className="w-20 h-20 bg-primary/10 border border-primary/20 rounded-3xl flex items-center justify-center mb-6">
                 <Shield size={36} className="text-primary" />
               </div>

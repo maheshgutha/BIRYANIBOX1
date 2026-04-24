@@ -67,6 +67,8 @@ router.post('/', protect, async (req, res, next) => {
       order_type,          // 'delivery' | 'pickup' | 'dine-in'
       delivery_address,    // required when order_type === 'delivery'
       delivery_notes,
+      knock_bell,          // true = ring bell/knock, false = do not disturb (delivery only)
+      pickup_extra_items,  // extra items requested at pickup (e.g. spoons, sambar)
     } = req.body;
 
     // Validate delivery address
@@ -106,11 +108,15 @@ router.post('/', protect, async (req, res, next) => {
 
     // Create order
     const order = await Order.create({
-      customer_id:    req.user._id,
+      customer_id:        req.user._id,
       total,
-      status:         'pending',
-      order_type:     order_type || 'dine-in',
-      payment_method: gift_card_code ? 'gift_card' : (payment_method || 'cash'),
+      status:             'pending',
+      order_type:         order_type || 'dine-in',
+      payment_method:     gift_card_code ? 'gift_card' : (payment_method || 'cash'),
+      delivery_address:   order_type === 'delivery' ? delivery_address : undefined,
+      delivery_notes:     order_type === 'delivery' ? (delivery_notes || '') : undefined,
+      knock_bell:         order_type === 'delivery' ? (knock_bell !== false) : undefined,
+      pickup_extra_items: order_type === 'pickup' ? (pickup_extra_items || '') : undefined,
     });
 
     // Create order items + deduct ingredients
@@ -166,6 +172,7 @@ router.post('/', protect, async (req, res, next) => {
         phone:            customer?.phone || '',
         delivery_address,
         delivery_notes:   delivery_notes || '',
+        knock_bell:       knock_bell !== false, // true by default
         delivery_fee:     DELIVERY_FEE,
         status:           'pending',
         order_placed_at:  new Date(),

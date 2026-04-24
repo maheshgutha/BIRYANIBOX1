@@ -5,8 +5,23 @@ const { protect, authorize } = require('../middleware/auth');
 const Notification = require('../models/Notification');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const nodemailer = require('nodemailer');
 
 const MenuItem = require('../models/MenuItem');
+
+/* ── Email transporter (shared with catering) ───────────────────────────── */
+const transporter = nodemailer.createTransport({
+  host:   process.env.SMTP_HOST   || 'smtp.gmail.com',
+  port:   parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+});
+
+const sendEmail = async ({ to, subject, html }) => {
+  if (!process.env.SMTP_USER) { console.log(`[Email] ${subject} → ${to}`); return; }
+  try { await transporter.sendMail({ from: `"Biryani Box" <${process.env.SMTP_USER}>`, to, subject, html }); }
+  catch (err) { console.error('[Email]', err.message); }
+};
 
 // Middleware: optionally decode token without blocking unauthenticated requests
 const optionalAuth = async (req, res, next) => {
@@ -136,6 +151,60 @@ router.post('/', protect, authorize('owner', 'manager'), async (req, res, next) 
             user_id: u._id, type: 'announcement',
             title: `📢 Customer Announcement: ${title}`,
             message: `Posted to customers: "${message.slice(0, 80)}${message.length > 80 ? '…' : ''}"`,
+          })));
+        }
+      }
+
+      // ── Bulk email to all registered customers ───────────────────────────
+      if (roles.includes('customer')) {
+        const customers = await User.find({
+          role: 'customer',
+          is_active: true,
+          email: { $exists: true, $nin: ['', null] },
+        }).select('name email');
+
+        if (customers.length > 0) {
+          const emoji      = is_festival ? '🎉' : has_offer ? '🎁' : priority === 'urgent' ? '🚨' : '📢';
+          const badgeColor = priority === 'urgent' ? '#ef4444' : has_offer ? '#22c55e' : '#f97316';
+          const badgeText  = priority === 'urgent' ? 'URGENT' : is_festival ? 'FESTIVAL' : has_offer ? `${offer_discount}% OFF` : 'ANNOUNCEMENT';
+
+          // Send all emails concurrently (Promise.allSettled so one failure doesn't block others)
+          await Promise.allSettled(customers.map(customer => sendEmail({
+            to: customer.email,
+            subject: `${emoji} ${title} — Biryani Box`,
+            html: `
+              <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+                  <h1 style="color:#f97316;margin:0;font-size:22px;">Biryani Box 🍛</h1>
+                  <span style="background:${badgeColor}22;color:${badgeColor};border:1px solid ${badgeColor}44;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:800;letter-spacing:0.1em;">${badgeText}</span>
+                </div>
+
+                <h2 style="font-size:20px;margin:0 0 12px;color:#fff;">${emoji} ${title}</h2>
+                <p style="color:#ccc;font-size:14px;line-height:1.7;margin-bottom:20px;">${message}</p>
+
+                ${has_offer ? `
+                <div style="background:#0a1a0a;border:1px solid #22c55e44;border-radius:12px;padding:20px;margin-bottom:20px;text-align:center;">
+                  <p style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 8px;">Special Offer</p>
+                  <p style="color:#22c55e;font-size:36px;font-weight:900;margin:0;">${offer_discount}% OFF</p>
+                  ${offer_scope === 'all' ? '<p style="color:#aaa;font-size:13px;margin:8px 0 0;">Applicable on all menu items</p>' : ''}
+                </div>` : ''}
+
+                ${is_festival && festival_name ? `
+                <div style="background:#1a1200;border:1px solid #f9731644;border-radius:12px;padding:16px;margin-bottom:20px;text-align:center;">
+                  <p style="color:#f97316;font-size:16px;font-weight:800;margin:0;">🎊 ${festival_name}</p>
+                </div>` : ''}
+
+                <div style="background:#1a1a1a;border-radius:12px;padding:16px;margin-bottom:20px;border-left:3px solid #f97316;">
+                  <p style="color:#888;font-size:11px;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.1em;">From Biryani Box</p>
+                  <p style="color:#aaa;font-size:12px;margin:0;">Hi ${customer.name || 'Valued Customer'}, thank you for being a part of our community. We hope to see you soon!</p>
+                </div>
+
+                <p style="color:#444;font-size:11px;margin-top:20px;text-align:center;">
+                  You are receiving this because you have an account with Biryani Box.<br/>
+                  <strong style="color:#f97316;">The Biryani Box Team</strong>
+                </p>
+              </div>
+            `,
           })));
         }
       }

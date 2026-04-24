@@ -86,7 +86,7 @@ const STATUS_TO_STEP = DINEIN_STATUS_STEP;
 
 // ── Live Order Tracker ─────────────────────────────────────────────────────────
 // inline=true → compact banner inside cart page; inline=false → full-page view
-const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCoupon, onNewOrder, orderType, inline = false, onGoToBooking }) => {
+const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCoupon, onNewOrder, orderType, knockBell = true, inline = false, onGoToBooking }) => {
   const navigate  = useNavigate();
   const [order,      setOrder]      = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -217,6 +217,24 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
                   </div>
                 )}
 
+                {/* Order type color badge */}
+                {(() => {
+                  const ts = { 'dine-in': { label: '🍽 Dine-In', cls: 'bg-purple-500/20 border-purple-500/40 text-purple-300' }, pickup: { label: '📦 Pickup', cls: 'bg-amber-500/20 border-amber-500/40 text-amber-300' }, delivery: { label: '🚗 Delivery', cls: 'bg-blue-500/20 border-blue-500/40 text-blue-300' } };
+                  const style = ts[ot] || ts['dine-in'];
+                  return (
+                    <div className="flex justify-center">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${style.cls}`}>{style.label}</span>
+                    </div>
+                  );
+                })()}
+
+                {/* Delivery door instruction */}
+                {ot === 'delivery' && (
+                  <div className={`rounded-xl px-3 py-2 border text-[11px] font-bold text-center ${knockBell ? 'bg-blue-500/10 border-blue-500/30 text-blue-300' : 'bg-white/5 border-white/20 text-white/60'}`}>
+                    {knockBell ? '🔔 Rider will ring bell / knock on door' : '🤫 Rider will leave at door — Do Not Disturb'}
+                  </div>
+                )}
+
                 {/* Pending confirmation banner */}
                 {order?.status === 'pending_confirmation' && (
                   <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 text-xs text-yellow-400 font-bold text-center animate-pulse">
@@ -300,6 +318,24 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
           </div>
         )}
 
+        {/* Order type color badge (full page) */}
+        {(() => {
+          const ts = { 'dine-in': { label: '🍽 Dine-In', cls: 'bg-purple-500/20 border-purple-500/40 text-purple-300' }, pickup: { label: '📦 Pickup', cls: 'bg-amber-500/20 border-amber-500/40 text-amber-300' }, delivery: { label: '🚗 Delivery', cls: 'bg-blue-500/20 border-blue-500/40 text-blue-300' } };
+          const style = ts[ot] || ts['dine-in'];
+          return (
+            <div className="flex justify-center">
+              <span className={`px-5 py-2 rounded-full text-xs font-black uppercase tracking-widest border ${style.cls}`}>{style.label}</span>
+            </div>
+          );
+        })()}
+
+        {/* Delivery door instruction (full page) */}
+        {ot === 'delivery' && (
+          <div className={`rounded-2xl px-5 py-3 border text-sm font-bold text-center ${knockBell ? 'bg-blue-500/10 border-blue-500/30 text-blue-300' : 'bg-white/5 border-white/20 text-white/60'}`}>
+            {knockBell ? '🔔 Rider will ring bell / knock on door' : '🤫 Rider will leave at door — Do Not Disturb'}
+          </div>
+        )}
+
         {/* Order card */}
         <div className="bg-secondary/40 border border-white/10 rounded-3xl p-6 space-y-4">
           <div className="flex items-start justify-between">
@@ -360,7 +396,15 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
 };
 
 // ── Order Success Banner ───────────────────────────────────────────────────────
-const OrderSuccessBanner = ({ orderNum, onTrack, onNewOrder }) => (
+const ORDER_TYPE_STYLES = {
+  dinein:   { label: '🍽 Dine-In',   bg: 'bg-purple-500/20', border: 'border-purple-500/40', text: 'text-purple-300' },
+  pickup:   { label: '📦 Pickup',    bg: 'bg-amber-500/20',  border: 'border-amber-500/40',  text: 'text-amber-300'  },
+  delivery: { label: '🚗 Delivery',  bg: 'bg-blue-500/20',   border: 'border-blue-500/40',   text: 'text-blue-300'   },
+};
+
+const OrderSuccessBanner = ({ orderNum, orderType = 'dinein', knockBell = true, onTrack, onNewOrder }) => {
+  const typeStyle = ORDER_TYPE_STYLES[orderType] || ORDER_TYPE_STYLES.dinein;
+  return (
   <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
     className="bg-green-500/10 border border-green-500/30 rounded-3xl p-8 text-center space-y-4">
     <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: 0.2 }}>
@@ -368,6 +412,21 @@ const OrderSuccessBanner = ({ orderNum, onTrack, onNewOrder }) => (
     </motion.div>
     <h2 className="text-2xl font-black text-white">Order Placed Successfully!</h2>
     <p className="text-white/60">Your order <span className="text-primary font-black">#{orderNum}</span> is confirmed and is being processed.</p>
+
+    {/* Order type color badge */}
+    <div className="flex justify-center">
+      <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest border ${typeStyle.bg} ${typeStyle.border} ${typeStyle.text}`}>
+        {typeStyle.label}
+      </span>
+    </div>
+
+    {/* Delivery: show door instruction */}
+    {orderType === 'delivery' && (
+      <div className={`rounded-xl px-4 py-3 border text-xs font-bold text-center ${knockBell ? 'bg-blue-500/10 border-blue-500/30 text-blue-300' : 'bg-white/5 border-white/20 text-white/60'}`}>
+        {knockBell ? '🔔 Rider will ring bell / knock on door' : '🤫 Rider will leave at door — Do Not Disturb'}
+      </div>
+    )}
+
     <div className="flex gap-3 justify-center mt-4">
       <button onClick={onTrack} className="px-8 py-3 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-full hover:bg-primary-hover transition-all">
         Track Order
@@ -377,7 +436,8 @@ const OrderSuccessBanner = ({ orderNum, onTrack, onNewOrder }) => (
       </button>
     </div>
   </motion.div>
-);
+  );
+};
 
 // ── Main Cart ─────────────────────────────────────────────────────────────────
 const Cart = () => {
@@ -402,6 +462,7 @@ const Cart = () => {
 
   const [knockBell,     setKnockBell]     = useState(true);  // true = ring bell, false = do not disturb
   const [orderError,    setOrderError]    = useState('');
+  const [pickupExtraItems, setPickupExtraItems] = useState(''); // extra items for pickup confirmation
 
   // Gift card state
   const [giftInput,      setGiftInput]      = useState('');
@@ -423,6 +484,8 @@ const Cart = () => {
   // showTracker always starts false — user must explicitly click "Track Order" on the success banner
   // This prevents auto-redirecting to tracker when user just navigates to /cart
   const [showTracker, setShowTracker] = useState(false);
+  const [placedOrderType,  setPlacedOrderType]  = useState('dinein');
+  const [placedKnockBell,  setPlacedKnockBell]  = useState(true);
 
   useEffect(() => {
     if (userId) setHistory(getHistory(userId));
@@ -570,6 +633,7 @@ const Cart = () => {
         } : {}),
         ...(orderMode === 'pickup' ? {
           delivery_notes: deliveryNotes.trim() || undefined,
+          pickup_extra_items: pickupExtraItems.trim() || undefined,
         } : {}),
       };
 
@@ -598,6 +662,8 @@ const Cart = () => {
       setPlacedTotal(grandTotal);
       setPlacedOrderNum(orderNum);
       setPlacedOrderId(orderId);
+      setPlacedOrderType(orderMode);
+      setPlacedKnockBell(knockBell);
       saveActiveOrder({ orderId, orderNum, items: snapshot, total: grandTotal, placedAt: Date.now() });
       clearCart();
 
@@ -614,6 +680,7 @@ const Cart = () => {
     clearActiveOrder();
     setPlacedOrderId(null); setPlacedOrderNum(''); setPlacedItemsSnap([]); setPlacedTotal(0);
     setNewCoupon(null); setShowTracker(false); setShowSuccess(false);
+    setPlacedOrderType('dinein'); setPlacedKnockBell(true); setPickupExtraItems('');
   };
 
   const handleGoToBooking = () => {
@@ -627,7 +694,8 @@ const Cart = () => {
     return (
       <LiveOrderTracker orderId={placedOrderId} orderNumber={placedOrderNum}
         placedItems={placedItemsSnap} grandTotal={placedTotal}
-        newCoupon={newCoupon} onNewOrder={handleNewOrder} />
+        newCoupon={newCoupon} onNewOrder={handleNewOrder}
+        orderType={placedOrderType} knockBell={placedKnockBell} />
     );
   }
 
@@ -638,6 +706,8 @@ const Cart = () => {
         <div className="max-w-md w-full">
           <OrderSuccessBanner
             orderNum={placedOrderNum}
+            orderType={placedOrderType}
+            knockBell={placedKnockBell}
             onTrack={() => { setShowSuccess(false); setShowTracker(true); }}
             onNewOrder={handleNewOrder}
           />
@@ -1016,6 +1086,29 @@ const Cart = () => {
                     <input value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)}
                       placeholder="Do you want any extra spoons or extra raita?"
                       className="w-full mt-3 bg-bg-main border border-white/10 px-3 py-2 rounded-xl text-white text-xs focus:outline-none focus:border-primary transition-all placeholder:text-text-muted/50" />
+                    {/* Extra items for pickup */}
+                    <div className="mt-3 space-y-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Need Extra Items?</p>
+                      <div className="flex flex-wrap gap-2">
+                        {['Spoons', 'Sambar', 'Chutney', 'Extra Raita', 'Curry', 'Napkins'].map(item => {
+                          const selected = pickupExtraItems.split(',').map(s => s.trim()).filter(Boolean).includes(item);
+                          return (
+                            <button key={item} type="button"
+                              onClick={() => {
+                                const current = pickupExtraItems.split(',').map(s => s.trim()).filter(Boolean);
+                                const updated = selected ? current.filter(i => i !== item) : [...current, item];
+                                setPickupExtraItems(updated.join(', '));
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${selected ? 'bg-amber-500/20 border-amber-500/50 text-amber-400' : 'bg-white/5 border-white/10 text-text-muted hover:text-white hover:border-white/20'}`}>
+                              {item}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <input value={pickupExtraItems} onChange={e => setPickupExtraItems(e.target.value)}
+                        placeholder="Or type custom extras (e.g. extra spoons, sambar)..."
+                        className="w-full bg-bg-main border border-white/10 px-3 py-2 rounded-xl text-white text-xs focus:outline-none focus:border-amber-500/50 transition-all placeholder:text-text-muted/50" />
+                    </div>
                   </div>
                 )}
 

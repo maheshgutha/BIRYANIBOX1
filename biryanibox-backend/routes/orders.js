@@ -330,7 +330,7 @@ router.get('/:id', protect, async (req, res, next) => {
 router.post('/', protect, async (req, res, next) => {
   try {
     const { items, table_number, order_type, payment_method, spiceness,
-            delivery_address, delivery_notes, distance_km } = req.body;
+            delivery_address, delivery_notes, distance_km, knock_bell, pickup_extra_items } = req.body;
 
     // For customers: always use their own ID as customer_id; ignore any captain_id from body
     // For staff (POS): use the customer_id from body if provided
@@ -403,8 +403,10 @@ router.post('/', protect, async (req, res, next) => {
       spiceness: spiceness || 'medium',
       delivery_address: needsAddress ? delivery_address.trim() : undefined,
       delivery_notes:   needsAddress ? (delivery_notes || '') : undefined,
+      knock_bell:       needsAddress ? (knock_bell !== false) : undefined,
       distance_km:      needsAddress ? dist : undefined,
       delivery_fee:     deliveryFee,
+      pickup_extra_items: finalOrderType === 'pickup' ? (pickup_extra_items || undefined) : undefined,
     });
 
     const createdItems = await OrderItem.insertMany(orderItems.map(i => ({ ...i, order_id: order._id })));

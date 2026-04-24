@@ -437,6 +437,22 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     return !isNaN(orderTNum) && captainTableNumbers.includes(orderTNum);
   };
 
+  // Order-type-aware transitions:
+  // Dine-in orders skip the dispatch step → completed_cooking goes straight to served
+  // Delivery/pickup/takeaway orders go through dispatched first
+  const getNextStatus = (order) => {
+    const isDineIn = !['delivery', 'pickup', 'takeaway'].includes(order.order_type);
+    const BASE_TRANSITIONS = {
+      pending:           'start_cooking',
+      start_cooking:     'completed_cooking',
+      completed_cooking: isDineIn ? 'served' : 'dispatched',
+      dispatched:        'served',
+      served:            'paid',
+    };
+    return BASE_TRANSITIONS[order.status] || null;
+  };
+
+  // Keep TRANSITIONS as a static map for any code that reads it directly (e.g. button color check)
   const TRANSITIONS = {
     pending:           'start_cooking',
     start_cooking:     'completed_cooking',
@@ -447,11 +463,11 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
 
   const canAdvance = (order) => {
     if (order.status === 'pending_confirmation') return false;
-    const next = TRANSITIONS[order.status];
+    const next = getNextStatus(order);
     if (!next) return false;
     if (user.role === 'chef') return chefStatuses.includes(next);
     if (user.role === 'captain') {
-      // Delivery captain can dispatch (complete_cooking → dispatched); dine-in captains cannot
+      // Delivery captain can dispatch (completed_cooking → dispatched); dine-in captains serve directly
       if (isDeliveryCaptain) return [...captainStatuses, 'dispatched'].includes(next);
       return captainStatuses.includes(next);
     }
@@ -461,12 +477,12 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
 
   // Label for the advance button — delivery captain sees "🚗 Dispatch" instead of "Serve"
   const getActionLabel = (order) => {
-    const next = TRANSITIONS[order.status];
+    const next = getNextStatus(order);
     if (!next) return '';
     if (isDeliveryCaptain && next === 'dispatched') return '🚗 Dispatch';
     if (isDeliveryCaptain && next === 'served')     return '✓ Serve';
     if (isDeliveryCaptain && next === 'paid')       return '✓ Collected';
-    const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', dispatched: '🚗 Dispatch', served: 'Serve', paid: 'Paid ✓' };
+    const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', dispatched: '🚗 Dispatch', served: '🍽️ Serve', paid: 'Paid ✓' };
     return labels[next] || next;
   };
 
@@ -482,6 +498,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
             <th className="text-left px-4 py-3 font-bold">Status</th>
             <th className="text-left px-4 py-3 font-bold">Served By</th>
             <th className="text-left px-4 py-3 font-bold">Spice</th>
+            <th className="text-left px-4 py-3 font-bold">Customer Req.</th>
             <th className="text-left px-4 py-3 font-bold">Time</th>
             <th className="text-left px-4 py-3 font-bold">Cook Duration</th>
             <th className="text-right px-4 py-3 font-bold">Actions</th>
@@ -539,6 +556,25 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                 <td className="px-4 py-3">
                   <span className="text-text-muted capitalize">{ord.spiceness || '—'}</span>
                 </td>
+                <td className="px-4 py-3 max-w-[160px]">
+                  {ord.order_type === 'pickup' && ord.pickup_extra_items ? (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[8px] font-black text-yellow-400 uppercase tracking-widest">📦 Pickup Extras</span>
+                      <span className="text-[10px] text-white/80 break-words">{ord.pickup_extra_items}</span>
+                    </div>
+                  ) : ord.order_type === 'delivery' ? (
+                    <div className="flex flex-col gap-1">
+                      <span className={`text-[8px] font-black uppercase tracking-widest ${ord.knock_bell === false ? 'text-purple-400' : 'text-blue-400'}`}>
+                        {ord.knock_bell === false ? '🤫 Do Not Disturb' : '🔔 Ring Bell/Knock'}
+                      </span>
+                      {ord.delivery_notes && (
+                        <span className="text-[10px] text-white/80 break-words">{ord.delivery_notes}</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-text-muted text-[10px]">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-text-muted">
                   {new Date(ord.created_at || ord.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </td>
@@ -562,9 +598,9 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                     )}
                     {/* Main action button — only shown for in-zone orders */}
                     {canAdvance(ord) && inZone && (
-                      <button onClick={() => onStatusUpdate(id, TRANSITIONS[ord.status])}
+                      <button onClick={() => onStatusUpdate(id, getNextStatus(ord))}
                         className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${
-                          isDeliveryCaptain && TRANSITIONS[ord.status] === 'dispatched'
+                          isDeliveryCaptain && getNextStatus(ord) === 'dispatched'
                             ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500 hover:text-white'
                             : 'bg-primary text-white hover:bg-primary-hover'
                         }`}>
@@ -588,7 +624,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
             );
           })}
           {orders.length === 0 && (
-            <tr><td colSpan={10} className="py-20 text-center text-text-muted">
+            <tr><td colSpan={11} className="py-20 text-center text-text-muted">
               <AlertCircle size={32} className="mx-auto mb-3 opacity-20" />
               <p className="font-bold uppercase tracking-widest text-sm">No orders found</p>
             </td></tr>
@@ -728,6 +764,21 @@ const ChefKitchenModule = ({ orders, updateOrderStatus, ingredients }) => {
                   <span><Clock size={10} className="inline mr-1" />{new Date(ord.created_at || ord.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   {ord.cooking_started_at && <span>Started: {new Date(ord.cooking_started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                 </div>
+                {/* Customer Requirements — pickup extras or delivery arrival preference */}
+                {(ord.order_type === 'pickup' && ord.pickup_extra_items) && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-3 py-2 flex flex-col gap-0.5">
+                    <span className="text-[8px] font-black text-yellow-400 uppercase tracking-widest">📦 Customer Extras (Pickup)</span>
+                    <span className="text-xs text-white/80">{ord.pickup_extra_items}</span>
+                  </div>
+                )}
+                {ord.order_type === 'delivery' && (ord.delivery_notes || ord.knock_bell !== undefined) && (
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl px-3 py-2 flex flex-col gap-0.5">
+                    <span className={`text-[8px] font-black uppercase tracking-widest ${ord.knock_bell === false ? 'text-purple-400' : 'text-blue-400'}`}>
+                      {ord.knock_bell === false ? '🤫 Do Not Disturb' : '🔔 Ring Bell / Knock'}
+                    </span>
+                    {ord.delivery_notes && <span className="text-xs text-white/80">{ord.delivery_notes}</span>}
+                  </div>
+                )}
                 <div className="pt-2 border-t border-white/10">
                   {isPending && (() => {
                     // If another chef has already claimed this order (race condition guard)
@@ -2892,6 +2943,7 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
   const [msg, setMsg] = useState({ text: '', type: '' });
   const [roleFilter, setRoleFilter] = useState('all');
   const [allTables, setAllTables] = useState([]);
+  const [activeShiftIds, setActiveShiftIds] = useState(new Set()); // user IDs currently on shift
   const [captainTableMap, setCaptainTableMap] = useState({}); // captainId → [tableIds]
   const [form, setForm] = useState({
     name: '', email: '', phone: '', password: '', role: 'captain',
@@ -2928,6 +2980,13 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
         }
       }
       setCaptainTableMap(map);
+
+      // Fetch currently active shifts to show real-time availability
+      try {
+        const activeRes = await shiftsAPI.getActive();
+        const activeIds = new Set((activeRes.data || []).map(s => String(s.user_id?._id || s.user_id)));
+        setActiveShiftIds(activeIds);
+      } catch { setActiveShiftIds(new Set()); }
     } catch { setStaff([]); }
     finally { if (!silent) setLoading(false); }
   }, []);
@@ -3093,8 +3152,8 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                   </div>
                 </div>
                 <div>
-                  <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">PHONE</label>
-                  <input type="tel" value={form.phone} onChange={sf('phone')} placeholder="+91-98765-43210"
+                  <label className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-2 block">MOBILE NUMBER *</label>
+                  <input type="tel" value={form.phone} onChange={sf('phone')} placeholder="+1-555-000-0000" required
                     className="w-full bg-[#252525] border border-white/10 p-3.5 rounded-xl focus:border-primary outline-none text-white text-sm placeholder:text-white/20" />
                 </div>
                 <div>
@@ -3207,6 +3266,15 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
       {/* Staff table */}
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="bg-secondary/40 rounded-3xl border border-white/5 overflow-hidden">
+          {/* Column Headers */}
+          <div className="flex items-center px-6 py-3 bg-white/3 border-b border-white/8">
+            <div className="flex-1 min-w-0 text-[10px] font-black uppercase tracking-widest text-text-muted">Staff Member</div>
+            <div className="w-[15%] text-[10px] font-black uppercase tracking-widest text-text-muted">Role</div>
+            <div className="w-[15%] text-[10px] font-black uppercase tracking-widest text-text-muted">Mobile Number</div>
+            <div className="w-[10%] text-[10px] font-black uppercase tracking-widest text-text-muted">Status</div>
+            <div className="w-[10%] text-[10px] font-black uppercase tracking-widest text-text-muted">Availability</div>
+            <div className="w-[120px] text-[10px] font-black uppercase tracking-widest text-text-muted text-right pr-1">Actions</div>
+          </div>
           <div className="divide-y divide-white/5">
             {filteredStaff.map(u => {
               const assignedTables = u.role === 'captain'
@@ -3243,10 +3311,12 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
                     </span>
                   </div>
                   <div className="w-[10%] flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${u.is_checked_in ? 'bg-green-400 shadow-sm shadow-green-400/60 animate-pulse' : 'bg-white/20'}`} />
-                    <span className={`text-[9px] font-bold uppercase ${u.is_checked_in ? 'text-green-400' : 'text-text-muted'}`}>
-                      {u.is_checked_in ? 'Online' : 'Offline'}
-                    </span>
+                    {(() => { const onShift = activeShiftIds.has(String(u._id)); return (<>
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${onShift ? 'bg-green-400 shadow-sm shadow-green-400/60 animate-pulse' : 'bg-white/20'}`} />
+                      <span className={`text-[9px] font-bold uppercase ${onShift ? 'text-green-400' : 'text-text-muted'}`}>
+                        {onShift ? 'On Shift' : 'Off Shift'}
+                      </span>
+                    </>); })()}
                   </div>
                   <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
                     {onViewProfile && (
@@ -3376,9 +3446,14 @@ const LeaveModule = ({ user }) => {
   };
 
   // Stats
-  const pending = leaves.filter(l => l.status === 'pending').length;
+  const pending  = leaves.filter(l => l.status === 'pending').length;
   const approved = leaves.filter(l => l.status === 'approved').length;
+  const rejected = leaves.filter(l => l.status === 'rejected').length;
   const myLeaves = leaves.filter(l => String(l.user_id?._id || l.user_id) === String(user._id));
+
+  // Active filter for stat card clicks
+  const [filterStatus, setFilterStatus] = useState('all');
+  const displayedLeaves = filterStatus === 'all' ? leaves : leaves.filter(l => l.status === filterStatus);
 
   return (
     <div className="space-y-6">
@@ -3408,15 +3483,23 @@ const LeaveModule = ({ user }) => {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Pending', value: pending, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
-          { label: 'Approved', value: approved, color: 'text-green-400', bg: 'bg-green-500/10' },
-          { label: isStaff ? 'My Applications' : 'Total', value: isStaff ? myLeaves.length : leaves.length, color: 'text-primary', bg: 'bg-primary/10' },
-        ].map(({ label, value, color, bg }) => (
-          <div key={label} className={`${bg} rounded-2xl border border-white/5 p-5 text-center`}>
-            <p className={`text-3xl font-black ${color}`}>{value}</p>
-            <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mt-1">{label}</p>
-          </div>
-        ))}
+          { label: 'Pending',  value: pending,  color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', filter: 'pending'  },
+          { label: 'Approved', value: approved, color: 'text-green-400',  bg: 'bg-green-500/10',  border: 'border-green-500/30',  filter: 'approved' },
+          { label: isStaff ? 'My Applications' : 'Rejected', value: isStaff ? myLeaves.length : rejected, color: isStaff ? 'text-primary' : 'text-red-400', bg: isStaff ? 'bg-primary/10' : 'bg-red-500/10', border: isStaff ? 'border-primary/20' : 'border-red-500/30', filter: isStaff ? 'all' : 'rejected' },
+        ].map(({ label, value, color, bg, border, filter }) => {
+          const isActive = filterStatus === filter;
+          return (
+            <button
+              key={label}
+              onClick={() => setFilterStatus(isActive ? 'all' : filter)}
+              className={`${bg} rounded-2xl border p-5 text-center transition-all hover:scale-[1.03] active:scale-100 cursor-pointer ${isActive ? `${border} ring-2 ring-offset-1 ring-offset-bg-main ${border.replace('border-', 'ring-')}` : 'border-white/5'}`}
+            >
+              <p className={`text-3xl font-black ${color}`}>{value}</p>
+              <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mt-1">{label}</p>
+              {isActive && <p className={`text-[9px] font-black uppercase tracking-widest mt-1 ${color} opacity-70`}>● Filtered</p>}
+            </button>
+          );
+        })}
       </div>
 
       {/* Apply Form */}
@@ -3462,13 +3545,23 @@ const LeaveModule = ({ user }) => {
       {/* Leaves List */}
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
         <div className="space-y-3">
-          {leaves.length === 0 ? (
+          {filterStatus !== 'all' && (
+            <div className="flex items-center justify-between px-4 py-2 bg-white/5 rounded-xl border border-white/10">
+              <span className="text-xs font-bold text-text-muted uppercase tracking-widest">
+                Showing: <span className="text-white capitalize">{filterStatus}</span> ({displayedLeaves.length})
+              </span>
+              <button onClick={() => setFilterStatus('all')} className="text-[10px] text-primary font-bold uppercase tracking-widest hover:underline">
+                Clear Filter ✕
+              </button>
+            </div>
+          )}
+          {displayedLeaves.length === 0 ? (
             <div className="py-20 text-center text-text-muted bg-secondary/40 rounded-3xl border border-white/5">
               <Briefcase size={40} className="mx-auto mb-3 opacity-20" />
-              <p className="font-bold text-sm uppercase tracking-widest">No leave applications yet</p>
+              <p className="font-bold text-sm uppercase tracking-widest">No {filterStatus === 'all' ? '' : filterStatus} leave applications</p>
             </div>
           ) : (
-            leaves.map(l => (
+            displayedLeaves.map(l => (
               <div key={l._id} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 hover:border-white/10 transition-all">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="flex items-center gap-3">
@@ -3571,6 +3664,25 @@ const CateringPanel = () => {
   useAutoRefresh(load, 30000);
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000); };
 
+  // ── 48-hour upcoming catering alert ───────────────────────────────────────
+  const now48         = new Date();
+  const cutoff48      = new Date(now48.getTime() + 48 * 60 * 60 * 1000);
+  const upcomingOrders = orders.filter(o => {
+    if (!o.event_date) return false;
+    if (o.status === 'cancelled' || o.status === 'completed') return false;
+    const evtDate = new Date(o.event_date);
+    return evtDate >= now48 && evtDate <= cutoff48;
+  });
+
+  // Auto-flash notification when upcoming events exist (once per load)
+  const [notifiedUpcoming, setNotifiedUpcoming] = useState(false);
+  useEffect(() => {
+    if (!notifiedUpcoming && upcomingOrders.length > 0) {
+      flash(`⚠️ ${upcomingOrders.length} catering event${upcomingOrders.length > 1 ? 's' : ''} happening within 48 hours — review now!`, 'error');
+      setNotifiedUpcoming(true);
+    }
+  }, [upcomingOrders.length]);
+
   const updateStatus = async (id, status) => {
     // Enforce: cannot confirm without a quotation
     if (status === 'confirmed') {
@@ -3628,7 +3740,97 @@ const CateringPanel = () => {
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
-      {/* Status group counts */}
+      {/* ── 48-Hour Upcoming Catering Alert Container ───────────────────── */}
+      {upcomingOrders.length > 0 && (
+        <div className="rounded-3xl border-2 border-orange-500/50 bg-gradient-to-br from-orange-500/10 via-orange-500/5 to-transparent overflow-hidden">
+          {/* Header bar */}
+          <div className="flex items-center justify-between px-5 py-3 bg-orange-500/15 border-b border-orange-500/30">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚠️</span>
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-orange-400">Happening Within 48 Hours</p>
+                <p className="text-[10px] text-orange-400/60 font-bold">Action required — ensure all preparations are confirmed</p>
+              </div>
+            </div>
+            <span className="px-3 py-1.5 bg-orange-500 text-white text-[11px] font-black rounded-full uppercase tracking-widest animate-pulse">
+              {upcomingOrders.length} Alert{upcomingOrders.length > 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Upcoming order cards */}
+          <div className="p-4 space-y-3">
+            {upcomingOrders.map(o => {
+              const evtDate    = new Date(o.event_date);
+              const hoursLeft  = Math.max(0, Math.round((evtDate - new Date()) / (1000 * 60 * 60)));
+              const minsLeft   = Math.max(0, Math.round((evtDate - new Date()) / (1000 * 60)));
+              const isToday    = evtDate.toDateString() === new Date().toDateString();
+              const isTomorrow = evtDate.toDateString() === new Date(Date.now() + 86400000).toDateString();
+              const dayLabel   = isToday ? '🔴 TODAY' : isTomorrow ? '🟡 TOMORROW' : '🟢 UPCOMING';
+              const urgencyColor = isToday
+                ? 'border-red-500/40 bg-red-500/5'
+                : 'border-yellow-500/30 bg-yellow-500/5';
+
+              return (
+                <div key={o._id} className={`rounded-2xl border p-4 ${urgencyColor}`}>
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="space-y-2 flex-1 min-w-0">
+                      {/* Name + day badge */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest ${isToday ? 'bg-red-500/20 text-red-400 border border-red-500/40' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'}`}>
+                          {dayLabel}
+                        </span>
+                        <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase border ${
+                          o.status === 'confirmed' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+                        }`}>{o.status}</span>
+                        <h4 className="text-sm font-black text-white">{o.contact_name || o.customer_name}</h4>
+                      </div>
+
+                      {/* Key details row */}
+                      <div className="flex flex-wrap gap-3 text-[11px]">
+                        <span className="text-text-muted">🍽 <span className="text-white font-bold">{o.event_type || 'Catering'}</span></span>
+                        <span className="text-text-muted">👥 <span className="text-white font-bold">{o.guest_count || o.guests || '—'} guests</span></span>
+                        {(o.email || o.contact_email) && (
+                          <span className="text-text-muted">📧 <span className="text-white/70">{o.email || o.contact_email}</span></span>
+                        )}
+                        {(o.phone || o.contact_phone) && (
+                          <span className="text-text-muted">📞 <span className="text-white/70">{o.phone || o.contact_phone}</span></span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Countdown timer */}
+                    <div className={`text-center px-4 py-3 rounded-2xl shrink-0 ${isToday ? 'bg-red-500/15 border border-red-500/30' : 'bg-yellow-500/10 border border-yellow-500/20'}`}>
+                      <p className={`text-2xl font-black ${isToday ? 'text-red-400' : 'text-yellow-400'}`}>
+                        {hoursLeft < 1 ? `${minsLeft}m` : `${hoursLeft}h`}
+                      </p>
+                      <p className={`text-[9px] font-black uppercase tracking-widest ${isToday ? 'text-red-400/60' : 'text-yellow-400/60'}`}>
+                        {hoursLeft < 1 ? 'minutes' : 'hours'} left
+                      </p>
+                      <p className="text-[9px] text-text-muted mt-1">
+                        {evtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Quote status warning */}
+                  {o.status === 'pending' && (
+                    <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-xl">
+                      <span className="text-red-400 text-xs">⚠</span>
+                      <p className="text-[11px] text-red-400 font-bold">No quotation sent yet — send quotation immediately!</p>
+                    </div>
+                  )}
+                  {o.status === 'confirmed' && o.total_price > 0 && (
+                    <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-xl">
+                      <span className="text-green-400 text-xs">✓</span>
+                      <p className="text-[11px] text-green-400 font-bold">Confirmed · ${Number(o.total_price).toLocaleString()} · Ensure kitchen & staff are prepped.</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-4 gap-4">
         {['pending', 'confirmed', 'completed', 'cancelled'].map(s => (
           <button key={s} onClick={() => setFilterStatus(filterStatus === s ? 'all' : s)}
@@ -4085,7 +4287,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                   <div className="flex items-center gap-6">
                     <label className="flex items-center gap-2 cursor-pointer">
                       {/* Veg / Non-Veg radio buttons */}
-                      <button type="button" onClick={() => setForm(p => ({ ...p, is_veg: true }))}
+                      <button type="button" onClick={() => setForm(p => ({ ...p, is_veg: true, is_halal: false }))}
                         className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-black transition-all ${form.is_veg ? 'bg-green-500/20 border-green-500 text-green-400' : 'bg-white/5 border-white/10 text-text-muted hover:text-green-400'}`}>
                         <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" /> VEG
                       </button>
@@ -4094,10 +4296,12 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
                         <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" /> NON-VEG
                       </button>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={form.is_halal} onChange={sb('is_halal')} className="w-4 h-4 rounded accent-primary" />
-                      <span className="text-sm text-white font-bold">Halal</span>
-                    </label>
+                    {!form.is_veg && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={form.is_halal} onChange={sb('is_halal')} className="w-4 h-4 rounded accent-primary" />
+                        <span className="text-sm text-white font-bold">Halal</span>
+                      </label>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-3 pt-2">
@@ -4144,6 +4348,7 @@ const WasteManagement = ({ ingredients }) => {
   const [showForm, setShowForm] = useState(false);
   const [msg, setMsg] = useState({ text: '', type: 'success' });
   const [wasteLoading, setWasteLoading] = useState(true);
+  const [wasteFilter, setWasteFilter] = useState('all'); // 'all' | 'ingredient' | 'menu_item'
 
   const loadWaste = useCallback(async () => {
     setWasteLoading(true);
@@ -4195,8 +4400,9 @@ const WasteManagement = ({ ingredients }) => {
     catch (err) { flash('Delete failed: ' + (err.message || 'Error'), 'error'); }
   };
 
-  const totalCost = entries.reduce((s, e) => s + (e.total_loss || e.cost || 0), 0);
-  const byReason = REASONS.map(r => ({ reason: r, count: entries.filter(e => e.reason === r).length, cost: entries.filter(e => e.reason === r).reduce((s, e) => s + (e.total_loss || e.cost || 0), 0) })).filter(r => r.count > 0);
+  const filteredEntries = wasteFilter === 'all' ? entries : entries.filter(e => (e.item_type || 'ingredient') === wasteFilter);
+  const totalCost = filteredEntries.reduce((s, e) => s + (e.total_loss || e.cost || 0), 0);
+  const byReason = REASONS.map(r => ({ reason: r, count: filteredEntries.filter(e => e.reason === r).length, cost: filteredEntries.filter(e => e.reason === r).reduce((s, e) => s + (e.total_loss || e.cost || 0), 0) })).filter(r => r.count > 0);
 
   return (
     <div className="space-y-6 mt-10 pt-8 border-t border-white/5">
@@ -4207,8 +4413,14 @@ const WasteManagement = ({ ingredients }) => {
           </h3>
           <p className="text-text-muted text-sm mt-0.5">Track ingredient waste & calculate losses</p>
         </div>
-        <div className="flex items-center gap-3">
-      
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Waste filter buttons */}
+          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+            {[['all', '🗂 All'], ['ingredient', '📦 Inventory Waste'], ['menu_item', '🍽 Food Waste']].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => setWasteFilter(val)}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${wasteFilter === val ? 'bg-red-500 text-white' : 'text-text-muted hover:text-white'}`}>{label}</button>
+            ))}
+          </div>
           <button onClick={() => setShowForm(s => !s)}
             className="flex items-center gap-2 px-5 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
             <Plus size={13} /> Log Waste
@@ -4222,7 +4434,7 @@ const WasteManagement = ({ ingredients }) => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 text-center">
           <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">Total Entries</p>
-          <p className="text-2xl font-black text-red-400">{entries.length}</p>
+          <p className="text-2xl font-black text-red-400">{filteredEntries.length}</p>
         </div>
         <div className="bg-orange-500/10 border border-orange-500/20 rounded-2xl p-4 text-center">
           <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">Total Loss</p>
@@ -4230,7 +4442,7 @@ const WasteManagement = ({ ingredients }) => {
         </div>
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-4 text-center">
           <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">This Week</p>
-          <p className="text-2xl font-black text-yellow-400">{entries.filter(e => new Date(e.date) > new Date(Date.now() - 7*86400000)).length}</p>
+          <p className="text-2xl font-black text-yellow-400">{filteredEntries.filter(e => new Date(e.date) > new Date(Date.now() - 7*86400000)).length}</p>
         </div>
         <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
           <p className="text-[10px] text-text-muted uppercase tracking-widest mb-1">Top Reason</p>
@@ -4300,7 +4512,7 @@ const WasteManagement = ({ ingredients }) => {
       </AnimatePresence>
 
       {/* Waste Log Table */}
-      {entries.length > 0 ? (
+      {filteredEntries.length > 0 ? (
         <div className="bg-bg-main/50 border border-white/10 rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -4316,7 +4528,7 @@ const WasteManagement = ({ ingredients }) => {
                 </tr>
               </thead>
               <tbody>
-                {entries.slice(0, 20).map(e => (
+                {filteredEntries.slice(0, 20).map(e => (
                   <tr key={e._id || e.id} className="border-b border-white/5 hover:bg-white/5 transition-all">
                     <td className="p-3 text-text-muted text-xs">{new Date(e.created_at || e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}</td>
                     <td className="p-3 text-white font-bold">{e.item_name || e.ingredient_name}</td>
@@ -4566,6 +4778,14 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
                   <p className="text-sm font-black text-primary">${cost}</p>
                 </div>
               </div>
+
+              {/* Last Updated */}
+              {(ing.updatedAt || ing.updated_at || ing.createdAt || ing.created_at) && (
+                <p className="text-[9px] text-text-muted mb-2 flex items-center gap-1">
+                  <Clock size={9} className="opacity-60" />
+                  Updated {new Date(ing.updatedAt || ing.updated_at || ing.createdAt || ing.created_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
+                </p>
+              )}
 
               {/* Actions */}
               <div className="flex gap-2">
@@ -4826,25 +5046,42 @@ const Overview = ({ orders }) => {
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-primary/10 blur-[60px] rounded-full pointer-events-none" />
         <div className="flex items-start justify-between mb-6 relative z-10">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-1">Revenue Trend</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-1">💰 Daily Sales Chart</p>
             <div className="flex items-baseline gap-2">
               <h3 className="text-3xl font-black text-white">
                 {d ? `$${d.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
               </h3>
-              <span className="text-[10px] font-black text-primary uppercase tracking-widest">from paid orders only</span>
+              <span className="text-[10px] font-black text-primary uppercase tracking-widest">total earned</span>
             </div>
             <p className="text-xs text-text-muted mt-1">
-              {period === 'day' ? 'Hourly breakdown' : period === 'week' ? 'Last 7 days' : period === 'month' ? 'This month' : period === 'year' ? 'This year' : 'Custom period'}
-              {d && chartPoints.length > 0 && ` · ${chartPoints.length} data points`}
+              {period === 'day' ? 'Hour-by-hour breakdown for today' : period === 'week' ? 'Each dot = one day of sales (last 7 days)' : period === 'month' ? 'Each dot = one day this month' : period === 'year' ? 'Each dot = one month this year' : 'Sales for selected date range'}
             </p>
           </div>
-          {d && chartPoints.length > 0 && (
-            <div className="text-right">
-              <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Peak</p>
-              <p className="text-lg font-black text-primary">${maxRev.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
-              <p className="text-[10px] text-text-muted">{chartLabel(chartPoints.reduce((m, p) => p.revenue > m.revenue ? p : m, chartPoints[0]))}</p>
-            </div>
-          )}
+          {d && chartPoints.length > 0 && (() => {
+            const peak = chartPoints.reduce((m, p) => p.revenue > m.revenue ? p : m, chartPoints[0]);
+            const totalOrders = chartPoints.reduce((s, p) => s + p.orders, 0);
+            const trend = chartPoints.length > 1
+              ? ((chartPoints[chartPoints.length - 1].revenue - chartPoints[0].revenue) / (chartPoints[0].revenue || 1) * 100).toFixed(0)
+              : null;
+            return (
+              <div className="flex gap-4 text-right">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Best Day</p>
+                  <p className="text-base font-black text-primary">${peak.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+                  <p className="text-[10px] text-text-muted">{chartLabel(peak)}</p>
+                </div>
+                {trend !== null && (
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Trend</p>
+                    <p className={`text-base font-black ${Number(trend) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {Number(trend) >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
+                    </p>
+                    <p className="text-[10px] text-text-muted">{Number(trend) >= 0 ? 'growing' : 'declining'}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
         {hubLoading ? (
           <div className="space-y-2">
@@ -4913,16 +5150,19 @@ const Overview = ({ orders }) => {
               </div>
               <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-white/5">
                 <div className="text-center">
-                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Paid Orders</p>
+                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Orders Paid</p>
                   <p className="text-lg font-black text-white">{chartPoints.reduce((s, p) => s + p.orders, 0)}</p>
+                  <p className="text-[9px] text-text-muted">completed sales</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Avg / Period</p>
+                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Avg per Day</p>
                   <p className="text-lg font-black text-white">${chartPoints.length > 0 ? (d.revenue / chartPoints.length).toFixed(0) : '0'}</p>
+                  <p className="text-[9px] text-text-muted">daily average</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Data Points</p>
-                  <p className="text-lg font-black text-white">{chartPoints.length}</p>
+                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Best Single Day</p>
+                  <p className="text-lg font-black text-primary">${maxRev.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+                  <p className="text-[9px] text-text-muted">{chartLabel(chartPoints.reduce((m, p) => p.revenue > m.revenue ? p : m, chartPoints[0]))}</p>
                 </div>
               </div>
             </div>

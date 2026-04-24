@@ -31,6 +31,9 @@ const OrderSchema = new mongoose.Schema({
   delivery_notes:    { type: String },
 
   knock_bell:        { type: Boolean, default: true },  // true = ring doorbell/knock, false = do not disturb
+
+  // Pickup extra items requested by customer (e.g. spoons, sambar, curries)
+  pickup_extra_items: { type: String },
   distance_km:       { type: Number, min: 0 },
   delivery_fee:      { type: Number, min: 0, default: 0 },
 

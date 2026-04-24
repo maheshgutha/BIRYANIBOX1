@@ -34,7 +34,7 @@ router.get('/available', protect, async (req, res, next) => {
     const filter = { status: 'pending' };
     if (req.user.role === 'delivery') filter.rejected_by = { $nin: [req.user._id] };
     const items = await Delivery.find(filter)
-      .populate({ path: 'order_id', select: 'order_number total items created_at delivery_address order_type status' })
+      .populate({ path: 'order_id', select: 'order_number total items created_at delivery_address delivery_notes order_type status knock_bell' })
       .sort({ order_placed_at: 1 });
     res.json({ success: true, count: items.length, data: items });
   } catch (err) { next(err); }
@@ -59,7 +59,7 @@ router.get('/my-active', protect, async (req, res, next) => {
     const item = await Delivery.findOne({
       driver_id: req.user._id,
       status: { $in: ['assigned', 'picked_up', 'in_transit'] },
-    }).populate('order_id', 'order_number total items delivery_address status');
+    }).populate('order_id', 'order_number total items delivery_address delivery_notes status knock_bell');
     res.json({ success: true, data: item || null });
   } catch (err) { next(err); }
 });

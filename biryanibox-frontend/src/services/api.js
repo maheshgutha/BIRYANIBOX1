@@ -339,6 +339,11 @@ export const normalizeOrder = (order) => ({
   paid_at:                   order.paid_at,
   rating:                    order.rating || 0,
   feedback:                  order.feedback || '',
+  // Delivery / pickup customer requirements
+  delivery_address:          order.delivery_address || '',
+  delivery_notes:            order.delivery_notes   || '',
+  knock_bell:                order.knock_bell,
+  pickup_extra_items:        order.pickup_extra_items || '',
   isNew:                     false,
 });
 

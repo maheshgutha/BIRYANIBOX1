@@ -97,6 +97,13 @@ const POS = ({ user, onBack }) => {
   const [activeTab,             setActiveTab]           = useState('ALL');
   const [paymentMethod,         setPaymentMethod]       = useState(''); // mandatory — 'cash'|'card'|'upi'
 
+  // Delivery arrival preference
+  const [knockBell,             setKnockBell]           = useState(true); // true = ring bell, false = do not disturb
+
+  // Pickup extra items
+  const [pickupExtraItems,      setPickupExtraItems]    = useState(''); // comma-separated extras
+  const PICKUP_EXTRAS = ['Spoons', 'Sambar', 'Chutney', 'Extra Raita', 'Curry', 'Napkins'];
+
   // Delivery fields
   const [customerName,    setCustomerName]    = useState('');
   const [customerEmail,   setCustomerEmail]   = useState('');
@@ -133,7 +140,9 @@ const POS = ({ user, onBack }) => {
 
   // Reset delivery fields when mode changes
   useEffect(() => {
+    setPickupExtraItems('');
     if (!isDeliveryOrder) {
+      setKnockBell(true);
       setDeliveryAddress('');
       setDeliveryNotes('');
       setDistanceMiles('');
@@ -223,6 +232,10 @@ const POS = ({ user, onBack }) => {
         customer_email:   customerEmail.trim(),
         customer_phone:   customerPhone.trim(),
         customer_name:    customerName.trim(),
+        knock_bell:       knockBell,
+      } : {}),
+      ...(isPickupOrder ? {
+        pickup_extra_items: pickupExtraItems.trim() || undefined,
       } : {}),
     };
 
@@ -239,6 +252,8 @@ const POS = ({ user, onBack }) => {
     setCustomerEmail('');
     setCustomerPhone('');
     setCustomerName('');
+    setKnockBell(true);
+    setPickupExtraItems('');
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
   };
@@ -313,9 +328,9 @@ const POS = ({ user, onBack }) => {
                 ))}
               </div>
 
-              {/* Delivery info */}
+              {/* Delivery info + knock bell */}
               {isDeliveryOrder && (
-                <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 mb-4 space-y-2">
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 mb-4 space-y-3">
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div><span className="text-text-muted">Name:</span> <span className="text-white font-bold ml-1">{customerName}</span></div>
                     <div><span className="text-text-muted">Phone:</span> <span className="text-white font-bold ml-1">{customerPhone}</span></div>
@@ -327,6 +342,53 @@ const POS = ({ user, onBack }) => {
                     <div><span className="text-text-muted">Distance:</span> <span className="text-blue-400 font-bold ml-1">{dist} mi</span></div>
                     <div><span className="text-text-muted">Delivery fee:</span> <span className="text-blue-400 font-bold ml-1">${deliveryFee}</span></div>
                   </div>
+
+                  {/* Arrival preference radio */}
+                  <div className="border-t border-blue-500/15 pt-3 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Arrival Preference</p>
+                    <div className="flex gap-2">
+                      <label className={`flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer transition-all ${knockBell ? 'bg-blue-500/10 border-blue-500/40 text-blue-300' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                        <input type="radio" name="pos_knockBell" checked={knockBell} onChange={() => setKnockBell(true)} className="accent-blue-400 shrink-0" />
+                        <span className="text-xs font-bold">🔔 Ring Bell / Knock</span>
+                      </label>
+                      <label className={`flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer transition-all ${!knockBell ? 'bg-white/10 border-white/30 text-white' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                        <input type="radio" name="pos_knockBell" checked={!knockBell} onChange={() => setKnockBell(false)} className="accent-blue-400 shrink-0" />
+                        <span className="text-xs font-bold">🤫 Do Not Disturb</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Pickup extra items */}
+              {isPickupOrder && (
+                <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-2xl p-4 mb-4 space-y-3">
+                  <div className="flex items-center gap-2 text-yellow-400 font-black text-[10px] uppercase tracking-widest">
+                    <Package size={12} /> Extra Items for Pickup
+                  </div>
+                  <p className="text-[11px] text-text-muted -mt-1">Does the customer need anything extra?</p>
+                  <div className="flex flex-wrap gap-2">
+                    {PICKUP_EXTRAS.map(item => {
+                      const selected = pickupExtraItems.split(',').map(s => s.trim()).filter(Boolean).includes(item);
+                      return (
+                        <button key={item} type="button"
+                          onClick={() => {
+                            const current = pickupExtraItems.split(',').map(s => s.trim()).filter(Boolean);
+                            const updated = selected ? current.filter(i => i !== item) : [...current, item];
+                            setPickupExtraItems(updated.join(', '));
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${selected ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' : 'bg-white/5 border-white/10 text-text-muted hover:text-white hover:border-white/20'}`}>
+                          {item}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input
+                    value={pickupExtraItems}
+                    onChange={e => setPickupExtraItems(e.target.value)}
+                    placeholder="Or type custom extras (e.g. extra spoons, sambar)..."
+                    className="w-full bg-bg-main border border-white/10 px-3 py-2 rounded-xl text-white text-xs focus:outline-none focus:border-yellow-500/50 transition-all placeholder:text-text-muted/50"
+                  />
                 </div>
               )}
 

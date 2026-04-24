@@ -124,6 +124,7 @@ export const OrderProvider = ({ children }) => {
       const {
         delivery_address, delivery_notes, distance_km, order_type,
         payment_method, customer_email, customer_phone, customer_name,
+        knock_bell, pickup_extra_items,
       } = deliveryParams;
 
       // order_type is now always passed inside deliveryParams from POS
@@ -144,6 +145,9 @@ export const OrderProvider = ({ children }) => {
         customer_email: customer_email || undefined,
         customer_phone: customer_phone || undefined,
         customer_name:  customer_name  || undefined,
+        // Delivery arrival preference & pickup extras
+        knock_bell:          isDelivery ? (knock_bell !== undefined ? knock_bell : true) : undefined,
+        pickup_extra_items:  isPickup   ? (pickup_extra_items || undefined) : undefined,
       };
 
       const res      = await ordersAPI.create(payload);

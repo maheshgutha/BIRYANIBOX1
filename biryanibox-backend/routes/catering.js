@@ -136,9 +136,16 @@ router.patch('/:id/status', protect, authorize('owner','manager'), async (req, r
       }
     }
 
-    // ── Completion greeting email to customer ──────────────────────────────
+    // ── Completion greeting email to customer ─────────────────────────────
     if (status === 'completed' && existing.status !== 'completed') {
       const customerEmail = item.email || item.contact_email;
+      const customerName  = item.customer_name || item.contact_name || 'Valued Customer';
+      const guestCount    = item.guest_count || item.guests || '—';
+      const eventType     = item.event_type || 'Catering';
+      const eventDate     = item.event_date
+        ? new Date(item.event_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+        : '—';
+
       if (customerEmail) {
         await sendEmail({
           to: customerEmail,
@@ -147,22 +154,23 @@ router.patch('/:id/status', protect, authorize('owner','manager'), async (req, r
             <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
               <h1 style="color:#f97316;margin-bottom:4px;">Biryani Box 🍛</h1>
               <p style="color:#888;font-size:13px;margin-bottom:28px;">Event Completion</p>
-              <h2 style="font-size:22px;margin-bottom:8px;">Thank you, ${item.contact_name || item.customer_name}! 🎊</h2>
+              <h2 style="font-size:22px;margin-bottom:8px;">Thank you, ${customerName}! 🎊</h2>
               <p style="color:#ccc;line-height:1.7;margin-bottom:20px;">
                 It was a pleasure serving you and your guests! We hope the food was exceptional and your event was a grand success.
               </p>
               <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin-bottom:20px;border-left:3px solid #f97316;">
+                <p style="color:#888;font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.1em;">Event Summary</p>
                 <table style="width:100%;font-size:14px;">
-                  <tr><td style="color:#888;padding:4px 0;">Event</td><td style="text-align:right;color:#fff;">${item.event_type || 'Catering'}</td></tr>
-                  <tr><td style="color:#888;padding:4px 0;">Date</td><td style="text-align:right;color:#fff;">${item.event_date || '—'}</td></tr>
-                  <tr><td style="color:#888;padding:4px 0;">Guests</td><td style="text-align:right;color:#fff;">${item.guests || item.guest_count || '—'}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Event Type</td><td style="text-align:right;color:#fff;">${eventType}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Date</td><td style="text-align:right;color:#fff;">${eventDate}</td></tr>
+                  <tr><td style="color:#888;padding:4px 0;">Guests Served</td><td style="text-align:right;color:#fff;">${guestCount}</td></tr>
                   <tr><td style="color:#888;padding:4px 0;">Status</td><td style="text-align:right;color:#22c55e;font-weight:bold;">✅ Completed</td></tr>
                 </table>
               </div>
-              <p style="color:#ccc;line-height:1.7;">
-                We would love to hear your feedback! Your experience helps us improve and continue serving amazing food at events.
-                We look forward to being part of your next celebration. 🍛
-              </p>
+              <div style="background:#0a1a0a;border:1px solid #22c55e30;border-radius:12px;padding:16px;margin-bottom:20px;">
+                <p style="color:#22c55e;font-size:13px;font-weight:bold;margin:0 0 6px;">We would love to hear from you!</p>
+                <p style="color:#ccc;font-size:13px;line-height:1.6;margin:0;">Your feedback means the world to us. We look forward to being part of your next celebration. 🍛</p>
+              </div>
               <p style="color:#444;font-size:12px;margin-top:24px;">With warm regards,<br/><strong style="color:#f97316;">The Biryani Box Team</strong></p>
             </div>
           `,

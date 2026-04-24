@@ -11,6 +11,7 @@ const DeliverySchema = new mongoose.Schema({
   phone:             { type: String },   // delivery contact phone
   delivery_address:  { type: String, required: true },
   delivery_notes:    { type: String },
+  knock_bell:        { type: Boolean, default: true }, // true = ring bell/knock, false = do not disturb
 
   // Lifecycle:
   // pending    → waiting for a rider to accept

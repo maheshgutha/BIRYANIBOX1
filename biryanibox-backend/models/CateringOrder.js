@@ -16,7 +16,8 @@ const CateringOrderSchema = new mongoose.Schema({
   budget:        { type: Number, min: 0 },
   total_price:   { type: Number, min: 0 },
   status:        { type: String, enum: ['pending','confirmed','cancelled','completed'], default: 'pending' },
-  notes:         { type: String }
+  notes:         { type: String },
+  reminder_24h_sent: { type: Boolean, default: false },
 }, { timestamps: { createdAt: 'created_at' } });
 
 module.exports = mongoose.model('CateringOrder', CateringOrderSchema);

@@ -282,6 +282,41 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
           <span className="text-white/80 text-sm leading-relaxed">{delivery.delivery_address || order.delivery_address || '—'}</span>
         </div>
 
+        {/* Arrival Preference — critical info for rider */}
+        {(() => {
+          const doNotDisturb = delivery.knock_bell === false || order.knock_bell === false;
+          return (
+            <div className={`flex items-start gap-2.5 rounded-xl px-3 py-2.5 border ${
+              doNotDisturb
+                ? 'bg-purple-500/10 border-purple-500/40'
+                : 'bg-blue-500/10 border-blue-500/30'
+            }`}>
+              <span className="text-lg leading-none">{doNotDisturb ? '🤫' : '🔔'}</span>
+              <div>
+                <p className={`text-xs font-black uppercase tracking-widest ${doNotDisturb ? 'text-purple-300' : 'text-blue-300'}`}>
+                  {doNotDisturb ? 'Do Not Disturb' : 'Ring Bell / Knock'}
+                </p>
+                <p className={`text-[10px] mt-0.5 ${doNotDisturb ? 'text-purple-400/70' : 'text-blue-400/70'}`}>
+                  {doNotDisturb
+                    ? 'Customer requested no doorbell or knocking. Leave food at door quietly.'
+                    : 'Customer requested you ring the bell or knock on arrival.'}
+                </p>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Delivery notes if any */}
+        {(delivery.delivery_notes || order.delivery_notes) && (
+          <div className="flex items-start gap-2.5 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-3 py-2.5">
+            <span className="text-yellow-400 text-sm">📝</span>
+            <div>
+              <p className="text-[10px] text-yellow-400 font-black uppercase tracking-widest mb-0.5">Delivery Note</p>
+              <p className="text-xs text-white/70">{delivery.delivery_notes || order.delivery_notes}</p>
+            </div>
+          </div>
+        )}
+
         {/* Customer + Fee row */}
         <div className="flex items-center gap-3 flex-wrap">
           {delivery.customer_name && (

@@ -21,14 +21,21 @@ import muttonBiryani from '../assets/mutton-biryani.png';
 import chickenTikka from '../assets/chicken-tikka.png';
 import rasmalai from '../assets/rasmalai.png';
 import backgroundInterior from '../assets/background.png';
-
+// Carousel images
+import gulabJamun from '../assets/gulabjamum.png';
+import mangoLassi from '../assets/mangolassi.png';
+import muttonBiryaniNew from '../assets/muttonbiryani.png';
+import chickenPakoda from '../assets/chickenpakoda.png';
+// import backgroundInterior from '../assets/background.png';
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 const Hero = ({ navigate }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const slides = [
-    { title: 'Dahi Puri', subtitle: 'Street Flavor Redefined', desc: "Crispy artisan shells filled with spiced potatoes, tangy yogurt, and mother's secret chutneys.", image: backgroundInterior, tag: 'Limited Offer' },
-    { title: 'Chicken Biryani', subtitle: 'The Royal Fragrance', desc: 'Saffron-infused long grain basmati rice layered with tender, marinated chicken and 24 traditional spices.', image: heroBiryani, tag: 'Best Seller' },
-    { title: 'Mutton Nizam', subtitle: 'Heritage on a Plate', desc: 'A recipe passed down through generations of Nizams, slow-cooked to perfection in heavy copper pots.', image: muttonBiryani, tag: 'Premium Choice' },
+    { title: 'Biryani Box', subtitle: 'Feel Every Moment', desc: 'U are welcomed warmly,Enjoy our services', image: backgroundInterior, tag: 'we listen to food' },
+    { title: 'Gulab Jamun', subtitle: 'Melt in Every Bite', desc: 'Soft, golden milk-solid dumplings soaked in rose-cardamom sugar syrup — the crown jewel of Indian desserts.', image: gulabJamun, tag: 'Must Try' },
+    { title: 'Mango Lassi', subtitle: 'Chilled & Refreshing', desc: 'Thick, creamy Alphonso mango blended with chilled yogurt and a hint of cardamom. Pure summer in a glass.', image: mangoLassi, tag: 'RefresherS' },
+    { title: 'Mutton Biryani', subtitle: 'Heritage on a Plate', desc: 'Slow-cooked tender mutton layered with saffron-infused basmati rice, caramelised onions and 24 whole spices.', image: muttonBiryaniNew, tag: 'Best Seller' },
+    { title: 'Chicken Pakoda', subtitle: 'Crispy & Irresistible', desc: 'Juicy chicken pieces marinated in bold spices, coated in gram flour batter and fried to a perfect golden crunch.', image: chickenPakoda, tag: 'Rich&Spicy' },
   ];
 
   useEffect(() => {

@@ -13,7 +13,14 @@ const inputCls = "w-full bg-white/5 border border-white/10 rounded-2xl py-3.5 te
 const CustomerAuth = () => {
   const { login } = useAuth();
   const navigate  = useNavigate();
-  const [mode,     setMode]     = useState('login');
+  const [mode,     setMode]     = useState('login'); // 'login' | 'register' | 'otp' | 'forgot'
+  // Forgot-password OTP state
+  const [fpOtpSent, setFpOtpSent] = useState(false);
+  const [fpOtp,     setFpOtp]     = useState('');
+  const [fpNew,     setFpNew]     = useState('');
+  const [fpConfirm, setFpConfirm] = useState('');
+  const [fpMsg,     setFpMsg]     = useState('');
+  const [fpError,   setFpError]   = useState('');
   const [error,    setError]    = useState('');
   const [info,     setInfo]     = useState('');
   const [busy,     setBusy]     = useState(false);
@@ -60,8 +67,7 @@ const CustomerAuth = () => {
     if (!firstName.trim()) { setError('First name is required'); return; }
     if (!email.trim())     { setError('Email is required'); return; }
     if (!phone.trim())     { setError('Mobile number is required'); return; }
-    if (!password.trim())         { setError('Password is required'); return; }
-    if (password.length < 6)      { setError('Password must be at least 6 characters'); return; }
+    if (!password.trim())  { setError('Password is required'); return; }
     setBusy(true);
     try {
       const fullName = `${firstName} ${lastName}`.trim();
@@ -99,6 +105,37 @@ const CustomerAuth = () => {
       startTimer();
     } catch { setError('Failed to resend OTP'); }
     finally { setBusy(false); }
+  };
+
+  const handleSendFpOTP = async (e) => {
+    e.preventDefault();
+    setFpError(''); setFpMsg('');
+    if (!email.trim()) { setFpError('Enter your email address'); return; }
+    setBusy(true);
+    try {
+      await authAPI.forgotPasswordOTP(email.trim());
+      setFpOtpSent(true);
+      setFpMsg('OTP sent to ' + email + '. Check your inbox.');
+    } catch (err) {
+      setFpError(err.message || 'Failed to send OTP');
+    } finally { setBusy(false); }
+  };
+
+  const handleResetFpPass = async (e) => {
+    e.preventDefault();
+    setFpError('');
+    if (!fpOtp.trim())   { setFpError('Enter the OTP'); return; }
+    if (!fpNew.trim())   { setFpError('Enter a new password'); return; }
+    if (fpNew.length < 6){ setFpError('Password must be at least 6 characters'); return; }
+    if (fpNew !== fpConfirm) { setFpError('Passwords do not match'); return; }
+    setBusy(true);
+    try {
+      await authAPI.resetPasswordOTP({ email, otp: fpOtp, new_password: fpNew });
+      setFpMsg('✅ Password updated! Please sign in with your new password.');
+      setTimeout(() => { setMode('login'); setFpOtpSent(false); setFpOtp(''); setFpNew(''); setFpConfirm(''); setFpMsg(''); setFpError(''); }, 2200);
+    } catch (err) {
+      setFpError(err.message || 'Invalid OTP or error resetting password');
+    } finally { setBusy(false); }
   };
 
   return (
@@ -172,7 +209,85 @@ const CustomerAuth = () => {
                 className="w-full py-4 bg-primary hover:bg-primary-hover text-white font-black uppercase tracking-widest text-xs rounded-2xl transition-all disabled:opacity-50 mt-2 flex items-center justify-center gap-2">
                 {busy ? 'Signing in…' : <><LogIn size={15} /> Sign In</>}
               </button>
+              <button type="button" onClick={() => { setMode('forgot'); setFpOtpSent(false); setFpOtp(''); setFpNew(''); setFpConfirm(''); setFpMsg(''); setFpError(''); setError(''); setInfo(''); }}
+                className="w-full text-center text-[10px] text-white/30 hover:text-primary font-bold uppercase tracking-widest transition-colors">
+                Forgot Password?
+              </button>
             </form>
+          )}
+
+          {/* ── FORGOT PASSWORD ── */}
+          {mode === 'forgot' && (
+            <div className="space-y-4">
+              <div className="text-center mb-2">
+                <div className="w-14 h-14 bg-primary/10 border border-primary/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <KeyRound size={24} className="text-primary" />
+                </div>
+                <p className="text-sm font-black text-white">Reset Password</p>
+                <p className="text-xs text-white/40 mt-1">We'll send an OTP to your email</p>
+              </div>
+
+              {fpError && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-bold">{fpError}</div>}
+              {fpMsg   && <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-xl text-green-400 text-xs font-bold">{fpMsg}</div>}
+
+              {!fpOtpSent ? (
+                <form onSubmit={handleSendFpOTP} className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Your Email</label>
+                    <div className="relative">
+                      <Mail size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                      <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        className={`${inputCls} pl-11 pr-4`} />
+                    </div>
+                  </div>
+                  <button type="submit" disabled={busy}
+                    className="w-full py-4 bg-primary hover:bg-primary-hover text-white font-black uppercase tracking-widest text-xs rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    {busy ? <RefreshCw size={15} className="animate-spin" /> : <Mail size={15} />}
+                    {busy ? 'Sending OTP…' : 'Send OTP to Email'}
+                  </button>
+                  <button type="button" onClick={() => { setMode('login'); setFpError(''); setFpMsg(''); }}
+                    className="w-full text-center text-[10px] text-white/30 hover:text-white/60 font-bold uppercase tracking-widest">
+                    ← Back to Sign In
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleResetFpPass} className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">OTP Code</label>
+                    <input type="text" inputMode="numeric" maxLength={6}
+                      value={fpOtp} onChange={e => setFpOtp(e.target.value.replace(/\D/g,''))}
+                      placeholder="______"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-5 text-center text-2xl font-black tracking-[0.5em] text-white placeholder-white/15 focus:outline-none focus:border-primary/50 transition-all" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">New Password <span className="text-white/20">(min 6 chars)</span></label>
+                    <div className="relative">
+                      <Lock size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                      <input type="password" value={fpNew} onChange={e => setFpNew(e.target.value)}
+                        placeholder="New password" className={`${inputCls} pl-11 pr-4`} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Confirm Password</label>
+                    <div className="relative">
+                      <Lock size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                      <input type="password" value={fpConfirm} onChange={e => setFpConfirm(e.target.value)}
+                        placeholder="Confirm password" className={`${inputCls} pl-11 pr-4`} />
+                    </div>
+                  </div>
+                  <button type="submit" disabled={busy}
+                    className="w-full py-4 bg-primary hover:bg-primary-hover text-white font-black uppercase tracking-widest text-xs rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    {busy ? <RefreshCw size={15} className="animate-spin" /> : <Lock size={15} />}
+                    {busy ? 'Saving…' : 'Set New Password'}
+                  </button>
+                  <button type="button" onClick={() => { setFpOtpSent(false); setFpError(''); setFpMsg(''); }}
+                    className="w-full text-center text-[10px] text-white/30 hover:text-white/60 font-bold uppercase tracking-widest">
+                    ← Resend OTP
+                  </button>
+                </form>
+              )}
+            </div>
           )}
 
           {/* ── REGISTER ── */}

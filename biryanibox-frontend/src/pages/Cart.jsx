@@ -90,6 +90,7 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
   const navigate  = useNavigate();
   const [order,      setOrder]      = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
   const [lastRefresh,setLastRefresh]= useState(new Date());
   const [collapsed,  setCollapsed]  = useState(false);
 
@@ -101,22 +102,38 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
   const isDone      = order?.status === 'paid' || order?.status === 'delivered';
   const isServed    = order?.status === 'served'; // food served but bill not yet paid
 
+  // Use a ref so the interval callback always reads the latest isDone
+  // without needing to recreate the interval on every status change.
+  const isDoneRef = useRef(isDone);
+  useEffect(() => { isDoneRef.current = isDone; }, [isDone]);
+
   const fetchOrder = useCallback(async (manual = false) => {
     if (!orderId) return;
     if (manual) setRefreshing(true);
     try {
       const res = await ordersAPI.getOne(orderId);
-      if (res?.data) setOrder(res.data);
+      if (res?.data) {
+        setOrder(res.data);
+        setFetchError(false);
+      }
       setLastRefresh(new Date());
-    } catch {}
-    finally { if (manual) setRefreshing(false); }
+    } catch (err) {
+      console.warn('[LiveTracker] fetch failed:', err?.message);
+      setFetchError(true);
+    } finally { if (manual) setRefreshing(false); }
   }, [orderId]);
 
+  // Poll every 5 seconds using a ref-based interval so isDone is always fresh.
+  // On mount: fetch immediately, then start polling.
+  // On unmount / orderId change: clear interval.
   useEffect(() => {
+    if (!orderId) return;
     fetchOrder();
-    const id = setInterval(() => { if (!isDone) fetchOrder(); }, 12000);
+    const id = setInterval(() => {
+      if (!isDoneRef.current) fetchOrder();
+    }, 5000);
     return () => clearInterval(id);
-  }, [fetchOrder, isDone]);
+  }, [fetchOrder, orderId]);
 
   useEffect(() => { if (isDone) clearActiveOrder(); }, [isDone]);
 
@@ -144,7 +161,24 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-primary">Live Order Tracking</p>
-              <p className="text-xs text-white/60 font-bold">{displayOrderNum ? `#${displayOrderNum}` : 'Processing…'}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xs text-white/60 font-bold">{displayOrderNum ? `#${displayOrderNum}` : 'Processing…'}</p>
+                {order?.status && (
+                  <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${
+                    order.status === 'paid'              ? 'bg-green-500/20 border-green-500/40 text-green-400' :
+                    order.status === 'served'            ? 'bg-amber-500/20 border-amber-500/40 text-amber-400' :
+                    order.status === 'completed_cooking' ? 'bg-blue-500/20 border-blue-500/40 text-blue-400' :
+                    order.status === 'start_cooking'     ? 'bg-orange-500/20 border-orange-500/40 text-orange-400' :
+                    'bg-white/10 border-white/20 text-white/50'
+                  }`}>
+                    {order.status === 'pending_confirmation' ? 'confirming' :
+                     order.status === 'start_cooking'        ? 'preparing' :
+                     order.status === 'completed_cooking'    ? 'ready' :
+                     order.status}
+                  </span>
+                )}
+                {fetchError && <span className="text-[8px] text-red-400 font-bold">⚠ retry…</span>}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">

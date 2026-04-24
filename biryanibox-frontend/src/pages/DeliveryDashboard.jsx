@@ -10,13 +10,25 @@ import {
   Award, Zap, Shield, Star, ChevronRight, AlertTriangle, Map,
 } from 'lucide-react';
 
-const useAutoRefresh = (cb, ms = 15000) => {
+const useAutoRefresh = (cb, ms = 5000) => {
   const ref = useRef(cb);
   useEffect(() => { ref.current = cb; }, [cb]);
   useEffect(() => {
     const id = setInterval(() => ref.current(), ms);
     return () => clearInterval(id);
   }, [ms]);
+};
+
+// Fires callback immediately whenever the browser tab becomes visible again
+// (rider switches back from another app / screen)
+const useVisibilityRefresh = (cb) => {
+  const ref = useRef(cb);
+  useEffect(() => { ref.current = cb; }, [cb]);
+  useEffect(() => {
+    const h = () => { if (document.visibilityState === 'visible') ref.current(); };
+    document.addEventListener('visibilitychange', h);
+    return () => document.removeEventListener('visibilitychange', h);
+  }, []);
 };
 
 // Haversine distance (km) between two lat/lng pairs
@@ -233,7 +245,7 @@ const StatCard = ({ icon: Icon, label, value, color = 'text-orange-400', bg = 'b
 );
 
 // ── Delivery Card ──────────────────────────────────────────────────────────
-const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, actLoading }) => {
+const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, onRefresh, actLoading }) => {
   const order = delivery.order_id || {};
   const cfg = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
   const canAccept  = delivery.status === 'pending';
@@ -407,9 +419,11 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
           </>
         )}
         {canPickup && !dispatched && (
-          <button disabled
-            className="flex-1 flex items-center justify-center gap-2 bg-white/5 border border-white/10 text-white/30 text-xs font-black py-3 px-4 rounded-xl cursor-not-allowed">
-            🔒 Waiting for Dispatch...
+          <button
+            onClick={() => onRefresh && onRefresh()}
+            className="flex-1 flex items-center justify-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-black py-3 px-4 rounded-xl hover:bg-amber-500/20 transition-all">
+            <RefreshCw size={13} className="animate-spin" style={{ animationDuration: '3s' }} />
+            🔒 Waiting for Dispatch — Tap to Check
           </button>
         )}
         {canPickup && dispatched && (
@@ -511,7 +525,32 @@ export default function DeliveryDashboard() {
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
-  useAutoRefresh(loadAll, 12000);
+  useAutoRefresh(loadAll, 5000);        // poll every 5 s for fast pickup button enable
+  useVisibilityRefresh(loadAll);        // immediate refresh when rider switches back to app
+
+  // Poll notifications every 4 s — when a 'dispatch' notification arrives,
+  // call loadAll() immediately so the Pickup button enables without waiting
+  useEffect(() => {
+    let lastNotifId = null;
+    const checkDispatch = async () => {
+      try {
+        const r = await notificationsAPI.getAll();
+        const notifs = r.data || [];
+        const dispatchNotif = notifs.find(n =>
+          n.type === 'delivery' &&
+          n.title?.toLowerCase().includes('dispatch') &&
+          !n.is_read
+        );
+        if (dispatchNotif && dispatchNotif._id !== lastNotifId) {
+          lastNotifId = dispatchNotif._id;
+          loadAll(); // immediately refresh delivery data
+        }
+      } catch {}
+    };
+    const id = setInterval(checkDispatch, 4000);
+    return () => clearInterval(id);
+  }, [loadAll]);
+
   const refresh = async () => { setRefreshing(true); await loadAll(); setRefreshing(false); };
 
   const handleAccept = async (id) => {
@@ -686,7 +725,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : available.map(d => (
                 <DeliveryCard key={d._id} delivery={d} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
               ))}
             </AnimatePresence>
           )}
@@ -705,7 +744,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : (
                 <DeliveryCard key={myActive._id} delivery={myActive} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
               )}
             </AnimatePresence>
           )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 const MotionDiv = motion.div;
 import { ordersAPI, addressesAPI, feedbackAPI, announcementsAPI, loyaltyAPI } from '../services/api';
@@ -23,19 +23,23 @@ const ORDER_STEPS = [
 ];
 
 const STATUS_TO_STEP = {
-  pending:           0,
-  start_cooking:     2,
-  completed_cooking: 3,
-  served:            4,
-  paid:              5,
-  cancelled:         -1,
+  pending_confirmation: 0,  // dine-in waiting for manager approval
+  pending:              1,  // order confirmed, queued for kitchen
+  start_cooking:        2,  // chef started
+  completed_cooking:    3,  // food ready
+  served:               4,  // food served at table
+  paid:                 5,  // bill settled
+  cancelled:           -1,
 };
 
-const useAutoRefresh = (callback, ms = 15000) => {
+// Use a ref-based auto-refresh so the callback is always fresh (avoids stale closures)
+const useAutoRefresh = (callback, ms = 7000) => {
+  const cbRef = useRef(callback);
+  useEffect(() => { cbRef.current = callback; }, [callback]);
   useEffect(() => {
-    const id = setInterval(() => callback(true), ms);
+    const id = setInterval(() => cbRef.current(true), ms);
     return () => clearInterval(id);
-  }, [callback, ms]);
+  }, [ms]);
 };
 
 const StarRating = ({ value, onChange }) => (
@@ -49,17 +53,36 @@ const StarRating = ({ value, onChange }) => (
   </div>
 );
 
+/* ─── Status badge helper ──────────────────────────────────────── */
+const STATUS_BADGE = {
+  pending_confirmation: { label: 'Awaiting Confirmation', color: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-400' },
+  pending:              { label: 'Order Placed',          color: 'bg-white/10 border-white/20 text-white/60' },
+  start_cooking:        { label: '🔥 Preparing',          color: 'bg-orange-500/20 border-orange-500/40 text-orange-400' },
+  completed_cooking:    { label: '✅ Ready to Serve',     color: 'bg-blue-500/20 border-blue-500/40 text-blue-400' },
+  served:               { label: '🍽️ Served — Pay Bill', color: 'bg-amber-500/20 border-amber-500/40 text-amber-300' },
+  paid:                 { label: '✅ Paid',               color: 'bg-green-500/20 border-green-500/40 text-green-400' },
+  cancelled:            { label: '❌ Cancelled',          color: 'bg-red-500/20 border-red-500/40 text-red-400' },
+};
+
 /* ─── Live Order Card ──────────────────────────────────────────── */
 const LiveOrderCard = ({ order, onRefresh }) => {
   const stepIdx = STATUS_TO_STEP[order.status] ?? 0;
   const isCancelled = order.status === 'cancelled';
+  const badge = STATUS_BADGE[order.status] || { label: order.status, color: 'bg-white/10 border-white/20 text-white/50' };
 
   return (
     <div className="bg-secondary/40 rounded-3xl border border-primary/20 overflow-hidden">
       <div className="bg-black/30 border-b border-white/5 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <MapPin size={16} className="text-primary" />
-          <span className="text-xs font-black text-white uppercase tracking-widest">ORDER TRACKING</span>
+          <div>
+            <span className="text-xs font-black text-white uppercase tracking-widest">ORDER TRACKING</span>
+            <div className="mt-1">
+              <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${badge.color}`}>
+                {badge.label}
+              </span>
+            </div>
+          </div>
         </div>
         <button onClick={onRefresh} className="text-xs text-primary font-bold flex items-center gap-1 hover:text-yellow-400 transition-colors">
           <RefreshCw size={12} /> Refresh
@@ -122,6 +145,46 @@ const LiveOrderCard = ({ order, onRefresh }) => {
           <span className="text-primary text-base font-black">${(order.total || 0).toFixed(2)}</span>
         </div>
       </div>
+
+      {order.status === 'served' && (
+        <div className="mx-6 mb-6 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 animate-pulse">
+          <span className="text-xl">🍽️</span>
+          <div>
+            <p className="text-sm font-black text-amber-300">Your food has been served!</p>
+            <p className="text-xs text-amber-400/70 mt-0.5">Please ask your captain for the bill to complete your order.</p>
+          </div>
+        </div>
+      )}
+
+      {order.status === 'completed_cooking' && (
+        <div className="mx-6 mb-6 flex items-start gap-2 bg-blue-500/10 border border-blue-500/30 rounded-2xl px-4 py-3">
+          <span className="text-xl">🍛</span>
+          <div>
+            <p className="text-sm font-black text-blue-300">Your order is ready!</p>
+            <p className="text-xs text-blue-400/70 mt-0.5">The captain will serve your food shortly.</p>
+          </div>
+        </div>
+      )}
+
+      {order.status === 'start_cooking' && (
+        <div className="mx-6 mb-6 flex items-start gap-2 bg-orange-500/10 border border-orange-500/30 rounded-2xl px-4 py-3">
+          <span className="text-xl">🔥</span>
+          <div>
+            <p className="text-sm font-black text-orange-300">Chef is preparing your order!</p>
+            <p className="text-xs text-orange-400/70 mt-0.5">Your food is being freshly cooked. Won't be long!</p>
+          </div>
+        </div>
+      )}
+
+      {order.status === 'pending_confirmation' && (
+        <div className="mx-6 mb-6 flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-2xl px-4 py-3 animate-pulse">
+          <span className="text-xl">⏳</span>
+          <div>
+            <p className="text-sm font-black text-yellow-300">Waiting for confirmation</p>
+            <p className="text-xs text-yellow-400/70 mt-0.5">The restaurant is reviewing your order. Up to 10 minutes.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -91,8 +91,9 @@ router.get('/command-hub', protect, authorize('owner', 'manager'), async (req, r
       ])
     ]);
 
-    // Total orders in period (all statuses)
-    const totalOrders = await Order.countDocuments(dateFilter);
+    // Total PAID orders in period (revenue-consistent count)
+    const totalOrders    = await Order.countDocuments({ status: 'paid', ...dateFilter });
+    const totalAllOrders = await Order.countDocuments(dateFilter);
 
     // Cancelled orders with details
     const cancelledOrders = await Order.find({ status: 'cancelled', ...dateFilter })
@@ -106,6 +107,8 @@ router.get('/command-hub', protect, authorize('owner', 'manager'), async (req, r
     pipeline.forEach(p => { pipelineMap[p._id] = p.count; });
 
     // ── 4. Calendar date orders (if requested) ──────────────────────────────
+    // Returns ALL orders so owner can see full picture per day.
+    // calendar_paid_total sums only paid orders for accurate revenue.
     let calendarOrders = [];
     if (calendar_date) {
       const calStart = new Date(calendar_date); calStart.setHours(0, 0, 0, 0);
@@ -114,12 +117,15 @@ router.get('/command-hub', protect, authorize('owner', 'manager'), async (req, r
         .sort({ created_at: -1 })
         .populate('customer_id', 'name email');
     }
+    const calendarPaidTotal = calendarOrders
+      .filter(o => o.status === 'paid')
+      .reduce((s, o) => s + (o.total || 0), 0);
 
     // ── 5. Top dishes — from orders in period ───────────────────────────────
     const topDishesAll = await OrderItem.aggregate([
       { $lookup: { from: 'orders', localField: 'order_id', foreignField: '_id', as: 'order' } },
       { $unwind: '$order' },
-      { $match: { 'order.created_at': { $gte: start, $lte: end } } },
+      { $match: { 'order.created_at': { $gte: start, $lte: end }, 'order.status': 'paid' } },
       { $group: {
         _id:           '$menu_item_id',
         name:          { $first: '$name' },
@@ -146,8 +152,9 @@ router.get('/command-hub', protect, authorize('owner', 'manager'), async (req, r
         avg_order_value: +avgOrderValue.toFixed(2),
         // Chart data
         revenue_chart:   revenueChart,
-        // Pipeline
-        total_orders:    totalOrders,
+        // Pipeline — total_orders counts paid orders only (revenue-consistent)
+        total_orders:     totalOrders,
+        total_all_orders: totalAllOrders,
         pipeline: {
           pending:           pipelineMap['pending']           || 0,
           pending_confirmation: pipelineMap['pending_confirmation'] || 0,
@@ -171,6 +178,7 @@ router.get('/command-hub', protect, authorize('owner', 'manager'), async (req, r
         })),
         // Calendar
         calendar_date,
+        calendar_paid_total: +calendarPaidTotal.toFixed(2),
         calendar_orders: calendarOrders.map(o => ({
           _id:          o._id,
           order_number: o.order_number,
@@ -269,7 +277,7 @@ router.get('/top-items', protect, authorize('owner','manager'), async (req, res,
     const data = await OrderItem.aggregate([
       { $lookup: { from: 'orders', localField: 'order_id', foreignField: '_id', as: 'order' } },
       { $unwind: '$order' },
-      { $match: { 'order.created_at': { $gte: todayStart } } },
+      { $match: { 'order.created_at': { $gte: todayStart }, 'order.status': 'paid' } },
       { $group: { _id: '$menu_item_id', name: { $first: '$name' }, total_qty: { $sum: '$quantity' }, total_revenue: { $sum: { $multiply: ['$quantity','$unit_price'] } } } },
       { $sort: { total_qty: -1 } },
       { $limit: 10 }

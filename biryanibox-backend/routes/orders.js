@@ -161,7 +161,7 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
     }
     const orders = await Order.find({
       customer_id: req.params.customerId,
-      status: { $nin: ['paid', 'cancelled', 'served', 'delivered'] },
+      status: { $nin: ['paid', 'cancelled', 'delivered'] },
     })
       .populate('captain_id', 'name')
       .populate('chef_id', 'name')
@@ -745,8 +745,8 @@ router.patch('/:id/status', protect, async (req, res, next) => {
       }
     }
 
-    // ── Mark table available when order is served or paid ─────────────────
-    if ((status === 'served' || status === 'paid') && updated.order_type === 'dine-in' && updated.table_number) {
+    // ── Mark table available only when order is PAID (not served) ─────────
+    if (status === 'paid' && updated.order_type === 'dine-in' && updated.table_number) {
       let tNum = parseInt(updated.table_number);
       if (isNaN(tNum)) {
         const m = String(updated.table_number).match(/\d+/);

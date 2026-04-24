@@ -882,7 +882,7 @@ const OrderHistory = () => {
     try {
       const res = await ordersAPI.history(uid);
       const all = res.data || [];
-      setActiveOrders(all.filter(o => ['pending', 'start_cooking', 'completed_cooking', 'served'].includes(o.status)));
+      setActiveOrders(all.filter(o => ['pending_confirmation', 'pending', 'start_cooking', 'completed_cooking', 'served'].includes(o.status)));
       setHistoryOrders(all.filter(o => ['paid', 'cancelled', 'delivered'].includes(o.status)));
     } catch {}
     finally { if (!silent) setLoading(false); }

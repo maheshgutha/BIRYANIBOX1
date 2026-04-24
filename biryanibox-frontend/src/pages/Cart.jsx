@@ -98,7 +98,8 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
   const steps    = ot === 'delivery' ? DELIVERY_STEPS : ot === 'pickup' ? PICKUP_STEPS : DINEIN_STEPS;
   const stepMap  = ot === 'delivery' ? DELIVERY_STATUS_STEP : ot === 'pickup' ? PICKUP_STATUS_STEP : DINEIN_STATUS_STEP;
   const currentStep = order ? (stepMap[order.status] ?? 0) : 0;
-  const isDone      = order?.status === 'paid' || order?.status === 'served' || order?.status === 'delivered';
+  const isDone      = order?.status === 'paid' || order?.status === 'delivered';
+  const isServed    = order?.status === 'served'; // food served but bill not yet paid
 
   const fetchOrder = useCallback(async (manual = false) => {
     if (!orderId) return;
@@ -224,6 +225,16 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
                   </div>
                 )}
 
+                {isServed && (
+                  <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5 animate-pulse">
+                    <span className="text-lg">🍽️</span>
+                    <div>
+                      <p className="text-xs text-amber-300 font-black">Your food has been served!</p>
+                      <p className="text-[10px] text-amber-400/70 mt-0.5">Please ask your captain for the bill to complete your order.</p>
+                    </div>
+                  </div>
+                )}
+
                 {isDone && (
                   <div className="flex items-center gap-2 text-green-400 text-xs font-black">
                     <CheckCircle size={14} /> Order Complete! Thank you 🙏
@@ -337,6 +348,15 @@ const LiveOrderTracker = ({ orderId, orderNumber, placedItems, grandTotal, newCo
             </motion.div>
           )}
         </AnimatePresence>
+
+        {isServed && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+            className="bg-amber-500/10 border border-amber-500/40 rounded-3xl p-6 text-center space-y-3">
+            <div className="text-4xl">🍽️</div>
+            <p className="font-black text-white text-lg">Your food has been served!</p>
+            <p className="text-amber-400 text-sm font-bold">Please ask your captain for the bill.<br />Your order is complete once payment is done.</p>
+          </motion.div>
+        )}
 
         {isDone && (
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-6 space-y-2">

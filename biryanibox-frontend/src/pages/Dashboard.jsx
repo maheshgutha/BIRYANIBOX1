@@ -4789,7 +4789,7 @@ const Overview = ({ orders }) => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         {[
           { label: 'Revenue',         value: d ? `$${d.revenue.toFixed(0)}` : '…', icon: DollarSign,  color: 'text-green-400',  bg: 'bg-green-500/10'  },
-          { label: 'Total Orders',    value: d ? d.total_orders : '…',             icon: OrderIcon,   color: 'text-primary',    bg: 'bg-primary/10'    },
+          { label: 'Total Orders',    value: d ? d.total_all_orders : '…',         icon: OrderIcon,   color: 'text-primary',    bg: 'bg-primary/10'    },
           { label: 'Avg Order Value', value: d ? `$${d.avg_order_value.toFixed(0)}` : '…', icon: TrendingUp, color: 'text-blue-400', bg: 'bg-blue-500/10' },
           { label: 'Paid Orders',     value: d ? d.paid_count : '…',               icon: CheckCircle2,color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
         ].map((stat, idx) => (
@@ -4901,7 +4901,7 @@ const Overview = ({ orders }) => {
               </div>
               <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-white/5">
                 <div className="text-center">
-                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Total Orders</p>
+                  <p className="text-[9px] text-text-muted font-black uppercase tracking-widest">Paid Orders</p>
                   <p className="text-lg font-black text-white">{chartPoints.reduce((s, p) => s + p.orders, 0)}</p>
                 </div>
                 <div className="text-center">
@@ -5025,7 +5025,7 @@ const Overview = ({ orders }) => {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-[10px] font-black text-primary uppercase tracking-widest">
-                  {d.calendar_orders.length} orders · ${d.calendar_orders.reduce((s, o) => s + (o.total || 0), 0).toFixed(0)} total
+                  {d.calendar_orders.length} orders · <span className="text-primary font-black">${(d.calendar_paid_total || 0).toFixed(0)}</span> paid revenue
                 </p>
                 <p className="text-[10px] text-text-muted font-bold">
                   {new Date(calDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}
@@ -5200,10 +5200,12 @@ const FinanceCenter = ({ orders }) => {
 
   const filterByPeriod = (date) => {
     const d = new Date(date);
-    if (period === 'today') { const t = new Date(now); t.setHours(0,0,0,0); return d >= t; }
-    if (period === 'week') return d >= new Date(now - 7*86400000);
-    if (period === 'month') { const m = new Date(now); m.setDate(1); m.setHours(0,0,0,0); return d >= m; }
-    return true;
+    if (period === 'today')   { const t = new Date(now); t.setHours(0,0,0,0); return d >= t; }
+    if (period === 'week')    return d >= new Date(now - 7*86400000);
+    if (period === 'month')   { const m = new Date(now); m.setDate(1); m.setHours(0,0,0,0); return d >= m; }
+    if (period === 'quarter') { const q = new Date(now); q.setMonth(q.getMonth() - 3); q.setHours(0,0,0,0); return d >= q; }
+    if (period === 'year')    { const y = new Date(now.getFullYear(), 0, 1); return d >= y; }
+    return true; // 'all'
   };
 
   // Revenue from paid orders

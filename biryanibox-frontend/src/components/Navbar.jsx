@@ -64,7 +64,7 @@ const Navbar = () => {
 
   const handleNavClick = (href) => {
     if (href === '/') {
-      // HOME — always scroll to top from anywhere on the page
+      // HOME — scroll to top; navigate to / if on another page
       if (window.location.pathname !== '/') {
         navigate('/');
         setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
@@ -72,16 +72,21 @@ const Navbar = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } else if (href === '/#menu') {
-      // MENU — reset category filter to "All", then scroll to menu section
+      // MENU — navigate to '/' (clearing any ?category= param), then scroll + reset
+      // Using navigate('/') strips URL params, which resets the category to "All".
       if (window.location.pathname !== '/') {
         navigate('/');
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('bb_menu_reset'));
           document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
-        }, 400);
+        }, 350);
       } else {
-        window.dispatchEvent(new CustomEvent('bb_menu_reset'));
-        document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
+        // Already on home — clear category param from URL, then scroll
+        navigate('/', { replace: true });
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('bb_menu_reset'));
+          document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
+        }, 50);
       }
     } else if (href.startsWith('/#')) {
       const sectionId = href.split('#')[1];
@@ -91,7 +96,7 @@ const Navbar = () => {
         navigate('/');
         setTimeout(() => {
           document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
-        }, 400);
+        }, 350);
       }
     } else {
       navigate(href);

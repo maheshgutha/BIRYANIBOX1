@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const MotionDiv = motion.div;
 const MotionButton = motion.button;
 import {
   ShoppingBag, User, Menu as MenuIcon, X, ShieldCheck, ChevronDown, LogOut,
-  Gift, ListOrdered, Clock, MapPin, Phone, Truck, Facebook, Instagram, ArrowRight,
+  Gift, ListOrdered, Clock, MapPin, Truck, Facebook, Instagram, ArrowRight,
   Star, CheckCircle, Search, ChevronRight, Navigation, Download,
   MessageSquare, ThumbsUp, Send,
 } from 'lucide-react';
@@ -86,7 +86,7 @@ const RestaurantVideo = () => (
         <h2 className="text-5xl md:text-7xl font-black font-heading text-white leading-tight">
           Where Every Bite<br /><span className="text-primary">Tells a Story</span>
         </h2>
-        <p className="text-white/60 text-lg max-w-xl mx-auto">Authentic South Indian flavors crafted with love, tradition, and the finest ingredients.</p>
+        <p className="text-white/60 text-lg max-w-xl mx-auto">Authentic Hyderabadi flavors crafted with love, tradition, and the finest ingredients.</p>
         <div className="flex items-center justify-center gap-8 flex-wrap pt-4">
           {[['15+', 'Years of Heritage'], ['50K+', 'Happy Customers'], ['100%', 'Halal Certified']].map(([num, lbl]) => (
             <div key={lbl} className="text-center">
@@ -237,37 +237,33 @@ const AllItemsList = () => {
 // ─── Menu Categories (Order Section) ─────────────────────────────────────────
 const MenuCategories = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterVeg, setFilterVeg] = useState('all');
-  const [filterSpice, setFilterSpice] = useState('all');
-  const [filterHalal, setFilterHalal] = useState(false);
+  const [searchQuery, setSearchQuery]   = useState('');
+  const [filterVeg, setFilterVeg]       = useState('all');
+  const [filterSpice, setFilterSpice]   = useState('all');
+  const [filterHalal, setFilterHalal]   = useState(false);
   const { addToCart } = useCart();
-  const { menu } = useOrders();
+  const { menu }      = useOrders();
 
-  // Read category from URL — persists across refresh
+  // Derive activeCategory from URL — survives refresh and back/forward navigation
   const activeCategory = searchParams.get('category') || 'All';
 
-  // Update URL when category changes (instead of local state)
-  const setActiveCategory = (cat) => {
-    const params = new URLSearchParams(searchParams);
-    if (cat === 'All') {
-      params.delete('category');
-    } else {
-      params.set('category', cat);
-    }
-    // Replace so back button still works naturally
-    setSearchParams(params, { replace: true });
-    // Scroll to menu section smoothly on category change
-    const menuEl = document.getElementById('menu');
-    if (menuEl) menuEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  // Change category: write to URL so it persists on refresh
+  const setActiveCategory = useCallback((cat) => {
+    setSearchParams(
+      prev => {
+        const p = new URLSearchParams(prev);
+        if (cat === 'All') p.delete('category');
+        else p.set('category', cat);
+        return p;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
 
-  // Listen for navbar "Menu" click — reset everything to show all items
+  // Navbar "Menu" click → clear category + reset filters
   useEffect(() => {
     const handleReset = () => {
-      const params = new URLSearchParams(searchParams);
-      params.delete('category');
-      setSearchParams(params, { replace: true });
+      setActiveCategory('All');
       setSearchQuery('');
       setFilterVeg('all');
       setFilterSpice('all');
@@ -275,23 +271,19 @@ const MenuCategories = () => {
     };
     window.addEventListener('bb_menu_reset', handleReset);
     return () => window.removeEventListener('bb_menu_reset', handleReset);
-  }, [searchParams, setSearchParams]);
+  }, [setActiveCategory]);
 
-  // On mount: if a category is in the URL (e.g. after refresh),
-  // scroll the menu section into view so the user lands in the right spot.
+  // On mount/category-change: if URL has a category, scroll menu into view
   useEffect(() => {
     const cat = searchParams.get('category');
     if (cat) {
-      // Small delay so the page renders before scrolling
       const t = setTimeout(() => {
-        const menuEl = document.getElementById('menu');
-        if (menuEl) menuEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 300);
+        document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 250);
       return () => clearTimeout(t);
     }
-  // Only run on initial mount
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // only on first mount
 
 
   const categories = ['All', ...Array.from(new Set(menu.map(item => item.category)))];
@@ -805,21 +797,11 @@ const Contact = () => {
           <div className="space-y-12">
             <div className="flex gap-8 items-start group">
               <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/20 group-hover:bg-primary group-hover:text-white transition-all shadow-xl"><MapPin size={28} /></div>
-              <div><h4 className="text-xl font-bold mb-3 uppercase tracking-widest text-white/90">Our Location</h4><p className="text-text-muted leading-relaxed font-medium">38 Waterford Rd,<br />Clarks Summit, PA 18411</p></div>
-            </div>
-            <div className="flex gap-8 items-start group">
-              <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/20 group-hover:bg-primary group-hover:text-white transition-all shadow-xl"><Phone size={28} /></div>
-              <div>
-                <h4 className="text-xl font-bold mb-3 uppercase tracking-widest text-white/90">Contact</h4>
-                <p className="text-text-muted leading-relaxed font-medium">
-                  <a href="tel:+15708401760" className="hover:text-primary transition-colors">(570) 840-1760</a><br />
-                  <a href="https://www.biryani-box.com" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">www.biryani-box.com</a>
-                </p>
-              </div>
+              <div><h4 className="text-xl font-bold mb-3 uppercase tracking-widest text-white/90">Strategic Hub</h4><p className="text-text-muted leading-relaxed font-medium">123 Artisan Lane, Heritage Square,<br />Scranton, PA 18503</p></div>
             </div>
             <div className="flex gap-8 items-start group">
               <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/20 group-hover:bg-primary group-hover:text-white transition-all shadow-xl"><Clock size={28} /></div>
-              <div><h4 className="text-xl font-bold mb-3 uppercase tracking-widest text-white/90">Hours</h4><p className="text-text-muted leading-relaxed font-medium">Mon – Sat: 11:30 AM — 10:00 PM<br />Sun: 12:00 PM — 9:00 PM</p></div>
+              <div><h4 className="text-xl font-bold mb-3 uppercase tracking-widest text-white/90">Dispatch Hours</h4><p className="text-text-muted leading-relaxed font-medium">Mon - Sat: 11:30 AM — 10:00 PM<br />Sun: 12:00 PM — 9:00 PM</p></div>
             </div>
             <div className="pt-8 flex gap-6">
               <button className="flex items-center gap-3 px-8 py-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all"><Facebook size={20} className="text-primary" /><span className="text-[10px] font-black uppercase tracking-widest">Connect Facebook</span></button>

@@ -8,7 +8,7 @@ const MenuItemSchema = new mongoose.Schema({
   image_url:    { type: String },
   prep_time:    { type: Number, min: 0 },
   rating:       { type: Number, min: 0, max: 5, default: 0 },
-  spice_level:  { type: Number, min: 1, max: 3, default: 1 },
+  spice_level:  { type: Number, min: 0, max: 3, default: 1 },
   is_veg:       { type: Boolean, default: false },
   is_halal:     { type: Boolean, default: true },
   stock:        { type: Number, default: 100, min: 0 },

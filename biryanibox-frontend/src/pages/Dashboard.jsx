@@ -55,9 +55,12 @@ const STATUS_LABELS = {
 };
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
-const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements, onLogout }) => {
+const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements, onLogout, captainTableNumbers }) => {
   // No hooks that subscribe to external contexts — keeps memo effective
   // logout and navigate are passed in as a stable callback from Dashboard
+
+  // A captain with no assigned tables is a delivery/pickup captain
+  const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
 
   const allItems = [
     { id: 'overview',      label: 'Command Hub',      icon: PieChart,        roles: ['owner', 'manager'] },
@@ -83,9 +86,12 @@ const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements
     { id: 'staff',         label: 'My Profile',       icon: User,            roles: ['owner', 'manager', 'captain', 'chef'] },
   ];
 
-  // Captain zone detection: captains with no assigned tables are captain 4 (delivery)
-  // We hide Table Status sidebar item for delivery-only captain at render time via TableStatus logic
-  const items = allItems.filter(i => i.roles.includes(user.role));
+  // Hide Riders Hub from dine-in captains (those with assigned tables)
+  const items = allItems.filter(i => {
+    if (!i.roles.includes(user.role)) return false;
+    if (i.id === 'riders' && user.role === 'captain' && !isDeliveryCaptain) return false;
+    return true;
+  });
 
   return (
     <div className="w-64 bg-bg-main border-r border-white/5 h-screen fixed left-0 top-0 flex flex-col z-50 overflow-y-auto shrink-0">
@@ -7612,7 +7618,7 @@ const navigate = useNavigate();
 
   return (
     <div className="min-h-screen bg-bg-main flex">
-      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} onLogout={handleLogout} />
+      <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} user={user} unreadAnnouncements={unreadAnnouncements} onLogout={handleLogout} captainTableNumbers={captainTableNumbers} />
       <div className="flex-1 ml-64 flex flex-col min-h-screen overflow-hidden">
         <Header title={profileViewUser ? `${profileViewUser.name || 'Staff'} — Profile` : (TITLE_MAP[activeTab] || '')} onRefresh={handleRefresh} loading={refreshing} />
         <main className="flex-1 overflow-y-auto px-8 py-6">

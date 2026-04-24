@@ -33,7 +33,7 @@ const Hero = ({ navigate }) => {
   const slides = [
     { title: 'Biryani Box', subtitle: 'Feel Every Moment', desc: 'U are welcomed warmly,Enjoy our services', image: backgroundInterior, tag: 'we listen to food' },
     { title: 'Gulab Jamun', subtitle: 'Melt in Every Bite', desc: 'Soft, golden milk-solid dumplings soaked in rose-cardamom sugar syrup — the crown jewel of Indian desserts.', image: gulabJamun, tag: 'Must Try' },
-    { title: 'Mango Lassi', subtitle: 'Chilled & Refreshing', desc: 'Thick, creamy Alphonso mango blended with chilled yogurt and a hint of cardamom. Pure summer in a glass.', image: mangoLassi, tag: 'RefresherS' },
+    { title: 'Mango Lassi', subtitle: 'Chilled & Refreshing', desc: 'Thick, creamy Alphonso mango blended with chilled yogurt and a hint of cardamom. Pure summer in a glass.', image: mangoLassi, tag: 'Refreshers' },
     { title: 'Mutton Biryani', subtitle: 'Heritage on a Plate', desc: 'Slow-cooked tender mutton layered with saffron-infused basmati rice, caramelised onions and 24 whole spices.', image: muttonBiryaniNew, tag: 'Best Seller' },
     { title: 'Chicken Pakoda', subtitle: 'Crispy & Irresistible', desc: 'Juicy chicken pieces marinated in bold spices, coated in gram flour batter and fried to a perfect golden crunch.', image: chickenPakoda, tag: 'Rich&Spicy' },
   ];

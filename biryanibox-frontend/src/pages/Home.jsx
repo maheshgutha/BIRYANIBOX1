@@ -17,17 +17,16 @@ import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
 import heroBiryani from '../assets/hero-biryani.png';
-import chickenpakoda from '../assets/chicken-pakoda.png';
-import mangolassi from '../assets/mango-lassi.png';
 import muttonBiryani from '../assets/mutton-biryani.png';
-import gulabjamun from '../assets/gulabjamum.png';
+import chickenTikka from '../assets/chicken-tikka.png';
+import rasmalai from '../assets/rasmalai.png';
 import backgroundInterior from '../assets/background.png';
 
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 const Hero = ({ navigate }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const slides = [
-    { title: 'Gulab Jamun', subtitle: 'Street Flavor Redefined', desc: "Crispy artisan shells with sweet syrup, and delicious texture.", image: backgroundInterior, tag: 'Limited Offer' },
+    { title: 'Dahi Puri', subtitle: 'Street Flavor Redefined', desc: "Crispy artisan shells filled with spiced potatoes, tangy yogurt, and mother's secret chutneys.", image: backgroundInterior, tag: 'Limited Offer' },
     { title: 'Chicken Biryani', subtitle: 'The Royal Fragrance', desc: 'Saffron-infused long grain basmati rice layered with tender, marinated chicken and 24 traditional spices.', image: heroBiryani, tag: 'Best Seller' },
     { title: 'Mutton Nizam', subtitle: 'Heritage on a Plate', desc: 'A recipe passed down through generations of Nizams, slow-cooked to perfection in heavy copper pots.', image: muttonBiryani, tag: 'Premium Choice' },
   ];
@@ -113,9 +112,9 @@ const PopularItems = () => {
   const getImg = (item) => {
     if (item.image_url?.startsWith('http')) return item.image_url;
     if (item.category === 'Biryani') return heroBiryani;
-    if (item.category === 'Desserts' || item.category === 'Dessert') return gulabjamun;
+    if (item.category === 'Desserts' || item.category === 'Dessert') return rasmalai;
     if (item.category === 'Combos') return muttonBiryani;
-    return chickenpakoda;
+    return chickenTikka;
   };
 
   const handleAdd = (item) => {

@@ -7521,7 +7521,32 @@ const navigate = useNavigate();
     if (user.role === 'chef'    && !CHEF_OK.includes(status))    return;
     if (user.role === 'captain' && !CAPTAIN_OK.includes(status)) return;
     await ctxUpdateStatus(id, status);
-  }, [user.role, ctxUpdateStatus]);
+    // When captain/manager/owner dispatches a delivery order (moves to 'served'),
+    // also mark captain_dispatched=true on the Delivery document so the rider
+    // and customer live-tracking both advance past "Waiting for Dispatch".
+    if (status === 'served') {
+      const order = orders.find(o => (o._id || o.id) === id);
+      if (order && order.order_type === 'delivery') {
+        try {
+          // Find the delivery record for this order (assigned or pending)
+          const [assignedRes, pendingRes] = await Promise.allSettled([
+            deliveryAPI.getAll(`?status=assigned`),
+            deliveryAPI.getAll(`?status=pending`),
+          ]);
+          const allDeliveries = [
+            ...((assignedRes.status === 'fulfilled' ? assignedRes.value.data : null) || []),
+            ...((pendingRes.status === 'fulfilled' ? pendingRes.value.data : null) || []),
+          ];
+          const match = allDeliveries.find(d =>
+            String(d.order_id?._id || d.order_id) === String(id)
+          );
+          if (match) {
+            await deliveryAPI.dispatch(match._id);
+          }
+        } catch (e) { console.error('[dispatch delivery]', e.message); }
+      }
+    }
+  }, [user.role, ctxUpdateStatus, orders]);
 
   const isAdmin = ['owner', 'manager'].includes(user.role);
 

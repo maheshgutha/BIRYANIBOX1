@@ -181,11 +181,20 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
       .populate('chef_id', 'name')
       .sort({ created_at: -1 });
     if (!orders.length) return res.json({ success: true, data: null, all: [] });
+    // Batch-fetch delivery records for all delivery/pickup orders
+    const deliveryOrderIds = orders.filter(o => ['delivery','pickup','takeaway'].includes(o.order_type)).map(o => o._id);
+    const deliveries = deliveryOrderIds.length
+      ? await Delivery.find({ order_id: { $in: deliveryOrderIds } })
+          .select('order_id status captain_dispatched picked_up_at in_transit_at delivered_at dispatched_at driver_id')
+          .lean()
+      : [];
+    const deliveryByOrderId = {};
+    deliveries.forEach(d => { deliveryByOrderId[d.order_id.toString()] = d; });
     // Return first as 'data' for backward compat, plus full array as 'all'
     const all = [];
     for (const order of orders) {
       const items = await OrderItem.find({ order_id: order._id }).populate('menu_item_id', 'name');
-      all.push({ ...order.toObject(), items });
+      all.push({ ...order.toObject(), items, delivery: deliveryByOrderId[order._id.toString()] || null });
     }
     res.json({ success: true, data: all[0], all });
   } catch (err) { next(err); }

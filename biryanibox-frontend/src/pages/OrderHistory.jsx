@@ -61,7 +61,8 @@ const getDeliveryStep = (order, delivery) => {
   if (delivery?.status === 'delivered') return 4;
   if (delivery?.status === 'in_transit' || delivery?.status === 'picked_up') return 3;
   if (delivery?.captain_dispatched || delivery?.status === 'assigned') return 2;
-  if (order.status === 'completed_cooking' || order.status === 'served') return 1;
+  if (order.status === 'served') return 2; // captain dispatched = order becomes served
+  if (order.status === 'completed_cooking') return 1;
   if (order.status === 'start_cooking') return 1;
   return 0;
 };
@@ -87,18 +88,42 @@ const STATUS_BADGE = {
   cancelled:            { label: '❌ Cancelled',          color: 'bg-red-500/20 border-red-500/40 text-red-400' },
 };
 
+// Returns the right badge for the order (delivery/pickup dispatched orders show different label)
+const getStatusBadge = (order) => {
+  if (order.status === 'served' && ['delivery', 'pickup', 'takeaway'].includes(order.order_type)) {
+    return { label: '🚗 Dispatched — On the Way', color: 'bg-blue-500/20 border-blue-500/40 text-blue-300' };
+  }
+  return STATUS_BADGE[order.status] || { label: order.status, color: 'bg-white/10 border-white/20 text-white/50' };
+};
+
 /* ─── Live Order Card ──────────────────────────────────────────── */
 const LiveOrderCard = ({ order, onRefresh }) => {
   const isDelivery  = order.order_type === 'delivery';
+  const isPickup    = order.order_type === 'pickup' || order.order_type === 'takeaway';
   const delivery    = order.delivery || null;  // bundled by backend
   const isCancelled = order.status === 'cancelled';
-  const badge       = STATUS_BADGE[order.status] || { label: order.status, color: 'bg-white/10 border-white/20 text-white/50' };
+  const badge       = getStatusBadge(order);
 
-  // Use delivery-aware steps for delivery orders, standard steps for dine-in
-  const steps   = isDelivery ? DELIVERY_ORDER_STEPS : ORDER_STEPS;
+  // Pickup steps (no rider, no dispatch — just cooking → ready → collected)
+  const PICKUP_STEPS = [
+    { key: 'placed',    label: 'PLACED',    icon: Package  },
+    { key: 'preparing', label: 'PREPARING', icon: ChefHat  },
+    { key: 'ready',     label: 'READY',     icon: Utensils },
+    { key: 'collected', label: 'COLLECTED', icon: CheckCircle },
+  ];
+  const PICKUP_STATUS_TO_STEP = {
+    pending_confirmation: 0, pending: 0,
+    start_cooking: 1, completed_cooking: 2,
+    served: 3, paid: 3,
+  };
+
+  // Use delivery-aware steps for delivery orders, pickup steps for pickup, standard for dine-in
+  const steps   = isDelivery ? DELIVERY_ORDER_STEPS : isPickup ? PICKUP_STEPS : ORDER_STEPS;
   const stepIdx = isDelivery
     ? getDeliveryStep(order, delivery)
-    : (STATUS_TO_STEP[order.status] ?? 0);
+    : isPickup
+      ? (PICKUP_STATUS_TO_STEP[order.status] ?? 0)
+      : (STATUS_TO_STEP[order.status] ?? 0);
 
   return (
     <div className="bg-secondary/40 rounded-3xl border border-primary/20 overflow-hidden">
@@ -176,12 +201,21 @@ const LiveOrderCard = ({ order, onRefresh }) => {
         </div>
       </div>
 
-      {order.status === 'served' && (
+      {order.status === 'served' && order.order_type === 'dine-in' && (
         <div className="mx-6 mb-6 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 animate-pulse">
           <span className="text-xl">🍽️</span>
           <div>
             <p className="text-sm font-black text-amber-300">Your food has been served!</p>
             <p className="text-xs text-amber-400/70 mt-0.5">Please ask your captain for the bill to complete your order.</p>
+          </div>
+        </div>
+      )}
+      {order.status === 'served' && ['delivery', 'pickup', 'takeaway'].includes(order.order_type) && (
+        <div className="mx-6 mb-6 flex items-start gap-2 bg-blue-500/10 border border-blue-500/30 rounded-2xl px-4 py-3 animate-pulse">
+          <span className="text-xl">{order.order_type === 'delivery' ? '🚗' : '📦'}</span>
+          <div>
+            <p className="text-sm font-black text-blue-300">{order.order_type === 'delivery' ? 'Order dispatched — rider is on the way!' : 'Order ready for pickup!'}</p>
+            <p className="text-xs text-blue-400/70 mt-0.5">{order.order_type === 'delivery' ? 'Your rider has been dispatched and is heading to you.' : 'Please collect your order from the counter.'}</p>
           </div>
         </div>
       )}
@@ -975,7 +1009,15 @@ const OrderHistory = () => {
     try {
       const res = await ordersAPI.history(uid);
       const all = res.data || [];
-      setActiveOrders(all.filter(o => ['pending_confirmation', 'pending', 'start_cooking', 'completed_cooking', 'served'].includes(o.status)));
+      setActiveOrders(all.filter(o => {
+        // Standard active statuses for all order types
+        if (['pending_confirmation', 'pending', 'start_cooking', 'completed_cooking'].includes(o.status)) return true;
+        // For dine-in: served is still active (waiting for bill payment)
+        if (o.status === 'served' && o.order_type === 'dine-in') return true;
+        // For delivery/pickup: served means dispatched — still actively being delivered
+        if (o.status === 'served' && ['delivery', 'pickup', 'takeaway'].includes(o.order_type)) return true;
+        return false;
+      }));
       setHistoryOrders(all.filter(o => ['paid', 'cancelled', 'delivered'].includes(o.status)));
     } catch {}
     finally { if (!silent) setLoading(false); }

@@ -150,8 +150,8 @@ router.patch('/:id/dispatch', protect, authorize('captain', 'manager', 'owner'),
   try {
     const delivery = await Delivery.findById(req.params.id).populate('order_id', 'order_number');
     if (!delivery) return res.status(404).json({ success: false, message: 'Delivery not found' });
-    if (delivery.status !== 'assigned')
-      return res.status(400).json({ success: false, message: 'Delivery must be accepted by a rider before dispatch.' });
+    if (!['assigned', 'pending'].includes(delivery.status))
+      return res.status(400).json({ success: false, message: 'Delivery cannot be dispatched in its current state.' });
     delivery.captain_dispatched = true;
     delivery.dispatched_at = new Date();
     delivery.dispatched_by = req.user._id;
@@ -206,6 +206,23 @@ router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', '
       await Order.findByIdAndUpdate(delivery.order_id, { status: orderStatusMap[status] });
     }
     if (status === 'delivered') {
+      // Auto-advance the linked Order to 'paid' so customer tracking shows complete
+      try {
+        const linkedOrder = await Order.findById(delivery.order_id);
+        if (linkedOrder && ['served', 'completed_cooking'].includes(linkedOrder.status)) {
+          linkedOrder.status = 'paid';
+          linkedOrder.paid_at = new Date();
+          await linkedOrder.save();
+          // Notify customer
+          if (linkedOrder.customer_id) {
+            await Notification.create({
+              user_id: linkedOrder.customer_id, type: 'delivery',
+              title: '🏠 Order Delivered!',
+              message: `Your order #${linkedOrder.order_number || ''} has been delivered successfully. Enjoy your meal!`,
+            });
+          }
+        }
+      } catch (e) { console.error('[auto-paid]', e.message); }
       const managers = await User.find({ role: { $in: ['owner','manager'] }, is_active: true });
       await Notification.insertMany(managers.map(u => ({
         user_id: u._id, type: 'delivery', title: '✅ Delivery Completed',

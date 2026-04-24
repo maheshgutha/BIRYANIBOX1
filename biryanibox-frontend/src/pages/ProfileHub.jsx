@@ -72,8 +72,8 @@ const PICKUP_STEPS = [
 ];
 
 const DINEIN_STEP_IDX   = { pending:0, start_cooking:1, completed_cooking:2, served:3, paid:4 };
-const DELIVERY_STEP_IDX = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, in_transit:3, delivered:4, paid:5 };
-const PICKUP_STEP_IDX   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, paid:4 };
+const DELIVERY_STEP_IDX = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, in_transit:3, served:3, delivered:4, paid:5 };
+const PICKUP_STEP_IDX   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, served:3, paid:4 };
 
 function getStepsForOrder(order) {
   const ot = order?.order_type || 'dine-in';

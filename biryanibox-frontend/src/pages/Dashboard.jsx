@@ -73,7 +73,7 @@ const Sidebar = React.memo(({ activeTab, setActiveTab, user, unreadAnnouncements
     { id: 'leaves',        label: 'Leave Module',     icon: Briefcase,       roles: ['owner', 'manager', 'chef', 'captain'] },
     { id: 'shifts',        label: 'Shift Logs',       icon: UserCheck,       roles: ['owner', 'manager'] },
     { id: 'staffmgmt',     label: 'Staff Mgmt',       icon: Users,           roles: ['owner', 'manager'] },
-    { id: 'riders',        label: 'Riders Hub',       icon: Truck,           roles: ['owner', 'manager'] },
+    { id: 'riders',        label: 'Riders Hub',       icon: Truck,           roles: ['owner', 'manager', 'captain'] },
     { id: 'customers',     label: 'Customers',        icon: Users,           roles: ['owner'] },
     { id: 'finance',       label: 'Finance Center',   icon: DollarSign,      roles: ['owner', 'manager'] },
     { id: 'my_orders',     label: 'My Orders',        icon: ClipboardList,   roles: ['captain'] },
@@ -434,7 +434,8 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
   const TRANSITIONS = {
     pending:           'start_cooking',
     start_cooking:     'completed_cooking',
-    completed_cooking: 'served',
+    completed_cooking: 'dispatched',
+    dispatched:        'served',
     served:            'paid',
   };
 
@@ -443,7 +444,11 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     const next = TRANSITIONS[order.status];
     if (!next) return false;
     if (user.role === 'chef') return chefStatuses.includes(next);
-    if (user.role === 'captain') return captainStatuses.includes(next);
+    if (user.role === 'captain') {
+      // Delivery captain can dispatch (complete_cooking → dispatched); dine-in captains cannot
+      if (isDeliveryCaptain) return [...captainStatuses, 'dispatched'].includes(next);
+      return captainStatuses.includes(next);
+    }
     if (['manager', 'owner'].includes(user.role)) return managerStatuses.includes(next);
     return false;
   };
@@ -452,9 +457,10 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
   const getActionLabel = (order) => {
     const next = TRANSITIONS[order.status];
     if (!next) return '';
-    if (isDeliveryCaptain && next === 'served') return '🚗 Dispatch';
-    if (isDeliveryCaptain && next === 'paid')   return '✓ Collected';
-    const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', served: 'Serve', paid: 'Paid ✓' };
+    if (isDeliveryCaptain && next === 'dispatched') return '🚗 Dispatch';
+    if (isDeliveryCaptain && next === 'served')     return '✓ Serve';
+    if (isDeliveryCaptain && next === 'paid')       return '✓ Collected';
+    const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', dispatched: '🚗 Dispatch', served: 'Serve', paid: 'Paid ✓' };
     return labels[next] || next;
   };
 
@@ -552,7 +558,7 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                     {canAdvance(ord) && inZone && (
                       <button onClick={() => onStatusUpdate(id, TRANSITIONS[ord.status])}
                         className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${
-                          isDeliveryCaptain && TRANSITIONS[ord.status] === 'served'
+                          isDeliveryCaptain && TRANSITIONS[ord.status] === 'dispatched'
                             ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500 hover:text-white'
                             : 'bg-primary text-white hover:bg-primary-hover'
                         }`}>
@@ -5870,6 +5876,9 @@ const RidersPanel = ({ currentUserRole }) => {
   const [riderDelLoad, setRiderDelLoad] = useState(false);
   const [liveDeliveries, setLiveDeliveries] = useState([]);
   const [showMap,      setShowMap]     = useState(true);
+  // mapReady gates marker placement — prevents race condition where liveDeliveries
+  // arrives before Leaflet finishes initialising the map instance
+  const [mapReady,     setMapReady]    = useState(false);
   const mapRef = useRef(null);
   const leafletMap = useRef(null);
   const markersRef = useRef([]);
@@ -5881,85 +5890,105 @@ const RidersPanel = ({ currentUserRole }) => {
     try {
       const res = await deliveryAPI.getLiveLocations();
       setLiveDeliveries(res.data || []);
-    } catch {}
+    } catch (err) {
+      console.error('[RidersHub] live-locations error:', err.message);
+    }
   }, []);
 
-  // Init Leaflet map
+  // Init Leaflet map — window.L is guaranteed by index.html script tag
   useEffect(() => {
     if (!showMap || !mapRef.current || leafletMap.current) return;
-    const loadLeaflet = async () => {
-      if (!window.L) {
-        await new Promise((res, rej) => {
-          const link = document.createElement('link');
-          link.rel = 'stylesheet'; link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-          document.head.appendChild(link);
-          const s = document.createElement('script');
-          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
-          s.onload = res; s.onerror = rej;
-          document.head.appendChild(s);
-        });
+    if (!window.L) { console.error('[RidersHub] Leaflet not loaded'); return; }
+    const L = window.L;
+    leafletMap.current = L.map(mapRef.current, { zoomControl: true }).setView([17.3850, 78.4867], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(leafletMap.current);
+    // Ensure container dimensions are finalised before tiles render
+    requestAnimationFrame(() => {
+      if (leafletMap.current) {
+        leafletMap.current.invalidateSize();
+        setMapReady(true);
       }
-      const L = window.L;
-      if (!mapRef.current || leafletMap.current) return;
-      leafletMap.current = L.map(mapRef.current, { zoomControl: true }).setView([17.3850, 78.4867], 11);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-      }).addTo(leafletMap.current);
-    };
-    loadLeaflet().catch(() => {});
+    });
     return () => {
       if (leafletMap.current) { leafletMap.current.remove(); leafletMap.current = null; }
+      setMapReady(false);
     };
   }, [showMap]);
 
-  // Update markers whenever liveDeliveries changes
+  // Place / refresh markers — prefer stored GPS coords, fall back to geocoding
   useEffect(() => {
-    if (!leafletMap.current || !window.L) return;
+    if (!mapReady || !leafletMap.current || !window.L) return;
     const L = window.L;
-    // Remove old markers
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
-    // Geocode and place markers for each active delivery
-    liveDeliveries.forEach(async (d) => {
+    if (liveDeliveries.length === 0) return;
+
+    const statusColor = { in_transit: '#22c55e', picked_up: '#f97316', assigned: '#3b82f6' };
+    const statusEmoji = { in_transit: '🛵', picked_up: '📦', assigned: '⏳' };
+
+    const placeMarker = (lat, lon, d) => {
+      if (!leafletMap.current) return;
+      const color = statusColor[d.status] || '#3b82f6';
+      const emoji = statusEmoji[d.status] || '📦';
+      const icon = L.divIcon({
+        html: `<div style="background:${color};color:white;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)">${emoji}</div>`,
+        className: '', iconSize: [36, 36], iconAnchor: [18, 18],
+      });
+      const marker = L.marker([lat, lon], { icon })
+        .addTo(leafletMap.current)
+        .bindPopup(`<b>${d.driver_id?.name || 'Rider'}</b><br>Order #${d.order_id?.order_number || '—'}<br>${d.delivery_address || ''}<br><i>${d.status.replace(/_/g,' ')}</i>`);
+      markersRef.current.push(marker);
+    };
+
+    const geocodeAndPlace = async (d) => {
       const addr = d.delivery_address || '';
       if (!addr) return;
       try {
-        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addr)}&format=json&limit=1`);
-        const data = await r.json();
-        if (data[0] && leafletMap.current) {
-          const { lat, lon } = data[0];
-          const riderName = d.driver_id?.name || 'Rider';
-          const orderNum = d.order_id?.order_number || '—';
-          const statusEmoji = d.status === 'in_transit' ? '🛵' : d.status === 'picked_up' ? '📦' : '✅';
-          const icon = L.divIcon({
-            html: `<div style="background:${d.status==='in_transit'?'#22c55e':d.status==='picked_up'?'#f97316':'#3b82f6'};color:white;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)">${statusEmoji}</div>`,
-            className: '', iconSize: [36, 36], iconAnchor: [18, 18],
-          });
-          const marker = L.marker([parseFloat(lat), parseFloat(lon)], { icon })
-            .addTo(leafletMap.current)
-            .bindPopup(`<b>${riderName}</b><br>Order #${orderNum}<br>${addr}<br><i>${d.status.replace('_',' ')}</i>`);
-          markersRef.current.push(marker);
-        }
+        // Use backend proxy — browser cannot set User-Agent, Nominatim blocks localhost
+        const res = await deliveryAPI.geocode(addr);
+        const data = res.data || [];
+        if (data[0] && leafletMap.current) placeMarker(parseFloat(data[0].lat), parseFloat(data[0].lon), d);
       } catch {}
+    };
+
+    liveDeliveries.forEach(d => {
+      // Use stored GPS first (set by rider's location updates) — no geocoding needed
+      if (d.rider_lat && d.rider_lng) {
+        placeMarker(d.rider_lat, d.rider_lng, d);
+      } else {
+        geocodeAndPlace(d);
+      }
     });
-    // Auto-fit bounds
-    if (markersRef.current.length > 0 && leafletMap.current) {
-      const group = L.featureGroup(markersRef.current);
-      leafletMap.current.fitBounds(group.getBounds().pad(0.3));
-    }
-  }, [liveDeliveries]);
+
+    setTimeout(() => {
+      if (markersRef.current.length > 0 && leafletMap.current) {
+        try {
+          const group = L.featureGroup(markersRef.current);
+          if (group.getBounds().isValid()) leafletMap.current.fitBounds(group.getBounds().pad(0.3));
+        } catch {}
+      }
+    }, 1200);
+  }, [liveDeliveries, mapReady]);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    // Fetch riders and deliveries independently — one failure must not wipe the other
     try {
-      const [ridersRes, delRes] = await Promise.all([
-        usersAPI.getAll('?role=delivery'),
-        deliveryAPI.getAll(),
-      ]);
+      const ridersRes = await usersAPI.getAll('?role=delivery');
       setRiders(ridersRes.data || []);
+    } catch (err) {
+      console.error('[RidersHub] Failed to load riders:', err.message);
+    }
+    try {
+      const delRes = await deliveryAPI.getAll();
       setDeliveries(delRes.data || []);
-    } catch { }
-    finally { if (!silent) setLoading(false); }
+    } catch (err) {
+      console.error('[RidersHub] Failed to load deliveries:', err.message);
+    }
+    if (!silent) setLoading(false);
   }, []);
 
   useEffect(() => { load(); loadLive(); }, []);
@@ -6023,13 +6052,17 @@ const RidersPanel = ({ currentUserRole }) => {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-3xl font-black text-white flex items-center gap-3"><Truck size={28} className="text-primary" />Riders Hub</h2>
-          <p className="text-text-muted text-sm mt-1">Manage delivery riders, track live deliveries and performance</p>
+          <p className="text-text-muted text-sm mt-1">
+            {['owner', 'manager'].includes(currentUserRole)
+              ? 'Manage delivery riders, track live deliveries and performance'
+              : 'Dispatch orders to riders and track live deliveries'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
             <RefreshCw size={13} /> Refresh
           </button>
-          {currentUserRole === 'owner' && (
+          {['owner', 'manager'].includes(currentUserRole) && (
             <button onClick={() => setShowForm(s => !s)}
               className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
               <Plus size={14} /> Add Rider
@@ -6046,7 +6079,9 @@ const RidersPanel = ({ currentUserRole }) => {
           { label: 'Total Riders',   value: riders.length,           color: 'text-primary',    bg: 'bg-primary/10',    icon: Truck    },
           { label: 'Active Now',     value: activeDeliveries.length, color: 'text-green-400',  bg: 'bg-green-500/10',  icon: Activity },
           { label: 'Pending Orders', value: pendingDeliveries.length,color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: Package  },
-          { label: 'Total Paid Out', value: `$${totalEarnings}`,     color: 'text-blue-400',   bg: 'bg-blue-500/10',   icon: DollarSign },
+          ['owner', 'manager'].includes(currentUserRole)
+            ? { label: 'Total Paid Out',   value: `$${totalEarnings}`,                                                         color: 'text-blue-400',   bg: 'bg-blue-500/10',   icon: DollarSign }
+            : { label: 'Ready to Dispatch',value: deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).length, color: 'text-blue-400', bg: 'bg-blue-500/10', icon: Truck },
         ].map(({ label, value, color, bg, icon: Icon }) => (
           <div key={label} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 flex items-center gap-4">
             <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shrink-0`}><Icon size={18} className={color} /></div>
@@ -6107,8 +6142,8 @@ const RidersPanel = ({ currentUserRole }) => {
         </div>
       )}
 
-      {/* Add Rider form — Owner only */}
-      {currentUserRole === 'owner' && (
+      {/* Add Rider form — Owner & Manager only */}
+      {['owner', 'manager'].includes(currentUserRole) && (
         <AnimatePresence>
           {showForm && (
             <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
@@ -6253,17 +6288,19 @@ const RidersPanel = ({ currentUserRole }) => {
                       <p className="text-[9px] text-text-muted">deliveries</p>
                     </div>
 
-                    {/* Actions */}
+                    {/* Actions — view always visible; edit/delete only for owner & manager */}
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
                       <button onClick={() => openRiderDrawer(r)}
                         className="p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary hover:text-white transition-all" title="View profile">
                         <Eye size={13} />
                       </button>
-                      <button onClick={() => handleToggle(r)}
-                        className={`p-2 rounded-lg transition-all ${r.is_active ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500 hover:text-white' : 'bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white'}`}>
-                        {r.is_active ? <ToggleLeft size={13} /> : <ToggleRight size={13} />}
-                      </button>
-                      {currentUserRole === 'owner' && (
+                      {['owner', 'manager'].includes(currentUserRole) && (
+                        <button onClick={() => handleToggle(r)}
+                          className={`p-2 rounded-lg transition-all ${r.is_active ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500 hover:text-white' : 'bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white'}`}>
+                          {r.is_active ? <ToggleLeft size={13} /> : <ToggleRight size={13} />}
+                        </button>
+                      )}
+                      {['owner', 'manager'].includes(currentUserRole) && (
                         <button onClick={() => setDelConfirm(r)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all">
                           <Trash2 size={13} />
                         </button>
@@ -7514,38 +7551,38 @@ const navigate = useNavigate();
   }, [handleRefresh]);
 
   // Role-aware status update: chef can only do start_cooking / completed_cooking
-  // captain/manager/owner can do served / paid
+  // captain/manager/owner can do served / paid / dispatched
   const updateOrderStatus = useCallback(async (id, status) => {
     const CHEF_OK    = ['start_cooking', 'completed_cooking'];
-    const CAPTAIN_OK = ['served', 'paid', 'cancelled'];
+    const CAPTAIN_OK = ['dispatched', 'served', 'paid', 'cancelled'];
     if (user.role === 'chef'    && !CHEF_OK.includes(status))    return;
     if (user.role === 'captain' && !CAPTAIN_OK.includes(status)) return;
-    await ctxUpdateStatus(id, status);
-    // When captain/manager/owner dispatches a delivery order (moves to 'served'),
-    // also mark captain_dispatched=true on the Delivery document so the rider
-    // and customer live-tracking both advance past "Waiting for Dispatch".
-    if (status === 'served') {
-      const order = orders.find(o => (o._id || o.id) === id);
-      if (order && order.order_type === 'delivery') {
-        try {
-          // Find the delivery record for this order (assigned or pending)
-          const [assignedRes, pendingRes] = await Promise.allSettled([
-            deliveryAPI.getAll(`?status=assigned`),
-            deliveryAPI.getAll(`?status=pending`),
-          ]);
-          const allDeliveries = [
-            ...((assignedRes.status === 'fulfilled' ? assignedRes.value.data : null) || []),
-            ...((pendingRes.status === 'fulfilled' ? pendingRes.value.data : null) || []),
-          ];
-          const match = allDeliveries.find(d =>
-            String(d.order_id?._id || d.order_id) === String(id)
+
+    // When dispatching a delivery order, also call deliveryAPI.dispatch()
+    // on the linked delivery record so captain_dispatched=true and rider pickup unlocks
+    if (status === 'dispatched') {
+      try {
+        const orderObj = orders.find(o => o._id === id);
+        if (orderObj && ['delivery', 'pickup'].includes(orderObj.order_type)) {
+          // Find the delivery record for this order
+          const allDeliveries = await deliveryAPI.getAll();
+          const linked = (allDeliveries.data || []).find(
+            d => (d.order_id?._id || d.order_id) === id && d.status === 'assigned'
           );
-          if (match) {
-            await deliveryAPI.dispatch(match._id);
+          if (linked) {
+            await deliveryAPI.dispatch(linked._id);
+            // deliveryAPI.dispatch already updates order status to dispatched in backend
+            // so just refresh and skip ctxUpdateStatus to avoid double-update
+            await ctxUpdateStatus(id, status);
+            return;
           }
-        } catch (e) { console.error('[dispatch delivery]', e.message); }
+        }
+      } catch (err) {
+        console.error('Delivery dispatch error:', err.message);
       }
     }
+
+    await ctxUpdateStatus(id, status);
   }, [user.role, ctxUpdateStatus, orders]);
 
   const isAdmin = ['owner', 'manager'].includes(user.role);
@@ -7716,7 +7753,7 @@ const navigate = useNavigate();
             )}
 
             {/* RIDERS HUB */}
-            {activeTab === 'riders' && isAdmin && (
+            {activeTab === 'riders' && (isAdmin || user.role === 'captain') && (
               <MotionDiv key="riders" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <RidersPanel currentUserRole={user.role} />
               </MotionDiv>

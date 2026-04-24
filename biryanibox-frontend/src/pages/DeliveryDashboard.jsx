@@ -60,6 +60,7 @@ const STATUS_CONFIG = {
 };
 
 // ── Mini Map Component ────────────────────────────────────────────────────
+// window.L (Leaflet) is loaded via index.html — no dynamic injection needed
 const DeliveryMap = ({ address, label = 'Delivery Location', onDistanceCalc }) => {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -68,62 +69,41 @@ const DeliveryMap = ({ address, label = 'Delivery Location', onDistanceCalc }) =
 
   useEffect(() => {
     if (!address || !mapRef.current) return;
+    if (!window.L) { setError('Map library not loaded'); setLoading(false); return; }
     let cancelled = false;
 
     const init = async () => {
       setLoading(true); setError('');
       try {
-        // Load Leaflet CSS + JS if not already loaded
-        if (!window.L) {
-          await new Promise((res, rej) => {
-            // Inject CSS only once
-            if (!document.querySelector('#leaflet-css')) {
-              const link = document.createElement('link');
-              link.id = 'leaflet-css'; link.rel = 'stylesheet';
-              link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-              document.head.appendChild(link);
-            }
-            // If JS tag already exists, wait for it (another map may be loading it)
-            const existing = document.querySelector('#leaflet-js');
-            if (existing) {
-              if (window.L) { res(); return; }
-              existing.addEventListener('load', res);
-              existing.addEventListener('error', rej);
-              return;
-            }
-            // Inject JS and wait for it to fully load before resolving
-            const s = document.createElement('script');
-            s.id = 'leaflet-js';
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
-            s.onload = res; s.onerror = rej;
-            document.head.appendChild(s);
-          });
-        }
-        if (cancelled) return;
         const L = window.L;
 
-        // Geocode address
-        const geo = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`);
-        const geoData = await geo.json();
+        // Geocode via backend proxy — avoids Nominatim blocking localhost/browser requests
+        const geoRes = await deliveryAPI.geocode(address);
         if (cancelled) return;
 
-        if (!geoData[0]) { setError('Could not locate address on map'); setLoading(false); return; }
-        const { lat, lon } = geoData[0];
-        const latNum = parseFloat(lat); const lonNum = parseFloat(lon);
+        const geoData = geoRes.data || [];
+        if (!geoData[0]) {
+          setError('Address not found on map');
+          setLoading(false);
+          return;
+        }
+        const latNum = parseFloat(geoData[0].lat);
+        const lonNum = parseFloat(geoData[0].lon);
 
-        // Init map
+        // Destroy any existing map instance before creating a new one
         if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
-        if (!mapRef.current) return;
+        if (!mapRef.current || cancelled) return;
 
         mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([latNum, lonNum], 14);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors'
+          attribution: '© OpenStreetMap contributors',
+          maxZoom: 19,
         }).addTo(mapInstance.current);
         L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
-        // Force recalculate size in case map was hidden/toggled when initialised
-        setTimeout(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); }, 100);
+        // Recalculate tile layout after container dimensions settle
+        requestAnimationFrame(() => { if (mapInstance.current) mapInstance.current.invalidateSize(); });
 
-        // Destination marker (red pin)
+        // Destination pin
         const destIcon = L.divIcon({
           html: `<div style="background:#ef4444;color:white;border-radius:50% 50% 50% 0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;transform:rotate(-45deg);border:3px solid white;box-shadow:0 3px 10px rgba(0,0,0,0.5)"><span style="transform:rotate(45deg)">📍</span></div>`,
           className: '', iconSize: [32, 32], iconAnchor: [16, 32],
@@ -132,32 +112,26 @@ const DeliveryMap = ({ address, label = 'Delivery Location', onDistanceCalc }) =
           .addTo(mapInstance.current)
           .bindPopup(`<b>${label}</b><br>${address}`).openPopup();
 
-        // Try to get user's current position for distance
+        // Rider's current GPS position — distance calculation + route line
         if (navigator.geolocation && onDistanceCalc) {
           navigator.geolocation.getCurrentPosition((pos) => {
+            if (cancelled || !mapInstance.current) return;
             const userLat = pos.coords.latitude;
             const userLon = pos.coords.longitude;
-            const distKm = haversine(userLat, userLon, latNum, lonNum);
-            onDistanceCalc(distKm);
-
-            // Add user location marker
-            if (mapInstance.current) {
-              const userIcon = L.divIcon({
-                html: `<div style="background:#3b82f6;color:white;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)">🏍️</div>`,
-                className: '', iconSize: [24, 24], iconAnchor: [12, 12],
-              });
-              L.marker([userLat, userLon], { icon: userIcon })
-                .addTo(mapInstance.current)
-                .bindPopup('You (Rider)');
-              // Draw line
-              L.polyline([[userLat, userLon], [latNum, lonNum]], { color: '#f97316', weight: 3, dashArray: '8,6' })
-                .addTo(mapInstance.current);
-              mapInstance.current.fitBounds([[userLat, userLon], [latNum, lonNum]], { padding: [30, 30] });
-            }
-          }, () => {});
+            onDistanceCalc(haversine(userLat, userLon, latNum, lonNum));
+            const userIcon = L.divIcon({
+              html: `<div style="background:#3b82f6;color:white;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)">🏍️</div>`,
+              className: '', iconSize: [24, 24], iconAnchor: [12, 12],
+            });
+            L.marker([userLat, userLon], { icon: userIcon }).addTo(mapInstance.current).bindPopup('You (Rider)');
+            L.polyline([[userLat, userLon], [latNum, lonNum]], { color: '#f97316', weight: 3, dashArray: '8,6' }).addTo(mapInstance.current);
+            mapInstance.current.fitBounds([[userLat, userLon], [latNum, lonNum]], { padding: [30, 30] });
+          }, () => {}); // geolocation denied → skip rider marker, still show destination
         }
         setLoading(false);
-      } catch (e) { if (!cancelled) { setError('Map unavailable'); setLoading(false); } }
+      } catch (e) {
+        if (!cancelled) { setError('Map unavailable — ' + (e.message || 'check connection')); setLoading(false); }
+      }
     };
 
     init();

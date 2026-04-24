@@ -6,6 +6,28 @@ const User     = require('../models/User');
 const Notification = require('../models/Notification');
 const { protect, authorize } = require('../middleware/auth');
 
+// GET /api/deliveries/geocode?q=ADDRESS — server-side Nominatim proxy
+// Browser fetch cannot set User-Agent; server-side can, avoiding Nominatim blocks
+router.get('/geocode', protect, async (req, res, next) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(400).json({ success: false, message: 'Query required' });
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&addressdetails=0`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'BiryaniBox/1.0 (restaurant-delivery-management)',
+        'Accept-Language': 'en',
+        'Accept': 'application/json',
+      },
+    });
+    if (!response.ok) return res.json({ success: true, data: [] });
+    const data = await response.json();
+    res.json({ success: true, data });
+  } catch (err) {
+    res.json({ success: true, data: [] }); // return empty instead of 500
+  }
+});
+
 // GET /api/deliveries/available
 router.get('/available', protect, async (req, res, next) => {
   try {
@@ -70,7 +92,7 @@ router.get('/stats', protect, async (req, res, next) => {
 });
 
 // GET /api/deliveries/live-locations — for owner/manager live map
-router.get('/live-locations', protect, authorize('owner', 'manager'), async (req, res, next) => {
+router.get('/live-locations', protect, authorize('owner', 'manager', 'captain'), async (req, res, next) => {
   try {
     const active = await Delivery.find({ status: { $in: ['assigned', 'picked_up', 'in_transit'] } })
       .populate('order_id', 'order_number total delivery_address')
@@ -150,8 +172,8 @@ router.patch('/:id/dispatch', protect, authorize('captain', 'manager', 'owner'),
   try {
     const delivery = await Delivery.findById(req.params.id).populate('order_id', 'order_number');
     if (!delivery) return res.status(404).json({ success: false, message: 'Delivery not found' });
-    if (!['assigned', 'pending'].includes(delivery.status))
-      return res.status(400).json({ success: false, message: 'Delivery cannot be dispatched in its current state.' });
+    if (delivery.status !== 'assigned')
+      return res.status(400).json({ success: false, message: 'Delivery must be accepted by a rider before dispatch.' });
     delivery.captain_dispatched = true;
     delivery.dispatched_at = new Date();
     delivery.dispatched_by = req.user._id;
@@ -206,23 +228,6 @@ router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', '
       await Order.findByIdAndUpdate(delivery.order_id, { status: orderStatusMap[status] });
     }
     if (status === 'delivered') {
-      // Auto-advance the linked Order to 'paid' so customer tracking shows complete
-      try {
-        const linkedOrder = await Order.findById(delivery.order_id);
-        if (linkedOrder && ['served', 'completed_cooking'].includes(linkedOrder.status)) {
-          linkedOrder.status = 'paid';
-          linkedOrder.paid_at = new Date();
-          await linkedOrder.save();
-          // Notify customer
-          if (linkedOrder.customer_id) {
-            await Notification.create({
-              user_id: linkedOrder.customer_id, type: 'delivery',
-              title: '🏠 Order Delivered!',
-              message: `Your order #${linkedOrder.order_number || ''} has been delivered successfully. Enjoy your meal!`,
-            });
-          }
-        }
-      } catch (e) { console.error('[auto-paid]', e.message); }
       const managers = await User.find({ role: { $in: ['owner','manager'] }, is_active: true });
       await Notification.insertMany(managers.map(u => ({
         user_id: u._id, type: 'delivery', title: '✅ Delivery Completed',

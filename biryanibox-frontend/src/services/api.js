@@ -276,6 +276,7 @@ export const deliveryAPI = {
   skip:         (id)          => request(`/deliveries/${id}/skip`,     { method: 'POST',  body: '{}' }),
   reject:       (id)          => request(`/deliveries/${id}/skip`,     { method: 'POST',  body: '{}' }),
   dispatch:     (id)          => request(`/deliveries/${id}/dispatch`, { method: 'PATCH', body: '{}' }),
+  geocode:      (q)           => request(`/deliveries/geocode?q=${encodeURIComponent(q)}`),
   updateStatus: (id, status, location = '') =>
     request(`/deliveries/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, current_location: location }) }),
   assign: (id, driver_id) =>

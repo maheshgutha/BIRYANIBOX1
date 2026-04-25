@@ -27,12 +27,15 @@ const useAutoRefresh = (callback, intervalMs = 30000) => {
 
 
 const STATUS_STYLES = {
-  pending:           'bg-yellow-500/20 text-yellow-400',
-  start_cooking:     'bg-orange-500/20 text-orange-400',
-  completed_cooking: 'bg-blue-500/20 text-blue-400',
-  served:            'bg-green-500/20 text-green-400',
-  paid:              'bg-primary/20 text-primary',
-  cancelled:         'bg-red-500/20 text-red-400',
+  pending:              'bg-yellow-500/20 text-yellow-400',
+  pending_confirmation: 'bg-yellow-500/20 text-yellow-400',
+  start_cooking:        'bg-orange-500/20 text-orange-400',
+  completed_cooking:    'bg-blue-500/20 text-blue-400',
+  dispatched:           'bg-purple-500/20 text-purple-400',
+  served:               'bg-green-500/20 text-green-400',
+  delivered:            'bg-emerald-500/20 text-emerald-400',
+  paid:                 'bg-primary/20 text-primary',
+  cancelled:            'bg-red-500/20 text-red-400',
 };
 
 const TABS = [
@@ -407,6 +410,29 @@ const ProfileHub = () => {
   }, [liveOrders]);
   useAutoRefresh(loadLiveOrders, liveRefreshInterval);
 
+  // When live orders count drops (order completed/paid), auto-switch to History and load it
+  const prevLiveCount = React.useRef(null);
+  useEffect(() => {
+    const prev = prevLiveCount.current;
+    const curr = liveOrders.length;
+    // On first load set ref, don't switch tabs
+    if (prev === null) { prevLiveCount.current = curr; return; }
+    if (curr < prev && user) {
+      // An order just completed — pre-load history
+      ordersAPI.history(user.id || user._id)
+        .then(r => {
+          setOrders(r.data || []);
+          // If live list is now empty, auto-switch to history tab
+          if (curr === 0) {
+            setActiveTab('orders');
+            try { localStorage.setItem('bb_profile_tab', 'orders'); } catch {}
+          }
+        })
+        .catch(() => {});
+    }
+    prevLiveCount.current = curr;
+  }, [liveOrders.length, user]);
+
   const loadTab = useCallback(async (tab, silent = false) => {
     if (!user) return;
     try {
@@ -454,7 +480,7 @@ const ProfileHub = () => {
   const silentRefreshTab = useCallback(() => {
     if (activeTab !== 'live') loadTab(activeTab, true);
   }, [activeTab, loadTab]);
-  useAutoRefresh(silentRefreshTab, 30000);
+  useAutoRefresh(silentRefreshTab, 10000); // 10s refresh for order history
 
   const handleAddAddress = async (e) => {
     e.preventDefault();
@@ -631,10 +657,17 @@ const ProfileHub = () => {
                 <div className="text-center py-16 bg-secondary/40 border border-white/10 rounded-3xl">
                   <Package size={40} className="mx-auto mb-4 text-white/20" />
                   <p className="text-white/40 font-bold text-lg">No active orders</p>
-                  <p className="text-white/20 text-sm mt-2">Your in-progress orders will appear here.</p>
-                  <button onClick={() => navigate('/')} className="mt-5 px-6 py-3 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-full">
-                    Order Now
-                  </button>
+                  <p className="text-white/20 text-sm mt-2">Completed orders move to Order History.</p>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-5">
+                    <button onClick={() => { setActiveTab('orders'); loadTab('orders', false); }}
+                      className="px-6 py-3 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-full">
+                      📋 View Order History
+                    </button>
+                    <button onClick={() => navigate('/')}
+                      className="px-6 py-3 bg-white/10 border border-white/20 text-white/60 font-black text-xs uppercase tracking-widest rounded-full hover:bg-primary hover:text-white transition-all">
+                      Order Now
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-6">
@@ -666,16 +699,27 @@ const ProfileHub = () => {
               ) : (
                 <div className="space-y-4">
                   {orders.map(o => (
-                    <div key={o._id} className="bg-secondary/40 border border-white/10 rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap hover:border-primary/20 transition-all">
+                    <div key={o._id} className={`rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap transition-all border ${o.status === 'paid' ? 'bg-primary/5 border-primary/20 hover:border-primary/40' : o.status === 'cancelled' ? 'bg-red-500/5 border-red-500/10' : 'bg-secondary/40 border-white/10 hover:border-primary/20'}`}>
                       <div>
                         <p className="font-black text-primary">#{o.order_number}</p>
-                        <p className="text-sm text-white/50 mt-0.5">{new Date(o.created_at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-                        <p className="text-xs text-white/30 mt-1 capitalize">{o.order_type} · {(o.items || []).length} items</p>
+                        <p className="text-sm text-white/50 mt-0.5">{new Date(o.created_at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} · {new Date(o.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        <p className="text-xs text-white/30 mt-1 capitalize">{o.order_type} · {(o.items || []).length} item{(o.items || []).length !== 1 ? 's' : ''}</p>
+                        {(o.coupon_discount > 0 || o.gift_card_discount > 0) && (
+                          <p className="text-[10px] text-green-400 mt-1">
+                            {o.coupon_discount > 0 && `🎟 -$${o.coupon_discount.toFixed(2)} coupon `}
+                            {o.gift_card_discount > 0 && `🎁 -$${o.gift_card_discount.toFixed(2)} gift card`}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-4">
-                        <span className="text-xl font-black text-primary">${(o.total || 0).toFixed(2)}</span>
+                        <div className="text-right">
+                          <span className="text-xl font-black text-primary">${(o.total || 0).toFixed(2)}</span>
+                          {o.subtotal > 0 && o.subtotal !== o.total && (
+                            <p className="text-[10px] text-white/30 line-through">${o.subtotal.toFixed(2)}</p>
+                          )}
+                        </div>
                         <span className={'text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full ' + (STATUS_STYLES[o.status] || 'bg-white/10 text-white/40')}>
-                          {o.status}
+                          {o.status === 'start_cooking' ? 'Cooking' : o.status === 'completed_cooking' ? 'Ready' : o.status}
                         </span>
                       </div>
                     </div>

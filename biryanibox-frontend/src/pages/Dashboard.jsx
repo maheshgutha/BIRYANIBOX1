@@ -429,7 +429,8 @@ const ConfirmDialog = ({ open, title, message, confirmText = 'Confirm', cancelTe
 const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, statusColors, captainTableNumbers }) => {
   const chefStatuses     = ['start_cooking', 'completed_cooking'];
   const captainStatuses  = ['served', 'paid'];
-  const managerStatuses  = ['start_cooking', 'completed_cooking', 'dispatched', 'served', 'paid', 'cancelled'];
+  // Manager/owner cannot start or complete cooking — that's chef/captain only
+  const managerStatuses  = ['dispatched', 'served', 'paid', 'cancelled'];
 
   // Delivery captain = captain with no assigned tables
   const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);

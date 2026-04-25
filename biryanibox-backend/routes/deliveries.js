@@ -227,7 +227,11 @@ router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', '
       paid:       'paid',         // payment collected — order fully complete
     };
     if (orderStatusMap[status] && delivery.order_id) {
-      await Order.findByIdAndUpdate(delivery.order_id, { status: orderStatusMap[status] });
+      // Set updated_at explicitly so live-tracking 6-hour window works correctly
+      await Order.findByIdAndUpdate(delivery.order_id, {
+        status:     orderStatusMap[status],
+        updated_at: new Date(),
+      });
     }
     if (status === 'delivered') {
       // Notify owner, manager AND the delivery captain so they can collect payment

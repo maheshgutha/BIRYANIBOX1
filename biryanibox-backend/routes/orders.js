@@ -62,8 +62,8 @@ const getCaptainForTable = async (tableNumber) => {
 
 // ── Status permission rules ────────────────────────────────────────────────
 const STATUS_PERMISSIONS = {
-  start_cooking:     ['chef', 'captain', 'manager', 'owner'], // delivery captain can cook pickup orders
-  completed_cooking: ['chef', 'captain', 'manager', 'owner'], // delivery captain can mark pickup ready
+  start_cooking:     ['chef', 'captain'],          // only chef/captain can start cooking
+  completed_cooking: ['chef', 'captain'],          // only chef/captain can mark cooking done
   dispatched:        ['captain', 'manager', 'owner'],
   served:            ['captain', 'manager', 'owner'],
   paid:              ['captain', 'manager', 'owner', 'delivery'], // rider can mark paid
@@ -136,7 +136,9 @@ router.get('/history/:customerId', protect, async (req, res, next) => {
     if (req.user.role === 'customer' && req.user._id.toString() !== req.params.customerId) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
-    const orders = await Order.find({ customer_id: req.params.customerId }).sort({ created_at: -1 });
+    // Sort: paid/delivered orders first (most recently completed), then active orders by date
+    const orders = await Order.find({ customer_id: req.params.customerId })
+      .sort({ updated_at: -1, created_at: -1 });
 
     // Batch-fetch delivery records for all delivery orders in one query
     const deliveryOrderIds = orders.filter(o => o.order_type === 'delivery').map(o => o._id);
@@ -178,15 +180,10 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
     // Include 'delivered' and 'paid' so the customer sees the final completed step
-    // on the live tracker instead of the order just vanishing.
-    // We still exclude 'cancelled' and truly-old paid orders (>2h) to keep the list clean.
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    // Only show truly active orders — paid/delivered/cancelled go to Order History
     const orders = await Order.find({
       customer_id: req.params.customerId,
-      $or: [
-        { status: { $nin: ['paid', 'cancelled', 'delivered'] } },
-        { status: { $in: ['delivered', 'paid'] }, updated_at: { $gte: twoHoursAgo } },
-      ],
+      status: { $nin: ['paid', 'cancelled', 'delivered'] },
     })
       .populate('captain_id', 'name')
       .populate('chef_id', 'name')

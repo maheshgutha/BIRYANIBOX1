@@ -220,7 +220,7 @@ const StatCard = ({ icon: Icon, label, value, color = 'text-orange-400', bg = 'b
 );
 
 // ── Delivery Card ──────────────────────────────────────────────────────────
-const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, onRefresh, actLoading }) => {
+const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onPaid, onRefresh, actLoading }) => {
   const order = delivery.order_id || {};
   const cfg = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
   const canAccept  = delivery.status === 'pending';
@@ -346,6 +346,33 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
             </div>
           )}
         </div>
+
+        {/* ── Payment Status Banner — shown as soon as rider accepts ── */}
+        {['assigned','picked_up','in_transit','delivered'].includes(delivery.status) && (() => {
+          const pm = delivery.order_id?.payment_method;
+          const orderTotal = delivery.order_id?.total || 0;
+          const isPrepaid = pm && pm !== 'cash';
+          if (!pm) return null;
+          return (
+            <div className={`flex items-start gap-3 rounded-xl px-4 py-3 border ${
+              isPrepaid
+                ? 'bg-green-500/10 border-green-500/30'
+                : 'bg-yellow-500/10 border-yellow-500/40'
+            }`}>
+              <span className="text-xl leading-none flex-shrink-0">{isPrepaid ? '✅' : '💵'}</span>
+              <div>
+                <p className={`text-xs font-black uppercase tracking-widest ${isPrepaid ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {isPrepaid ? 'Prepaid Order' : 'Cash on Delivery'}
+                </p>
+                <p className={`text-[10px] mt-0.5 ${isPrepaid ? 'text-green-400/70' : 'text-yellow-400/80'}`}>
+                  {isPrepaid
+                    ? `Payment done via ${pm.toUpperCase()} — no cash collection needed.`
+                    : `Collect ₹${orderTotal.toFixed(2)} cash from customer on delivery.`}
+                </p>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Items */}
         {order.items?.length > 0 && (
@@ -474,25 +501,38 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
           </button>
         )}
         {canDeliver && (
-          <>
-            <button onClick={() => onDeliver(delivery._id)} disabled={actLoading}
-              className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white text-xs font-black py-3 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-green-500/30">
-              <CheckCircle size={14} /> 🏠 Mark Delivered!
-            </button>
-            <button onClick={() => onFail(delivery._id)} disabled={actLoading}
-              className="px-4 py-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-black rounded-xl hover:bg-red-500 hover:text-white transition-all">
-              Failed
-            </button>
-          </>
+          <button onClick={() => onDeliver(delivery._id)} disabled={actLoading}
+            className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white text-xs font-black py-3 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-green-500/30">
+            <CheckCircle size={14} /> 🏠 Mark Delivered!
+          </button>
         )}
-        {/* Delivered — captain will be notified to collect payment */}
+        {/* After delivery: show payment collection + paid button */}
         {delivery.status === 'delivered' && (
-          <div className="w-full flex items-center gap-3 bg-green-500/10 border border-green-500/40 rounded-xl px-4 py-3">
-            <div className="text-2xl">✅</div>
-            <div>
-              <p className="text-green-400 font-black text-sm">Order Delivered!</p>
-              <p className="text-green-400/60 text-[10px]">Captain has been notified to collect payment.</p>
-            </div>
+          <div className="w-full space-y-3">
+            {(() => {
+              const pm = delivery.order_id?.payment_method;
+              const orderTotal = delivery.order_id?.total || 0;
+              const isPrepaid = pm && pm !== 'cash';
+              return (
+                <div className={`flex items-start gap-3 rounded-xl px-4 py-3 border ${isPrepaid ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/40'}`}>
+                  <span className="text-2xl leading-none flex-shrink-0">{isPrepaid ? '✅' : '💰'}</span>
+                  <div>
+                    <p className={`font-black text-sm ${isPrepaid ? 'text-green-400' : 'text-yellow-400'}`}>
+                      {isPrepaid ? 'Order Delivered — Prepaid!' : 'Order Delivered — Collect Payment!'}
+                    </p>
+                    <p className={`text-[10px] mt-0.5 ${isPrepaid ? 'text-green-400/70' : 'text-yellow-400/70'}`}>
+                      {isPrepaid
+                        ? `Payment was via ${(pm || '').toUpperCase()} — no cash needed. Tap Paid to complete.`
+                        : `Please collect ₹${orderTotal.toFixed(2)} cash from the customer, then tap Paid.`}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+            <button onClick={() => onPaid(delivery._id)} disabled={actLoading}
+              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-600 hover:to-amber-600 text-black text-xs font-black py-3.5 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-yellow-500/30">
+              <DollarSign size={14} /> 💰 Payment Collected — Mark as Paid
+            </button>
           </div>
         )}
       </div>
@@ -575,7 +615,7 @@ export default function DeliveryDashboard() {
       // - 'paid' / 'failed' / 'cancelled' → clear active, auto-navigate to done tab
       if (active.status === 'fulfilled') {
         const activeData = active.value.data;
-        if (activeData && ['delivered', 'paid', 'failed', 'cancelled'].includes(activeData.status)) {
+        if (activeData && ['paid', 'failed', 'cancelled'].includes(activeData.status)) {
           setMyActive(null);
           // Auto-switch to history so rider sees completed order without manual tab switch
           setTabState(t => (t === 'active' ? 'done' : t));
@@ -657,22 +697,22 @@ export default function DeliveryDashboard() {
     setActLoading(true);
     try {
       await deliveryAPI.updateStatus(id, 'delivered');
-      showFlash('🎉 Delivered! Now collect payment and tap "Mark as Paid".', 'success');
+      showFlash('🎉 Delivered! Now collect payment from the customer and tap "Mark as Paid".', 'success');
       await loadAll();
-      setTab('active'); // Stay on active tab so rider can see and click the Paid button
+      setTab('active'); // Stay on active tab so rider can see the Paid button
     } catch (e) { showFlash(e.message || 'Failed', 'error'); }
     finally { setActLoading(false); }
   };
 
   // Rider marks the order as paid (collection done after delivery)
-
-  const handleFail = async (id) => {
+  const handlePaid = async (id) => {
     setActLoading(true);
     try {
-      await deliveryAPI.updateStatus(id, 'failed');
-      showFlash('Delivery marked as failed.', 'error');
+      await deliveryAPI.updateStatus(id, 'paid');
+      showFlash('💰 Payment collected! Order complete. Great job!', 'success');
       await loadAll();
-    } catch (e) { showFlash(e.message || 'Failed', 'error'); }
+      setTab('done');
+    } catch (e) { showFlash(e.message || 'Failed to mark as paid', 'error'); }
     finally { setActLoading(false); }
   };
 
@@ -790,7 +830,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : available.map(d => (
                 <DeliveryCard key={d._id} delivery={d} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onPaid={handlePaid} onRefresh={refresh} actLoading={actLoading} />
               ))}
             </AnimatePresence>
           )}
@@ -809,7 +849,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : (
                 <DeliveryCard key={myActive._id} delivery={myActive} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onPaid={handlePaid} onRefresh={refresh} actLoading={actLoading} />
               )}
             </AnimatePresence>
           )}

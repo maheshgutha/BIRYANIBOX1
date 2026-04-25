@@ -167,6 +167,37 @@ router.patch('/:id', protect, async (req, res, next) => {
     const prev = await Reservation.findById(req.params.id);
     const item = await Reservation.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!item) return res.status(404).json({ success: false, message: 'Reservation not found' });
+    // Send completion greeting email
+    if (req.body.status === 'completed' && prev?.status !== 'completed' && item.email) {
+      await sendEmail({
+        to: item.email,
+        subject: '🎉 Thank You for Dining with Us — Biryani Box',
+        html: `
+          <div style="font-family:sans-serif;max-width:520px;margin:auto;background:#111;padding:36px;border-radius:20px;color:#fff;">
+            <h1 style="color:#f97316;margin-bottom:4px;">Biryani Box 🍛</h1>
+            <p style="color:#888;font-size:13px;margin-bottom:28px;">Your Visit is Complete</p>
+            <h2 style="font-size:22px;">Dear ${item.customer_name},</h2>
+            <p style="color:#ccc;margin:12px 0 20px;">It was a pleasure having you with us today! We hope you enjoyed your dining experience and that every bite was memorable.</p>
+            <div style="background:#1a1a1a;border-radius:14px;padding:20px;margin:20px 0;">
+              <table style="width:100%;font-size:14px;">
+                <tr><td style="color:#888;padding:6px 0;">Date</td><td style="text-align:right;color:#fff;">${item.date ? new Date(item.date).toLocaleDateString('en-US',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '—'}</td></tr>
+                <tr><td style="color:#888;padding:6px 0;">Time</td><td style="text-align:right;color:#fff;">${item.time || '—'}</td></tr>
+                <tr><td style="color:#888;padding:6px 0;">Guests</td><td style="text-align:right;color:#fff;">${item.guests || '—'}</td></tr>
+                ${item.table_assigned ? `<tr><td style="color:#888;padding:6px 0;">Table</td><td style="text-align:right;color:#f97316;">${item.table_assigned}</td></tr>` : ''}
+                <tr><td style="color:#888;padding:6px 0;">Status</td><td style="text-align:right;color:#10b981;font-weight:bold;">✅ Completed</td></tr>
+              </table>
+            </div>
+            <div style="background:#0a1f0a;border-left:3px solid #10b981;border-radius:8px;padding:16px;margin:20px 0;">
+              <p style="color:#10b981;font-weight:bold;margin:0 0 8px;">We'd love to see you again!</p>
+              <p style="color:#ccc;margin:0;font-size:14px;">Your satisfaction is our greatest reward. We look forward to welcoming you back soon for another unforgettable experience.</p>
+            </div>
+            <p style="color:#666;font-size:12px;margin-top:20px;">Thank you for choosing Biryani Box. See you next time! 🙏</p>
+            <p style="color:#444;margin-top:16px;">Warm regards,<br/><strong style="color:#f97316;">The Biryani Box Team</strong></p>
+          </div>
+        `,
+      });
+    }
+
     if (req.body.status === 'cancelled' && prev?.status !== 'cancelled' && item.email) {
       const cancelReason = req.body.cancellation_reason || req.body.cancel_reason || '';
       await sendEmail({

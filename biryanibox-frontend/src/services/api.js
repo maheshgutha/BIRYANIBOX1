@@ -326,6 +326,8 @@ export const normalizeOrder = (order) => ({
   captain_id:                order.captain_id,
   chef:                      order.chef_id?.name || order.chef_id || '',
   chef_id:                   order.chef_id,
+  // Track who served/dispatched — set on 'served' (dine-in) and 'dispatched' (pickup/delivery)
+  served_by:                 order.served_by || null,
   customerName:              order.customer_id?.name || 'Walk-in Guest',
   status:                    order.status,
   spiceness:                 order.spiceness || 'medium',
@@ -344,6 +346,8 @@ export const normalizeOrder = (order) => ({
   delivery_notes:            order.delivery_notes   || '',
   knock_bell:                order.knock_bell,
   pickup_extra_items:        order.pickup_extra_items || '',
+  // Delivery record (attached by orders list route for delivery/pickup/takeaway orders)
+  delivery:                  order.delivery || null,
   isNew:                     false,
 });
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/useContextHooks';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Phone, Lock, ChevronRight, UserPlus, LogIn, KeyRound, RefreshCw, Eye, EyeOff, Clock } from 'lucide-react';
 import { authAPI } from '../services/api';
 
@@ -13,6 +13,8 @@ const inputCls = "w-full bg-white/5 border border-white/10 rounded-2xl py-3.5 te
 const CustomerAuth = () => {
   const { login } = useAuth();
   const navigate  = useNavigate();
+  const location  = useLocation();
+  const fromPath  = location.state?.from || '/';
   const [mode,     setMode]     = useState('login'); // 'login' | 'register' | 'otp' | 'forgot'
   // Forgot-password OTP state
   const [fpOtpSent, setFpOtpSent] = useState(false);
@@ -57,7 +59,7 @@ const CustomerAuth = () => {
     if (!password.trim()) { setError('Password is required'); return; }
     setError('');
     const result = await login(email, password);
-    if (result.success) navigate('/');
+    if (result.success) navigate(fromPath, { replace: true });
     else setError(result.error || 'Invalid credentials');
   };
 
@@ -89,7 +91,7 @@ const CustomerAuth = () => {
       const res = await authAPI.verifyOTP({ email, otp, name: fullName, phone, password });
       if (res.success && res.token) {
         localStorage.setItem('bb_token', res.token);
-        navigate('/');
+        navigate(fromPath, { replace: true });
       }
     } catch (err) { setError(err.message || 'Invalid or expired OTP'); }
     finally { setBusy(false); }
@@ -200,7 +202,7 @@ const CustomerAuth = () => {
                     placeholder="Your password" autoComplete="current-password"
                     className={`${inputCls} pl-11 pr-12`} />
                   <button type="button" onClick={() => setShowPass(p => !p)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors">
                     {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
@@ -328,7 +330,7 @@ const CustomerAuth = () => {
                   <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                     placeholder="Create a password" autoComplete="new-password" className={`${inputCls} pl-11 pr-12`} />
                   <button type="button" onClick={() => setShowPass(p => !p)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors">
                     {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>

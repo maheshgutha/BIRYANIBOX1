@@ -13,9 +13,13 @@ const transporter = nodemailer.createTransport({
 
 const normaliseCategory = (cat) => {
   if (!cat) return 'general';
-  if (cat === 'ambiance') return 'ambience';
-  const allowed = ['food', 'service', 'ambience', 'delivery', 'general'];
-  return allowed.includes(cat) ? cat : 'general';
+  const lower = cat.toLowerCase().trim();
+  if (lower === 'food quality' || lower === 'food') return 'food';
+  if (lower === 'service') return 'service';
+  if (lower === 'ambience' || lower === 'ambiance') return 'ambience';
+  if (lower === 'delivery') return 'delivery';
+  if (lower === 'general') return 'general';
+  return 'general';
 };
 
 // ── Role-aware view: attach _role_* virtual fields based on caller's role ─────

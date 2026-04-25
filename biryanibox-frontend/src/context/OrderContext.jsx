@@ -172,8 +172,23 @@ export const OrderProvider = ({ children }) => {
 
   const updateOrderStatus = async (orderId, status) => {
     try {
-      await ordersAPI.updateStatus(orderId, status);
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status, isNew: false } : o));
+      const res = await ordersAPI.updateStatus(orderId, status);
+      // Use the full API response to update state — this carries served_by, delivery, etc.
+      const updated = res?.data ? normalizeOrder(res.data) : null;
+      setOrders(prev => prev.map(o => {
+        if (o.id !== orderId) return o;
+        if (updated) {
+          // Merge: keep existing items/delivery (backend response may not have them)
+          return {
+            ...o,
+            ...updated,
+            items:    updated.items?.length ? updated.items : o.items,
+            delivery: updated.delivery || o.delivery,
+            isNew:    false,
+          };
+        }
+        return { ...o, status, isNew: false };
+      }));
     } catch (err) { console.error('updateOrderStatus error:', err.message); }
   };
 

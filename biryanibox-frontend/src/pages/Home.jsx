@@ -10,7 +10,7 @@ import {
   MessageSquare, ThumbsUp, Send,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useOrders } from '../context/useContextHooks';
+import { useOrders, useAuth } from '../context/useContextHooks';
 import { feedbackAPI, announcementsAPI } from '../services/api';
 import { useCart } from '../context/useContextHooks';
 import Navbar from '../components/Navbar';
@@ -28,7 +28,7 @@ import muttonBiryaniNew from '../assets/muttonbiryani.png';
 import chickenPakoda from '../assets/chickenpakoda.png';
 // import backgroundInterior from '../assets/background.png';
 // ─── Hero ─────────────────────────────────────────────────────────────────────
-const Hero = ({ navigate }) => {
+const Hero = ({ navigate, user }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const slides = [
     { title: 'Biryani Box', subtitle: 'Feel Every Moment', desc: 'U are welcomed warmly,Enjoy our services', image: backgroundInterior, tag: 'we listen to food' },
@@ -62,7 +62,7 @@ const Hero = ({ navigate }) => {
           <p className="text-lg text-text-muted leading-relaxed mb-10 max-w-lg">{slides[currentSlide].desc}</p>
           <div className="flex flex-wrap gap-4">
             <button onClick={() => document.getElementById('menu').scrollIntoView({ behavior: 'smooth' })} className="px-12 py-6 bg-primary text-white font-black uppercase tracking-widest text-xs rounded-full hover:bg-primary-hover transition-all shadow-3xl shadow-primary/20">Order Online</button>
-            <button onClick={() => navigate('/profile?tab=rewards')} className="px-12 py-6 bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-xs rounded-full hover:bg-white/10 transition-all">View Rewards</button>
+            <button onClick={() => { if (user) navigate('/profile?tab=rewards'); else navigate('/auth', { state: { from: '/profile?tab=rewards' } }); }} className="px-12 py-6 bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-xs rounded-full hover:bg-white/10 transition-all">View Rewards</button>
           </div>
         </MotionDiv>
         <MotionDiv key={`img-${currentSlide}`} initial={{ opacity: 0, scale: 0.8, rotate: -10 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 1, type: 'spring' }} className="hidden lg:block relative">
@@ -848,12 +848,13 @@ const Contact = () => {
 // ─── Home (Main page assembly) ────────────────────────────────────────────────
 const Home = () => {
   const { cart } = useCart();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   return (
     <div className="bg-bg-main">
       <Navbar />
-      <Hero navigate={navigate} />
+      <Hero navigate={navigate} user={user} />
       <RestaurantVideo />
       <PopularItems />
       <AllItemsList />

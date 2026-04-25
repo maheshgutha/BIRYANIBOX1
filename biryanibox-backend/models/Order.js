@@ -5,6 +5,8 @@ const OrderSchema = new mongoose.Schema({
   customer_id:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   captain_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   chef_id:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  // Person who served (dine-in) / dispatched (pickup) / dispatched (delivery)
+  served_by:      { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   station_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'KitchenStation' },
   table_number:   { type: String, maxlength: 10 },
 

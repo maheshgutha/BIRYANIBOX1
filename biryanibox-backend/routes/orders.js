@@ -306,6 +306,7 @@ router.get('/', protect, async (req, res, next) => {
       .populate('customer_id', 'name email phone')
       .populate('captain_id', 'name')
       .populate('chef_id', 'name')
+      .populate('served_by', 'name')
       .sort({ created_at: -1 });
     const orderIds = orders.map(o => o._id);
     const allItems = await OrderItem.find({ order_id: { $in: orderIds } })
@@ -316,11 +317,15 @@ router.get('/', protect, async (req, res, next) => {
       if (!itemsByOrder[key]) itemsByOrder[key] = [];
       itemsByOrder[key].push({ _id: item._id, menu_item_id: item.menu_item_id?._id || item.menu_item_id, name: item.name || item.menu_item_id?.name || 'Unknown Item', category: item.menu_item_id?.category || '', image_url: item.menu_item_id?.image_url || '', quantity: item.quantity, unit_price: item.unit_price, price: item.unit_price });
     });
-    // For delivery orders include delivery record so dashboard can gate dispatch button
-    const deliveryOrderIds = orders.filter(o => o.order_type === 'delivery').map(o => o._id);
+    // Include delivery record for delivery AND pickup orders (for captain name + dispatch gating)
+    const deliveryOrderIds = orders
+      .filter(o => ['delivery','pickup','takeaway'].includes(o.order_type))
+      .map(o => o._id);
     const deliveryRecords = deliveryOrderIds.length
       ? await Delivery.find({ order_id: { $in: deliveryOrderIds } })
-          .select('order_id status driver_id captain_dispatched rider_lat rider_lng')
+          .select('order_id status driver_id captain_dispatched rider_lat rider_lng dispatched_by')
+          .populate('dispatched_by', 'name')   // captain who dispatched — for SERVED BY column
+          .populate('driver_id', 'name')
           .lean()
       : [];
     const deliveryByOrder = {};
@@ -329,7 +334,9 @@ router.get('/', protect, async (req, res, next) => {
     const data = orders.map(o => ({
       ...o.toObject(),
       items:    itemsByOrder[o._id.toString()] || [],
-      delivery: o.order_type === 'delivery' ? (deliveryByOrder[o._id.toString()] || null) : null,
+      delivery: ['delivery','pickup','takeaway'].includes(o.order_type)
+        ? (deliveryByOrder[o._id.toString()] || null)
+        : null,
     }));
     res.json({ success: true, count: data.length, data });
   } catch (err) { next(err); }
@@ -735,11 +742,18 @@ router.patch('/:id/status', protect, async (req, res, next) => {
     }
     if (status === 'served' && ['captain','manager','owner'].includes(userRole)) {
       updateData.captain_id = req.user._id;
+      updateData.served_by  = req.user._id; // track who served for dine-in
+    }
+
+    // Track who dispatched for pickup and delivery orders
+    if (status === 'dispatched' && ['captain','manager','owner'].includes(userRole)) {
+      updateData.served_by = req.user._id;
     }
 
     const updated = await Order.findByIdAndUpdate(req.params.id, updateData, { new: true })
       .populate('captain_id', 'name')
-      .populate('chef_id', 'name');
+      .populate('chef_id', 'name')
+      .populate('served_by', 'name');
 
     // ── Loyalty points on paid ─────────────────────────────────────────────
     if (status === 'paid' && updated.customer_id) {

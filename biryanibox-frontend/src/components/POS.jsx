@@ -116,8 +116,54 @@ const POS = ({ user, onBack }) => {
   const isDeliveryOrder = orderMode === 'delivery';
   const isPickupOrder   = orderMode === 'pickup';
   const RATE_PER_MILE   = 3;
-  const dist            = parseFloat(distanceMiles) || 0;
-  const deliveryFee     = isDeliveryOrder && dist > 0 ? Math.round(dist * RATE_PER_MILE) : 0;
+
+  // Restaurant coordinates — update these to your actual restaurant location
+  const RESTAURANT_LAT = 16.5062;  // Vijayawada default — update to actual restaurant lat
+  const RESTAURANT_LNG = 80.6480;  // Vijayawada default — update to actual restaurant lng
+
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [geoError,   setGeoError]   = useState('');
+
+  const dist        = parseFloat(distanceMiles) || 0;
+  const deliveryFee = isDeliveryOrder && dist > 0 ? Math.round(dist * RATE_PER_MILE) : 0;
+
+  // Haversine distance (km) between two lat/lng points
+  const haversineKm = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  };
+
+  // Auto-calculate distance when delivery address is typed (debounced)
+  const geocodeTimer = React.useRef(null);
+  const autoCalcDistance = React.useCallback((address) => {
+    if (!address || address.trim().length < 10) { setGeoError(''); return; }
+    clearTimeout(geocodeTimer.current);
+    geocodeTimer.current = setTimeout(async () => {
+      setGeoLoading(true); setGeoError('');
+      try {
+        const encoded = encodeURIComponent(address.trim());
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`,
+          { headers: { 'Accept-Language': 'en', 'User-Agent': 'BiryaniBoxPOS/1.0' } }
+        );
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const { lat, lon } = data[0];
+          const km = haversineKm(RESTAURANT_LAT, RESTAURANT_LNG, parseFloat(lat), parseFloat(lon));
+          const miles = km * 0.621371;
+          setDistanceMiles(miles.toFixed(2));
+          setGeoError('');
+        } else {
+          setGeoError('Address not found — enter distance manually.');
+        }
+      } catch {
+        setGeoError('Could not auto-calculate distance — enter manually.');
+      } finally { setGeoLoading(false); }
+    }, 900); // 900ms debounce
+  }, [RESTAURANT_LAT, RESTAURANT_LNG]);
 
   // Load available tables from API
   const loadTables = async () => {
@@ -210,7 +256,7 @@ const POS = ({ user, onBack }) => {
       if (!deliveryAddress.trim()) { setDeliveryError('Delivery address is required.'); return; }
       if (!customerPhone.trim()) { setDeliveryError('Phone number is required for delivery.'); return; }
       const d = parseFloat(distanceMiles);
-      if (!distanceMiles || isNaN(d) || d <= 0) { setDeliveryError('Please enter the delivery distance in miles.'); return; }
+      if (!geoLoading && (!distanceMiles || isNaN(d) || d <= 0)) { setDeliveryError('Please enter the delivery distance in miles (or wait for auto-calculation).'); return; }
       if (d > 6) { setDeliveryError(`We only deliver within 6 miles. Entered distance (${d} mi) exceeds limit.`); return; }
     }
 
@@ -573,7 +619,7 @@ const POS = ({ user, onBack }) => {
                     </label>
                     <textarea
                       value={deliveryAddress}
-                      onChange={e => { setDeliveryAddress(e.target.value); setDeliveryError(''); }}
+                      onChange={e => { setDeliveryAddress(e.target.value); setDeliveryError(''); autoCalcDistance(e.target.value); }}
                       placeholder="House No., Street, Area, Landmark, City…"
                       rows={2}
                       className={`w-full bg-bg-main border p-3 rounded-xl text-sm text-white placeholder:text-white/20 focus:outline-none resize-none transition-colors ${!deliveryAddress && deliveryError ? 'border-red-500/60 bg-red-500/5' : 'border-white/10 focus:border-blue-400'}`}
@@ -595,16 +641,19 @@ const POS = ({ user, onBack }) => {
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">
+                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block flex items-center gap-1.5">
                         Distance (miles) <span className="text-red-400">*</span>
+                        {geoLoading && <span className="text-blue-400 text-[9px] animate-pulse">📍 Calculating…</span>}
+                        {!geoLoading && dist > 0 && !geoError && <span className="text-green-400 text-[9px]">📍 Auto-calculated</span>}
                       </label>
                       <input
                         type="number" min="0.1" max="6" step="0.1"
                         value={distanceMiles}
-                        onChange={e => { setDistanceMiles(e.target.value); setDeliveryError(''); }}
-                        placeholder="e.g. 2.5"
-                        className={`w-full bg-bg-main border p-3 rounded-xl text-sm text-white placeholder:text-white/20 focus:outline-none transition-colors ${dist > 6 ? 'border-red-500/50 bg-red-500/5' : !distanceMiles && deliveryError ? 'border-red-500/60 bg-red-500/5' : 'border-white/10 focus:border-blue-400'}`}
+                        onChange={e => { setDistanceMiles(e.target.value); setDeliveryError(''); setGeoError(''); }}
+                        placeholder="Auto-calculated from address"
+                        className={`w-full bg-bg-main border p-3 rounded-xl text-sm text-white placeholder:text-white/20 focus:outline-none transition-colors ${dist > 6 ? 'border-red-500/50 bg-red-500/5' : !distanceMiles && deliveryError ? 'border-red-500/60 bg-red-500/5' : dist > 0 ? 'border-green-500/40' : 'border-white/10 focus:border-blue-400'}`}
                       />
+                      {geoError && <p className="text-[10px] text-yellow-400 mt-1">{geoError}</p>}
                     </div>
                   </div>
 

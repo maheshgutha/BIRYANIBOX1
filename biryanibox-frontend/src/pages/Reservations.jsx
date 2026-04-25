@@ -207,8 +207,17 @@ const Reservations = () => {
     } finally { setSubmitting(false); }
   };
 
+  const [cancelConfirm, setCancelConfirm] = useState(null); // { id, name }
+
   const handleCancel = async (id) => {
-    if (!window.confirm('Cancel this reservation?')) return;
+    const res = myReservations.find(r => r._id === id);
+    setCancelConfirm({ id, name: res?.customer_name || 'this reservation' });
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelConfirm) return;
+    const { id } = cancelConfirm;
+    setCancelConfirm(null);
     try {
       await reservationsAPI.update(id, { status: 'cancelled' });
       flash('Reservation cancelled.');
@@ -406,6 +415,35 @@ const Reservations = () => {
         )}
       </div>
       <Footer />
+
+      {/* Cancel Confirmation Popup */}
+      <AnimatePresence>
+        {cancelConfirm && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.92, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 16 }}
+              className="bg-[#1a1a1a] border border-red-500/30 rounded-3xl p-8 max-w-sm w-full text-center space-y-5 shadow-2xl">
+              <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center mx-auto">
+                <X size={28} className="text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-white mb-2">Cancel Reservation?</h3>
+                <p className="text-white/50 text-sm">Are you sure you want to cancel the reservation for <span className="text-white font-bold">{cancelConfirm.name}</span>? This cannot be undone.</p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setCancelConfirm(null)}
+                  className="flex-1 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest text-white/60 hover:bg-white/5 transition-all">
+                  Keep It
+                </button>
+                <button onClick={confirmCancel}
+                  className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">
+                  Yes, Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

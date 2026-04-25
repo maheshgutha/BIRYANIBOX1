@@ -473,11 +473,12 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
       return map[order.status] || null;
     }
     if (isPickup) {
-      // No dispatch step — customer comes to counter
+      // Pickup flow: pending → cooking → ready → At Counter (dispatched) → Completed (paid)
       const map = {
         pending:           'start_cooking',
         start_cooking:     'completed_cooking',
-        completed_cooking: 'paid',   // directly to paid
+        completed_cooking: 'dispatched',  // "At Counter" step
+        dispatched:        'paid',        // "Completed" step
       };
       return map[order.status] || null;
     }
@@ -504,21 +505,22 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     if (order.status === 'pending_confirmation') return false;
     const next = getNextStatus(order);
     if (!next) return false;
+    const isDelivery = order.order_type === 'delivery';
+    const isPickup   = ['pickup', 'takeaway'].includes(order.order_type);
     if (user.role === 'chef') return chefStatuses.includes(next);
     if (user.role === 'captain') {
       if (isDeliveryCaptain) {
-        // Delivery orders: dispatch then paid
-        // Pickup/takeaway orders: cooking + directly to paid (customer comes to counter)
-        const isPickupOrder = ['pickup', 'takeaway'].includes(order.order_type);
-        if (isPickupOrder) return ['start_cooking', 'completed_cooking', 'paid'].includes(next);
-        return ['start_cooking', 'completed_cooking', 'dispatched', 'paid'].includes(next);
+        // Delivery captain: ONLY dispatch + paid actions — chef handles cooking
+        if (isDelivery) return ['dispatched'].includes(next); // delivery orders: dispatch only (rider marks paid)
+        if (isPickup)   return ['dispatched', 'paid'].includes(next); // pickup: at counter + completed
+        return false;
       }
-      // Dine-in captain: served + paid only
+      // Dine-in captain: served + paid only (chef handles cooking)
       return captainStatuses.includes(next);
     }
     if (['manager', 'owner'].includes(user.role)) {
-      // Owner/Manager have full control over all statuses
-      // For delivery/pickup: dispatch + paid; For dine-in: serve + paid
+      // For delivery orders: managers/owners can dispatch; rider handles paid
+      if (isDelivery) return ['dispatched', 'served', 'cancelled'].includes(next);
       return managerStatuses.includes(next);
     }
     return false;
@@ -530,9 +532,10 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     if (!next) return '';
     const isDelivery = order.order_type === 'delivery';
     const isPickup   = ['pickup', 'takeaway'].includes(order.order_type);
-    if (next === 'dispatched') return '🚗 Dispatch';
-    if (next === 'paid' && isDelivery) return '💰 Mark Collected';
-    if (next === 'paid' && isPickup)   return '✅ Mark Collected';
+    if (next === 'dispatched' && isDelivery) return '🚗 Dispatch';
+    if (next === 'dispatched' && isPickup)   return '🏪 At Counter';
+    if (next === 'paid' && isDelivery)       return '💰 Mark Collected';
+    if (next === 'paid' && isPickup)         return '✅ Completed';
     const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', served: '🍽️ Serve', paid: 'Paid ✓' };
     return labels[next] || next;
   };
@@ -597,12 +600,42 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-5 h-5 rounded-full overflow-hidden border border-primary/20 shrink-0">
-                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${ord.captain_id?.name || 'captain'}`} alt="" />
-                    </div>
-                    <span className="text-white/70 text-[11px] font-bold">{ord.captain_id?.name || '—'}</span>
-                  </div>
+                  {(() => {
+                    // served_by is set by backend when:
+                    //   dine-in  → status 'served'   (captain/manager/owner who clicked Serve)
+                    //   pickup   → status 'dispatched' (captain/manager/owner who clicked At Counter)
+                    //   delivery → status 'dispatched' (captain/manager/owner who clicked Dispatch)
+                    const isDeliveryType = ['delivery','pickup','takeaway'].includes(ord.order_type);
+                    const isDineIn = ord.order_type === 'dine-in';
+
+                    // Only show a name once the key action has been performed
+                    const hasBeenServed = isDineIn
+                      ? ['served','paid'].includes(ord.status)
+                      : ['dispatched','delivered','paid','in_transit'].includes(ord.status);
+
+                    // Priority: served_by (most accurate) → delivery.dispatched_by (delivery fallback) → captain_id (dine-in fallback)
+                    let captainName = null;
+                    if (hasBeenServed) {
+                      captainName = ord.served_by?.name
+                        || (isDeliveryType ? (ord.delivery?.dispatched_by?.name || null) : null)
+                        || (isDineIn ? (ord.captain_id?.name || null) : null);
+                    }
+
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        {captainName ? (
+                          <>
+                            <div className="w-5 h-5 rounded-full overflow-hidden border border-primary/20 shrink-0">
+                              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${captainName}`} alt="" />
+                            </div>
+                            <span className="text-white/70 text-[11px] font-bold">{captainName}</span>
+                          </>
+                        ) : (
+                          <span className="text-white/20 text-[11px]">—</span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3">
                   <span className="text-text-muted capitalize">{ord.spiceness || '—'}</span>
@@ -2272,10 +2305,19 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
   // Use _role_is_read: backend attaches role-aware read state to each doc
   const unread = feedback.filter(f => !f._role_is_read).length;
 
+  // Category filter values that map to backend stored values
+  const CATEGORY_FILTERS = ['general', 'food', 'service', 'ambience', 'delivery'];
+
   // Status/category filter using role-aware field
-  const statusFiltered = userRole === 'manager'
-    ? (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f._role_is_read) : feedback.filter(f => !f._role_is_read || !f._role_replied_at))
-    : (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f._role_is_read) : feedback.filter(f => f.category === filter));
+  const isCategoryFilter = CATEGORY_FILTERS.includes(filter);
+  const statusFiltered = (() => {
+    if (filter === 'all')    return feedback;
+    if (filter === 'unread') return feedback.filter(f => !f._role_is_read);
+    if (isCategoryFilter)    return feedback.filter(f => (f.category || 'general') === filter);
+    // Manager legacy: show unread or unreplied
+    if (userRole === 'manager') return feedback.filter(f => !f._role_is_read || !f._role_replied_at);
+    return feedback;
+  })();
 
   // Date filter on top of status filter
   const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
@@ -2347,6 +2389,23 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
           {['all', 'unread'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filter === f ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{f}</button>
+          ))}
+        </div>
+        {/* Category filter */}
+        <div className="flex gap-1.5 flex-wrap">
+          {[
+            { val: 'all',      label: '🔘 All',          },
+            { val: 'general',  label: '💬 General'       },
+            { val: 'food',     label: '🍛 Food Quality'  },
+            { val: 'service',  label: '⭐ Service'        },
+            { val: 'ambience', label: '✨ Ambience'       },
+            { val: 'delivery', label: '🚗 Delivery'       },
+          ].map(({ val, label }) => (
+            <button key={val}
+              onClick={() => setFilter(val === 'all' ? filter === 'all' ? 'all' : 'all' : val)}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${
+                filter === val ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-text-muted hover:text-white hover:border-white/30'
+              }`}>{label}</button>
           ))}
         </div>
         {/* Date filter */}
@@ -2714,6 +2773,7 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                   <div>
                     <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Date & Time</label>
                     <input type="datetime-local" value={form.scheduled_date} style={{ colorScheme: "dark" }} onChange={sf('scheduled_date')} required={form.is_scheduled}
+                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
                       className="bg-bg-main border border-blue-500/30 p-2.5 rounded-xl focus:border-blue-400 outline-none text-white text-sm" />
                     <p className="text-[10px] text-text-muted mt-1">Announcement will be visible from this date/time</p>
                   </div>
@@ -3234,8 +3294,20 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
     );
   };
 
+  const [dupEmailAlert, setDupEmailAlert] = useState(null); // { name, role, email }
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Pre-check: if adding (not editing), detect duplicate email in already-loaded staff list
+    if (!editTarget && form.email.trim()) {
+      const existing = staff.find(u => u.email?.toLowerCase() === form.email.trim().toLowerCase());
+      if (existing) {
+        setDupEmailAlert({ name: existing.name, role: existing.role, email: existing.email });
+        return;
+      }
+    }
+
     try {
       const { password, ...rest } = form;
       let savedUser;
@@ -3268,7 +3340,14 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
 
       setShowForm(false);
       load();
-    } catch (err) { flash(err.message, 'error'); }
+    } catch (err) {
+      // Backend may also detect duplicate email — show popup for that too
+      if (err.message?.toLowerCase().includes('email') && err.message?.toLowerCase().includes('exist')) {
+        setDupEmailAlert({ name: '(existing staff)', role: 'unknown', email: form.email });
+      } else {
+        flash(err.message, 'error');
+      }
+    }
   };
 
   const toggleActive = async (u) => {
@@ -3595,6 +3674,44 @@ const StaffManagement = ({ currentUserRole, onViewProfile }) => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Duplicate email popup */}
+      <AnimatePresence>
+        {dupEmailAlert && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6">
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
+              className="bg-secondary rounded-3xl border border-yellow-500/30 p-6 md:p-10 max-w-md w-full mx-4 sm:mx-auto text-center space-y-5">
+              <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto border border-yellow-500/20">
+                <span className="text-3xl">⚠️</span>
+              </div>
+              <div>
+                <h3 className="text-xl font-black mb-2 text-white">Email Already Registered</h3>
+                <p className="text-text-muted text-sm mb-4">This email address is already in use by an existing staff member:</p>
+                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-4 space-y-2 text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Name</span>
+                    <span className="text-sm font-black text-white">{dupEmailAlert.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Role</span>
+                    <span className={`text-sm font-black capitalize ${roleColor[dupEmailAlert.role]?.split(' ')[0] || 'text-primary'}`}>{dupEmailAlert.role}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Email</span>
+                    <span className="text-xs font-bold text-yellow-400">{dupEmailAlert.email}</span>
+                  </div>
+                </div>
+                <p className="text-white/40 text-xs mt-4">Please use a different email address to add this staff member.</p>
+              </div>
+              <button onClick={() => setDupEmailAlert(null)}
+                className="w-full py-3 bg-primary hover:bg-primary-hover text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">
+                OK, Use Different Email
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -3897,6 +4014,15 @@ const CateringPanel = () => {
   const [quotationMsg,   setQuotationMsg]   = useState('');
   const [sendingQuote,   setSendingQuote]   = useState(false);
   const [filterStatus,   setFilterStatus]   = useState('all');
+  const [catCancelConfirm, setCatCancelConfirm] = useState(null); // { id, name }
+  const [showNewForm,    setShowNewForm]    = useState(false);
+  const [newForm,        setNewForm]        = useState({
+    customer_name: '', email: '', phone: '',
+    event_type: 'Wedding', event_date: '', delivery_time: '',
+    guest_count: '', venue: '', budget: '', notes: '',
+  });
+  const [savingNew, setSavingNew] = useState(false);
+  const snf = f => e => setNewForm(p => ({ ...p, [f]: e.target.value }));
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -3937,8 +4063,38 @@ const CateringPanel = () => {
         return;
       }
     }
+    // Cancel → show confirmation popup instead of direct action
+    if (status === 'cancelled') {
+      const order = orders.find(o => o._id === id);
+      setCatCancelConfirm({ id, name: order?.customer_name || 'this order' });
+      return;
+    }
     try { await cateringAPI.updateStatus(id, status); flash(`Status updated to ${status}`); load(); }
     catch (err) { flash(err.message || 'Failed to update status', 'error'); }
+  };
+
+  const confirmCatCancel = async () => {
+    if (!catCancelConfirm) return;
+    const { id } = catCancelConfirm;
+    setCatCancelConfirm(null);
+    try { await cateringAPI.updateStatus(id, 'cancelled'); flash('Order cancelled — sorry message sent to customer.'); load(); }
+    catch (err) { flash(err.message || 'Failed to cancel', 'error'); }
+  };
+
+  const handleNewOrder = async (e) => {
+    e.preventDefault();
+    if (!newForm.customer_name.trim() || !newForm.event_date || !newForm.guest_count) {
+      flash('Name, event date, and guest count are required.', 'error'); return;
+    }
+    setSavingNew(true);
+    try {
+      await cateringAPI.create({ ...newForm, guest_count: Number(newForm.guest_count), status: 'pending' });
+      flash('New catering order created!');
+      setShowNewForm(false);
+      setNewForm({ customer_name: '', email: '', phone: '', event_type: 'Wedding', event_date: '', delivery_time: '', guest_count: '', venue: '', budget: '', notes: '' });
+      load();
+    } catch (err) { flash(err.message || 'Failed to create order', 'error'); }
+    finally { setSavingNew(false); }
   };
 
   const handleSendQuotation = async (id) => {
@@ -3973,17 +4129,100 @@ const CateringPanel = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3"><Utensils size={28} className="text-primary" />Catering Orders</h2>
           <p className="text-text-muted text-sm mt-1">{orders.length} total orders · ${totalRevenue.toLocaleString()} confirmed revenue</p>
         </div>
-        <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
-          <RefreshCw size={13} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-text-muted hover:text-white hover:bg-white/10 transition-all">
+            <RefreshCw size={13} /> Refresh
+          </button>
+          <button onClick={() => setShowNewForm(s => !s)}
+            className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover transition-all">
+            <Plus size={14} /> New Catering Order
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
+
+      {/* ── New Catering Order Form ── */}
+      <AnimatePresence>
+        {showNewForm && (
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+            className="bg-secondary/40 border border-primary/30 rounded-3xl p-6 space-y-5">
+            <h3 className="text-lg font-black text-white flex items-center gap-2"><Utensils size={18} className="text-primary" /> New Catering Order</h3>
+            <form onSubmit={handleNewOrder} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Customer Name *</label>
+                <input required value={newForm.customer_name} onChange={snf('customer_name')} placeholder="Full name"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Email</label>
+                <input type="email" value={newForm.email} onChange={snf('email')} placeholder="customer@email.com"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Phone</label>
+                <input type="tel" value={newForm.phone} onChange={snf('phone')} placeholder="+91 98765 43210"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Event Type</label>
+                <select value={newForm.event_type} onChange={snf('event_type')}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none appearance-none">
+                  {['Wedding','Birthday','Corporate','Anniversary','Engagement','Festival','Other'].map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Event Date *</label>
+                <input type="date" required value={newForm.event_date} onChange={snf('event_date')}
+                  min={new Date().toISOString().split('T')[0]} style={{ colorScheme: 'dark' }}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Delivery Time</label>
+                <input type="time" value={newForm.delivery_time} onChange={snf('delivery_time')} style={{ colorScheme: 'dark' }}
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Guest Count *</label>
+                <input type="number" required min="1" value={newForm.guest_count} onChange={snf('guest_count')} placeholder="e.g. 150"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Venue</label>
+                <input value={newForm.venue} onChange={snf('venue')} placeholder="Event hall or address"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Customer Budget ($)</label>
+                <input type="number" min="0" value={newForm.budget} onChange={snf('budget')} placeholder="e.g. 5000"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none" />
+              </div>
+              <div className="md:col-span-2 lg:col-span-3">
+                <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">Notes / Special Requests</label>
+                <textarea value={newForm.notes} onChange={snf('notes')} rows={2} placeholder="Menu preferences, dietary requirements, special arrangements…"
+                  className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-primary outline-none resize-none" />
+              </div>
+              <div className="md:col-span-2 lg:col-span-3 flex gap-3">
+                <button type="submit" disabled={savingNew}
+                  className="px-8 py-3 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-hover disabled:opacity-50 flex items-center gap-2 transition-all">
+                  {savingNew ? <><RefreshCw size={13} className="animate-spin" /> Saving…</> : <><Plus size={13} /> Create Order</>}
+                </button>
+                <button type="button" onClick={() => setShowNewForm(false)}
+                  className="px-8 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/5 transition-all">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── 48-Hour Upcoming Catering Alert Container ───────────────────── */}
       {upcomingOrders.length > 0 && (
@@ -4284,11 +4523,42 @@ const CateringPanel = () => {
           ))}
         </div>
       )}
+
+      {/* Cancel Confirmation Dialog */}
+      <AnimatePresence>
+        {catCancelConfirm && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.92, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 16 }}
+              className="bg-secondary rounded-3xl border border-red-500/30 p-8 max-w-sm w-full mx-auto text-center space-y-5 shadow-2xl">
+              <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center mx-auto">
+                <span className="text-3xl">😔</span>
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-white mb-2">Cancel Catering Order?</h3>
+                <p className="text-white/50 text-sm mb-1">Cancelling <span className="text-white font-bold">{catCancelConfirm.name}</span>'s order will:</p>
+                <div className="text-left bg-red-500/5 border border-red-500/20 rounded-xl p-3 space-y-1.5">
+                  <p className="text-xs text-red-400 flex items-center gap-2">✕ Mark the order as cancelled</p>
+                  <p className="text-xs text-red-400 flex items-center gap-2">✉ Send a sincere apology email to the customer</p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setCatCancelConfirm(null)}
+                  className="flex-1 py-3 border border-white/20 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/5 transition-all">
+                  Keep Order
+                </button>
+                <button onClick={confirmCatCancel}
+                  className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all">
+                  Cancel & Apologise
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
-
-// ─── Password field with eye toggle ─────────────────────────────────────────
 const PasswordField = ({ value, onChange, placeholder, required }) => {
   const [show, setShow] = useState(false);
   return (
@@ -4344,7 +4614,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
     setEditItem(item);
     setForm({
       name: item.name, category: item.category, price: item.price,
-      description: item.description || '', spice_level: item.spice_level || 1,
+      description: item.description || '', spice_level: item.spice_level ?? 1,
       is_veg: item.is_veg || false, is_halal: item.is_halal !== false,
       stock: item.stock || 100,
     });
@@ -5081,13 +5351,31 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
     );
   }, [orders, liveDeliveries]);
   const [filterStatus, setFilterStatus] = useState('all');
-  const filtered = filterStatus === 'all' ? ordersWithDelivery : ordersWithDelivery.filter(o => o.status === filterStatus);
+
+  // Declare BEFORE useMemo to avoid temporal dead zone
+  const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
+  const isDineInCaptain   = user.role === 'captain' && captainTableNumbers && captainTableNumbers.length > 0;
+
+  // For captains: filter orders to ONLY show their zone (dine-in: their tables; delivery captain: delivery+pickup)
+  const captainFiltered = React.useMemo(() => {
+    if (user.role !== 'captain') return ordersWithDelivery;
+    const parseTableNum = (raw) => { const m = String(raw || '').match(/\d+/); return m ? parseInt(m[0]) : NaN; };
+    if (isDeliveryCaptain) {
+      return ordersWithDelivery.filter(o => ['delivery','pickup','takeaway'].includes(o.order_type));
+    }
+    // Dine-in captain: only their assigned tables
+    return ordersWithDelivery.filter(o => {
+      if (['delivery','pickup','takeaway'].includes(o.order_type)) return false; // not their zone
+      const tNum = parseTableNum(o.table_number);
+      const captainIdMatch = o.captain_id && ((o.captain_id._id || o.captain_id) === user._id || (o.captain_id._id || o.captain_id) === user.id);
+      return (captainTableNumbers || []).includes(tNum) || captainIdMatch;
+    });
+  }, [ordersWithDelivery, user, isDeliveryCaptain, captainTableNumbers]);
+
+  const filtered = (filterStatus === 'all' ? captainFiltered : captainFiltered.filter(o => o.status === filterStatus));
 
   // Count orders needing confirmation
   const pendingConfirmCount = ordersWithDelivery.filter(o => o.status === 'pending_confirmation').length;
-
-  const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
-  const isDineInCaptain   = user.role === 'captain' && captainTableNumbers && captainTableNumbers.length > 0;
 
   return (
     <div className="space-y-6">
@@ -6610,24 +6898,41 @@ const RidersPanel = ({ currentUserRole }) => {
             <Truck size={14} /> {awaitingDispatch.length} Delivery Order{awaitingDispatch.length !== 1 ? 's' : ''} Ready to Dispatch
           </h4>
           <div className="space-y-2">
-            {awaitingDispatch.map(d => (
+            {awaitingDispatch.map(d => {
+              const pm = d.order_id?.payment_method;
+              const isPrepaid = pm && pm !== 'cash';
+              return (
               <div key={d._id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 gap-4 flex-wrap">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                     <p className="text-sm font-bold text-white">Order #{d.order_id?.order_number || '—'}</p>
                     <span className="text-[8px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-full font-black uppercase">🚗 Delivery</span>
+                    {/* Payment status badge */}
+                    {pm && (
+                      <span className={`text-[9px] px-2 py-0.5 rounded-full font-black uppercase border ${
+                        isPrepaid
+                          ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                          : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                      }`}>
+                        {isPrepaid ? '✅ Prepaid' : '💵 Cash on Delivery'}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-text-muted truncate">{d.delivery_address || d.order_id?.delivery_address}</p>
                   <p className="text-[10px] text-blue-400">Rider: {d.driver_id?.name || '—'} · Waiting for dispatch</p>
+                  {!isPrepaid && pm === 'cash' && (
+                    <p className="text-[10px] text-yellow-400 font-bold mt-0.5">⚠ Rider must collect ${(d.order_id?.total || 0).toFixed(2)} cash on delivery</p>
+                  )}
                 </div>
                 <button onClick={async () => {
-                  try { await deliveryAPI.dispatch(d._id); flash('Order dispatched! Rider can now pickup.'); load(); }
+                  try { await deliveryAPI.dispatch(d._id); flash('Order dispatched! Rider can now pickup.'); load(); await loadOrders(); }
                   catch (err) { flash(err.message || 'Failed to dispatch', 'error'); }
                 }} className="px-4 py-2 bg-blue-500 text-white text-[10px] font-black rounded-xl hover:bg-blue-600 transition-all flex items-center gap-1.5">
                   <Truck size={12} /> Dispatch Order
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -8007,7 +8312,7 @@ const navigate = useNavigate();
     orders, menu, ingredients,
     updateOrderStatus: ctxUpdateStatus, deleteOrder,
     updateMenuStock, toggleMenuAvailability, updateIngredientStock,
-    getFinancialMetrics,
+    getFinancialMetrics, loadOrders,
   } = useOrders();
 
   const defaultTab = user.role === 'chef' ? 'kitchen' : user.role === 'captain' ? 'tables' : 'overview';
@@ -8093,8 +8398,9 @@ const navigate = useNavigate();
   // Soft refresh
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    try { await loadOrders(); } catch {}
+    setTimeout(() => setRefreshing(false), 600);
+  }, [loadOrders]);
 
   // Accept / Reject a dine-in pending_confirmation order (owner + manager only)
   const confirmOrder = useCallback(async (id, action) => {

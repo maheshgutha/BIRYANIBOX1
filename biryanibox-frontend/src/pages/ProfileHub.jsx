@@ -353,7 +353,7 @@ const ProfileHub = () => {
   const [addrMsg,    setAddrMsg]    = useState('');
 
   // Feedback
-  const [fbForm,       setFbForm]      = useState({ subject: '', message: '', rating: 5 });
+  const [fbForm,       setFbForm]      = useState({ name: '', mobile: '', review: '', suggestions: '', rating: 0, category: 'General' });
   const [fbSubmitting, setFbSubmitting] = useState(false);
   const [fbDone,       setFbDone]      = useState(false);
   const [fbError,      setFbError]     = useState('');
@@ -377,8 +377,11 @@ const ProfileHub = () => {
   const [fpError,       setFpError]      = useState('');
 
   useEffect(() => {
-    if (!user) navigate('/auth');
-    else setProfileForm({ name: user.name || '', phone: user.phone || '' });
+    if (!user) navigate('/auth', { replace: true, state: { from: location.pathname + location.search } });
+    else {
+      setProfileForm({ name: user.name || '', phone: user.phone || '' });
+      setFbForm(p => ({ ...p, name: user.name || '', mobile: user.phone || '', email: user.email || '' }));
+    }
   }, [user, navigate]);
 
   // Live order polling — get ALL active orders
@@ -502,20 +505,24 @@ const ProfileHub = () => {
 
   const handleFeedback = async (e) => {
     e.preventDefault();
+    if (fbForm.rating === 0) { setFbError('Please select a star rating.'); return; }
+    if (!fbForm.review.trim()) { setFbError('Please write your review.'); return; }
     setFbSubmitting(true);
     setFbError('');
     try {
       await feedbackAPI.create({
-        subject:       fbForm.subject,
-        message:       fbForm.message,
+        subject:       fbForm.category,
+        message:       fbForm.review + (fbForm.suggestions ? '\n\nSuggestions: ' + fbForm.suggestions : ''),
         rating:        fbForm.rating,
         customer_id:   user.id || user._id,
-        customer_name: user.name,
+        customer_name: fbForm.name || user.name,
         customer_email: user.email || '',
+        customer_phone: fbForm.mobile || user.phone || '',
+        category:      fbForm.category,
       });
       try { await loyaltyAPI.earn({ user_id: user.id, rule: 'feedback', description: 'Feedback submitted' }); } catch {}
       setFbDone(true);
-      setFbForm({ subject: '', message: '', rating: 5 });
+      setFbForm({ name: '', mobile: '', review: '', suggestions: '', rating: 0, category: 'General' });
     } catch (err) {
       setFbError(err.message || 'Failed to submit. Please try again.');
     }
@@ -910,34 +917,95 @@ const ProfileHub = () => {
                   </button>
                 </div>
               ) : (
-                <form onSubmit={handleFeedback} className="bg-secondary/40 border border-white/10 rounded-3xl p-8 space-y-5">
+                <form onSubmit={handleFeedback} className="bg-secondary/40 border border-white/10 rounded-3xl p-8 space-y-6">
                   {fbError && (
                     <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-red-400 text-xs font-bold">{fbError}</div>
                   )}
-                  <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Rating</label>
-                    <div className="flex gap-2">
+
+                  {/* Star Rating */}
+                  <div className="text-center">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-4 block">How Would You Rate Us? *</label>
+                    <div className="flex justify-center gap-3">
                       {[1,2,3,4,5].map(n => (
                         <button key={n} type="button" onClick={() => setFbForm(p => ({ ...p, rating: n }))}
-                          className={'w-10 h-10 rounded-xl border font-black transition-all text-lg ' + (fbForm.rating >= n ? 'bg-primary border-primary text-white' : 'border-white/10 text-white/30 hover:border-primary/50')}>
+                          className={`text-4xl transition-all hover:scale-110 ${fbForm.rating >= n ? 'text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]' : 'text-white/20 hover:text-yellow-400/50'}`}>
                           ★
                         </button>
                       ))}
                     </div>
+                    {fbForm.rating > 0 && (
+                      <p className="text-xs text-white/40 mt-2">
+                        {['','Poor','Fair','Good','Very Good','Excellent'][fbForm.rating]} {['','😞','😐','🙂','😊','🤩'][fbForm.rating]}
+                      </p>
+                    )}
                   </div>
+
+                  {/* Feedback Category */}
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Subject</label>
-                    <input value={fbForm.subject} onChange={e => setFbForm(p => ({ ...p, subject: e.target.value }))}
-                      placeholder="What is your feedback about?"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50" />
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-3 block">Feedback Category</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: 'General',      emoji: '💬' },
+                        { id: 'Food Quality', emoji: '🍛' },
+                        { id: 'Service',      emoji: '⭐' },
+                        { id: 'Ambience',     emoji: '✨' },
+                        { id: 'Delivery',     emoji: '🚗' },
+                      ].map(cat => (
+                        <button key={cat.id} type="button"
+                          onClick={() => setFbForm(p => ({ ...p, category: cat.id }))}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black border transition-all ${
+                            fbForm.category === cat.id
+                              ? 'bg-primary border-primary text-white shadow-lg shadow-primary/20'
+                              : 'bg-white/5 border-white/10 text-white/50 hover:border-primary/40 hover:text-white'
+                          }`}>
+                          {cat.emoji} {cat.id}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Name + Mobile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Your Name</label>
+                      <input value={fbForm.name} onChange={e => setFbForm(p => ({ ...p, name: e.target.value }))}
+                        placeholder="e.g. Rahul Sharma"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Mobile Number *</label>
+                      <input value={fbForm.mobile} onChange={e => setFbForm(p => ({ ...p, mobile: e.target.value }))}
+                        placeholder="e.g. 9876543210" required
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50" />
+                    </div>
+                  </div>
+
+                  {/* Email (read-only) */}
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Message</label>
-                    <textarea value={fbForm.message} onChange={e => setFbForm(p => ({ ...p, message: e.target.value }))} rows={4}
-                      placeholder="Tell us about your experience..."
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block flex items-center gap-1">
+                      <Mail size={10} /> Email Address * <span className="text-white/20 normal-case font-normal">(owner may reply here)</span>
+                    </label>
+                    <input value={fbForm.email} readOnly
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/60 cursor-not-allowed" />
+                  </div>
+
+                  {/* Review */}
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Your Review *</label>
+                    <textarea value={fbForm.review} onChange={e => setFbForm(p => ({ ...p, review: e.target.value }))} rows={4} required
+                      placeholder="Tell us what you loved or how we can improve..."
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50 resize-none" />
                   </div>
-                  <button type="submit" disabled={fbSubmitting || !fbForm.message.trim()}
+
+                  {/* Suggestions (optional) */}
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Suggestions <span className="text-white/20 normal-case font-normal">(optional)</span></label>
+                    <textarea value={fbForm.suggestions} onChange={e => setFbForm(p => ({ ...p, suggestions: e.target.value }))} rows={2}
+                      placeholder="Any suggestions to improve our food, service, or experience..."
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50 resize-none" />
+                  </div>
+
+                  <button type="submit" disabled={fbSubmitting || !fbForm.review.trim() || !fbForm.rating}
                     className="w-full py-4 bg-primary text-white font-black uppercase tracking-widest text-xs rounded-2xl disabled:opacity-50 flex items-center justify-center gap-2 hover:bg-primary-hover transition-all">
                     {fbSubmitting ? <Loader size={14} className="animate-spin" /> : <MessageSquare size={14} />}
                     {fbSubmitting ? 'Submitting...' : 'Submit Feedback (+5 pts)'}

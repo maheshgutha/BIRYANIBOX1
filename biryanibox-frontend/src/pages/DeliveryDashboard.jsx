@@ -220,7 +220,7 @@ const StatCard = ({ icon: Icon, label, value, color = 'text-orange-400', bg = 'b
 );
 
 // ── Delivery Card ──────────────────────────────────────────────────────────
-const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, onPaid, onRefresh, actLoading }) => {
+const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, onRefresh, actLoading }) => {
   const order = delivery.order_id || {};
   const cfg = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
   const canAccept  = delivery.status === 'pending';
@@ -229,7 +229,7 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
   const canTransit = delivery.status === 'picked_up';
   const canDeliver = delivery.status === 'in_transit';
   const [distKm, setDistKm] = useState(delivery.distance_km || 0);
-  const [showMap, setShowMap] = useState(false);
+  const [showMap, setShowMap] = useState(true);
 
   const fee = delivery.delivery_fee || calcFee(distKm);
 
@@ -242,11 +242,11 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
     { status: 'picked_up',  label: 'Picked Up', icon: '📦' },
     { status: 'in_transit', label: 'On the Way',icon: '🛵' },
     { status: 'delivered',  label: 'Delivered', icon: '🏠' },
-    { status: 'paid',       label: 'Paid',       icon: '💰' },
   ];
-  const STEP_ORDER = ['assigned','picked_up','in_transit','delivered','paid'];
-  const curIdx = STEP_ORDER.indexOf(delivery.status === 'paid' ? 'paid' : delivery.status);
-  const canPaid   = delivery.status === 'delivered' && order.status !== 'paid';
+  const STEP_ORDER = ['assigned','picked_up','in_transit','delivered'];
+  const curIdx = STEP_ORDER.indexOf(delivery.status) === -1
+    ? (delivery.status === 'paid' ? STEP_ORDER.length - 1 : 0)
+    : STEP_ORDER.indexOf(delivery.status);
 
   return (
     <motion.div layout initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
@@ -255,6 +255,7 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
         delivery.status === 'assigned'   ? 'border-blue-500/40 bg-gradient-to-b from-blue-500/5 to-transparent' :
         delivery.status === 'picked_up'  ? 'border-orange-500/40 bg-gradient-to-b from-orange-500/5 to-transparent' :
         delivery.status === 'in_transit' ? 'border-emerald-500/40 bg-gradient-to-b from-emerald-500/5 to-transparent' :
+        delivery.status === 'delivered'  ? 'border-yellow-500/60 bg-gradient-to-b from-yellow-500/10 to-transparent' :
         'border-white/10 bg-[#111]'
       }`}>
 
@@ -374,12 +375,34 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
           </div>
         )}
 
-        {/* Map toggle */}
+        {/* Map & Directions buttons */}
         {(delivery.delivery_address || order.delivery_address) && (
-          <button onClick={() => setShowMap(m => !m)}
-            className="w-full flex items-center justify-center gap-2 py-2 bg-white/5 border border-white/10 rounded-xl text-[11px] font-black text-white/50 hover:text-white hover:bg-white/10 transition-all uppercase tracking-widest">
-            <Map size={12} /> {showMap ? 'Hide Map' : 'Show Map & Distance'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setShowMap(m => !m)}
+              className="flex-1 flex items-center justify-center gap-2 py-2 bg-white/5 border border-white/10 rounded-xl text-[11px] font-black text-white/50 hover:text-white hover:bg-white/10 transition-all uppercase tracking-widest">
+              <Map size={12} /> {showMap ? 'Hide Map' : 'Show Map'}
+            </button>
+            <button
+              onClick={() => {
+                const addr = encodeURIComponent(delivery.delivery_address || order.delivery_address || '');
+                if (navigator.geolocation) {
+                  navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                      const url = `https://www.google.com/maps/dir/${pos.coords.latitude},${pos.coords.longitude}/${addr}`;
+                      window.open(url, '_blank');
+                    },
+                    () => {
+                      window.open(`https://www.google.com/maps/dir//${addr}`, '_blank');
+                    }
+                  );
+                } else {
+                  window.open(`https://www.google.com/maps/dir//${addr}`, '_blank');
+                }
+              }}
+              className="flex-1 flex items-center justify-center gap-2 py-2 bg-blue-500/10 border border-blue-500/30 rounded-xl text-[11px] font-black text-blue-400 hover:bg-blue-500 hover:text-white transition-all uppercase tracking-widest">
+              🗺️ Directions
+            </button>
+          </div>
         )}
         {showMap && (
           <DeliveryMap
@@ -462,12 +485,15 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
             </button>
           </>
         )}
-        {/* Paid button — rider marks order as collected/paid after delivery */}
-        {canPaid && (
-          <button onClick={() => onPaid(delivery._id, order._id)} disabled={actLoading}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-600 hover:to-amber-600 text-black text-xs font-black py-3.5 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-yellow-500/30">
-            <DollarSign size={14} /> 💰 Mark as Paid — Collection Done!
-          </button>
+        {/* Delivered — captain will be notified to collect payment */}
+        {delivery.status === 'delivered' && (
+          <div className="w-full flex items-center gap-3 bg-green-500/10 border border-green-500/40 rounded-xl px-4 py-3">
+            <div className="text-2xl">✅</div>
+            <div>
+              <p className="text-green-400 font-black text-sm">Order Delivered!</p>
+              <p className="text-green-400/60 text-[10px]">Captain has been notified to collect payment.</p>
+            </div>
+          </div>
         )}
       </div>
     </motion.div>
@@ -514,6 +540,7 @@ export default function DeliveryDashboard() {
 
   const [available, setAvailable] = useState([]);
   const [myActive,  setMyActive]  = useState(null);
+  const [myPaid,    setMyPaid]    = useState([]);
   const [completed, setCompleted] = useState([]);
   const [skipped,   setSkipped]   = useState([]);
   const [stats,     setStats]     = useState({});
@@ -536,10 +563,26 @@ export default function DeliveryDashboard() {
         deliveryAPI.getMySkipped(),
       ]);
       if (avail.status === 'fulfilled')  setAvailable(avail.value.data || []);
-      if (active.status === 'fulfilled') setMyActive(active.value.data || null);
-      if (done.status === 'fulfilled')   setCompleted(done.value.data || []);
+      if (done.status === 'fulfilled') {
+        const allDone = done.value.data || [];
+        setMyPaid(allDone.filter(d => d.status === 'paid'));
+        setCompleted(allDone); // All completed (including paid) go to history
+      }
       if (st.status === 'fulfilled')     setStats(st.value.data || {});
       if (skip.status === 'fulfilled')   setSkipped(skip.value.data || []);
+      // Active delivery logic:
+      // - 'delivered' → stay on active tab so rider can tap 'Mark as Paid'
+      // - 'paid' / 'failed' / 'cancelled' → clear active, auto-navigate to done tab
+      if (active.status === 'fulfilled') {
+        const activeData = active.value.data;
+        if (activeData && ['delivered', 'paid', 'failed', 'cancelled'].includes(activeData.status)) {
+          setMyActive(null);
+          // Auto-switch to history so rider sees completed order without manual tab switch
+          setTabState(t => (t === 'active' ? 'done' : t));
+        } else {
+          setMyActive(activeData || null);
+        }
+      }
     } catch {}
   }, []);
 
@@ -614,22 +657,14 @@ export default function DeliveryDashboard() {
     setActLoading(true);
     try {
       await deliveryAPI.updateStatus(id, 'delivered');
-      showFlash('🎉 Delivery completed! Great job!', 'success');
-      await loadAll(); setTab('done');
+      showFlash('🎉 Delivered! Now collect payment and tap "Mark as Paid".', 'success');
+      await loadAll();
+      setTab('active'); // Stay on active tab so rider can see and click the Paid button
     } catch (e) { showFlash(e.message || 'Failed', 'error'); }
     finally { setActLoading(false); }
   };
 
   // Rider marks the order as paid (collection done after delivery)
-  const handlePaid = async (deliveryId, orderId) => {
-    setActLoading(true);
-    try {
-      if (orderId) await ordersAPI.updateStatus(orderId, 'paid');
-      showFlash('💰 Order marked as paid! Well done!', 'success');
-      await loadAll();
-    } catch (e) { showFlash(e.message || 'Failed to mark paid', 'error'); }
-    finally { setActLoading(false); }
-  };
 
   const handleFail = async (id) => {
     setActLoading(true);
@@ -755,7 +790,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : available.map(d => (
                 <DeliveryCard key={d._id} delivery={d} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onPaid={handlePaid} onRefresh={refresh} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
               ))}
             </AnimatePresence>
           )}
@@ -774,7 +809,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : (
                 <DeliveryCard key={myActive._id} delivery={myActive} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onPaid={handlePaid} onRefresh={refresh} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
               )}
             </AnimatePresence>
           )}
@@ -789,20 +824,30 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : completed.map(d => {
                 const o = d.order_id || {};
+                const isPaidOrder = d.status === 'paid' || o.status === 'paid';
                 return (
                   <motion.div key={d._id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="bg-[#111] border border-green-500/15 rounded-2xl p-4 flex items-center justify-between">
+                    className={`border rounded-2xl p-4 flex items-center justify-between ${
+                      isPaidOrder
+                        ? 'bg-[#111] border-yellow-500/25'
+                        : 'bg-[#111] border-green-500/15'
+                    }`}>
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 bg-green-500/10 rounded-xl flex items-center justify-center text-xl flex-shrink-0">✅</div>
+                      <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0 ${isPaidOrder ? 'bg-yellow-500/10' : 'bg-green-500/10'}`}>
+                        {isPaidOrder ? '💰' : '✅'}
+                      </div>
                       <div>
-                        <p className="text-white font-bold text-sm">Order #{o.order_number || '—'}</p>
-                        <p className="text-white/40 text-[10px] mt-0.5">{(d.delivery_address || '').slice(0, 40)}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-white font-bold text-sm">Order #{o.order_number || '—'}</p>
+                          {isPaidOrder && <span className="text-[8px] px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/20 rounded-full font-black uppercase">Paid ✓</span>}
+                        </div>
+                        <p className="text-white/40 text-[10px] mt-0.5">{(d.delivery_address || o.delivery_address || '').slice(0, 40)}</p>
                         {d.delivered_at && <p className="text-white/25 text-[10px]">{new Date(d.delivered_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-green-400 font-black text-base">+${d.delivery_fee || 0}</p>
-                      <p className="text-white/20 text-[10px]">Earned</p>
+                      <p className={`font-black text-base ${isPaidOrder ? 'text-yellow-400' : 'text-green-400'}`}>+${d.delivery_fee || 0}</p>
+                      <p className="text-white/20 text-[10px]">{isPaidOrder ? 'Collected' : 'Earned'}</p>
                     </div>
                   </motion.div>
                 );

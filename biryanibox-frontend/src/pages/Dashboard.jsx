@@ -429,7 +429,7 @@ const ConfirmDialog = ({ open, title, message, confirmText = 'Confirm', cancelTe
 const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, statusColors, captainTableNumbers }) => {
   const chefStatuses     = ['start_cooking', 'completed_cooking'];
   const captainStatuses  = ['served', 'paid'];
-  const managerStatuses  = ['served', 'paid', 'cancelled'];
+  const managerStatuses  = ['start_cooking', 'completed_cooking', 'dispatched', 'served', 'paid', 'cancelled'];
 
   // Delivery captain = captain with no assigned tables
   const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
@@ -454,29 +454,40 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
   };
 
   // Order-type-aware transitions:
-  // Status flow by order type:
-  // Dine-in:           pending → cooking → ready → served → paid
-  // Delivery/Pickup:   pending → cooking → ready → dispatched → paid   (NO served step)
+  // Dine-in:  pending → cooking → ready → served → paid
+  // Delivery: pending → cooking → ready → dispatched → paid  (rider delivers)
+  // Pickup:   pending → cooking → ready → paid               (customer picks up, no dispatch)
   const getNextStatus = (order) => {
-    const isDeliveryType = ['delivery', 'pickup', 'takeaway'].includes(order.order_type);
-    if (isDeliveryType) {
-      const DELIVERY_TRANSITIONS = {
+    const isDelivery = order.order_type === 'delivery';
+    const isPickup   = ['pickup', 'takeaway'].includes(order.order_type);
+
+    if (isDelivery) {
+      const map = {
         pending:           'start_cooking',
         start_cooking:     'completed_cooking',
         completed_cooking: 'dispatched',
-        dispatched:        'paid',       // skip 'served' for delivery/pickup
+        dispatched:        'paid',
         delivered:         'paid',
       };
-      return DELIVERY_TRANSITIONS[order.status] || null;
+      return map[order.status] || null;
+    }
+    if (isPickup) {
+      // No dispatch step — customer comes to counter
+      const map = {
+        pending:           'start_cooking',
+        start_cooking:     'completed_cooking',
+        completed_cooking: 'paid',   // directly to paid
+      };
+      return map[order.status] || null;
     }
     // Dine-in / default
-    const DINEIN_TRANSITIONS = {
+    const map = {
       pending:           'start_cooking',
       start_cooking:     'completed_cooking',
       completed_cooking: 'served',
       served:            'paid',
     };
-    return DINEIN_TRANSITIONS[order.status] || null;
+    return map[order.status] || null;
   };
 
   // Keep TRANSITIONS as a static map for any code that reads it directly (e.g. button color check)
@@ -495,13 +506,20 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     if (user.role === 'chef') return chefStatuses.includes(next);
     if (user.role === 'captain') {
       if (isDeliveryCaptain) {
-        // Delivery captain: can dispatch and mark paid (no served for delivery/pickup)
-        return ['dispatched', 'paid'].includes(next);
+        // Delivery orders: dispatch then paid
+        // Pickup/takeaway orders: cooking + directly to paid (customer comes to counter)
+        const isPickupOrder = ['pickup', 'takeaway'].includes(order.order_type);
+        if (isPickupOrder) return ['start_cooking', 'completed_cooking', 'paid'].includes(next);
+        return ['start_cooking', 'completed_cooking', 'dispatched', 'paid'].includes(next);
       }
       // Dine-in captain: served + paid only
       return captainStatuses.includes(next);
     }
-    if (['manager', 'owner'].includes(user.role)) return managerStatuses.includes(next);
+    if (['manager', 'owner'].includes(user.role)) {
+      // Owner/Manager have full control over all statuses
+      // For delivery/pickup: dispatch + paid; For dine-in: serve + paid
+      return managerStatuses.includes(next);
+    }
     return false;
   };
 
@@ -509,9 +527,11 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
   const getActionLabel = (order) => {
     const next = getNextStatus(order);
     if (!next) return '';
-    const isDeliveryType = ['delivery','pickup','takeaway'].includes(order.order_type);
+    const isDelivery = order.order_type === 'delivery';
+    const isPickup   = ['pickup', 'takeaway'].includes(order.order_type);
     if (next === 'dispatched') return '🚗 Dispatch';
-    if (next === 'paid' && isDeliveryType) return '💰 Mark Collected';
+    if (next === 'paid' && isDelivery) return '💰 Mark Collected';
+    if (next === 'paid' && isPickup)   return '✅ Mark Collected';
     const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', served: '🍽️ Serve', paid: 'Paid ✓' };
     return labels[next] || next;
   };
@@ -629,8 +649,10 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                     {/* Main action button — only shown for in-zone orders */}
                     {canAdvance(ord) && inZone && (() => {
                       const nextSt = getNextStatus(ord);
-                      // Dispatch gate: only allow dispatch when a rider has accepted (delivery.status === 'assigned')
-                      const isDispatchAction = nextSt === 'dispatched' && ord.order_type === 'delivery';
+                      const isDelivery = ord.order_type === 'delivery';
+                      const isPickup   = ['pickup', 'takeaway'].includes(ord.order_type);
+                      // Dispatch gate: ONLY for delivery orders (pickup customers come themselves)
+                      const isDispatchAction = nextSt === 'dispatched' && isDelivery;
                       const deliveryRec = ord.delivery || null;
                       const riderAssigned = deliveryRec?.driver_id && deliveryRec?.status === 'assigned';
                       const dispatchBlocked = isDispatchAction && !riderAssigned;
@@ -648,13 +670,18 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                           </div>
                         );
                       }
+                      // Color the button based on next status and order type
+                      const btnClass = (() => {
+                        if (nextSt === 'dispatched') return 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500 hover:text-white';
+                        if (nextSt === 'served')     return 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500 hover:text-white';
+                        if (nextSt === 'paid' && isDelivery) return 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500 hover:text-black';
+                        if (nextSt === 'paid' && isPickup)   return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white';
+                        if (nextSt === 'paid') return 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500 hover:text-black';
+                        return 'bg-primary text-white hover:bg-primary-hover';
+                      })();
                       return (
                         <button onClick={() => onStatusUpdate(id, nextSt)}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${
-                            isDeliveryCaptain && nextSt === 'dispatched'
-                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500 hover:text-white'
-                              : 'bg-primary text-white hover:bg-primary-hover'
-                          }`}>
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${btnClass}`}>
                           {getActionLabel(ord)}
                         </button>
                       );
@@ -1292,28 +1319,32 @@ const CaptainBonusModule = ({ user, allOrders, captainTableNumbers }) => {
 const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
   const [period, setPeriod] = useState('today');
   const [expandedOrder, setExpandedOrder] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('all');
 
   // Filter from global orders in context — no separate API call needed.
-  // Captain My Orders = all orders with status served or paid (these are served orders),
-  // matching the "Served" count shown on the owner dashboard overview.
   const orders = useMemo(() => {
     const now = new Date();
     const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
     const weekAgo  = new Date(now); weekAgo.setDate(now.getDate() - 7);
     const monthAgo = new Date(now); monthAgo.setMonth(now.getMonth() - 1);
 
-    // Captain zone: tables 1-3 → captain1, 4-6 → captain2, 7-9 → captain3, no tables → captain4
     const myTables = captainTableNumbers || [];
     const isDeliveryCaptain = myTables.length === 0;
 
     return (allOrders || []).filter(o => {
-      if (!['served', 'paid'].includes(o.status)) return false;
       // Zone filter
       if (isDeliveryCaptain) {
         if (!['delivery', 'pickup', 'takeaway'].includes(o.order_type)) return false;
       } else {
-        const tNum = parseInt(o.table_number) || 0;
-        if (!myTables.includes(tNum)) return false;
+        // Dine-in captain: match by table number OR by captain_id OR by served_by email
+        const tNum = parseInt(String(o.table_number || '').match(/\d+/)?.[0] || '0') || 0;
+        const tableMatch = tNum > 0 && myTables.includes(tNum);
+        const captainIdMatch = o.captain_id && (
+          (o.captain_id._id || o.captain_id) === user._id ||
+          (o.captain_id._id || o.captain_id) === (user.id)
+        );
+        const emailMatch = o.served_by && user.email && o.served_by === user.email;
+        if (!tableMatch && !captainIdMatch && !emailMatch) return false;
       }
       const ts = new Date(o.created_at || o.timestamp);
       if (period === 'today')   return ts >= todayStart;
@@ -1321,18 +1352,28 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
       if (period === 'monthly') return ts >= monthAgo;
       return true;
     });
-  }, [allOrders, period]);
+  }, [allOrders, period, captainTableNumbers, user.email]);
+
+  // Status sub-filter
+  const filtered = useMemo(() => {
+    if (statusFilter === 'all') return orders;
+    if (statusFilter === 'active') return orders.filter(o => !['paid', 'cancelled'].includes(o.status));
+    if (statusFilter === 'completed') return orders.filter(o => ['served', 'paid'].includes(o.status));
+    return orders;
+  }, [orders, statusFilter]);
 
   const stats = useMemo(() => {
-    const revenue = orders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total || 0), 0);
+    const paidOrders = orders.filter(o => o.status === 'paid');
+    const revenue = paidOrders.reduce((s, o) => s + (o.total || 0), 0);
     // Tiered bonus: Bronze <$500→3%, Silver $500-$1500→5%, Gold >$1500→8%
     const bonusPct = revenue >= 1500 ? 0.08 : revenue >= 500 ? 0.05 : 0.03;
     const bonusTier = revenue >= 1500 ? 'Gold' : revenue >= 500 ? 'Silver' : 'Bronze';
     const bonusTierColor = revenue >= 1500 ? 'text-yellow-400' : revenue >= 500 ? 'text-slate-300' : 'text-amber-600';
     return {
       total: orders.length,
+      active: orders.filter(o => !['paid', 'cancelled'].includes(o.status)).length,
       served: orders.filter(o => ['served', 'paid'].includes(o.status)).length,
-      paid: orders.filter(o => o.status === 'paid').length,
+      paid: paidOrders.length,
       revenue,
       items: orders.reduce((s, o) => s + (o.items || []).reduce((a, i) => a + (i.quantity || 1), 0), 0),
       bonusAmt: revenue * bonusPct,
@@ -1371,11 +1412,19 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
         </div>
       </div>
 
+      {/* Status sub-filter */}
+      <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5 w-fit">
+        {[['all','All'],['active','Active'],['completed','Completed']].map(([val,lbl]) => (
+          <button key={val} onClick={() => setStatusFilter(val)}
+            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${statusFilter === val ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{lbl}</button>
+        ))}
+      </div>
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Orders',  value: stats.total,                  color: 'text-white',      bg: 'bg-white/5' },
-          { label: 'Served',        value: stats.served,                 color: 'text-blue-400',   bg: 'bg-blue-500/10' },
+          { label: 'Total Orders',  value: stats.total,                    color: 'text-white',      bg: 'bg-white/5' },
+          { label: 'Active',        value: stats.active,                   color: 'text-orange-400', bg: 'bg-orange-500/10' },
           { label: 'Items Served',  value: stats.items,                  color: 'text-orange-400', bg: 'bg-orange-500/10' },
           { label: 'Revenue',       value: `$${stats.revenue.toFixed(0)}`, color: 'text-primary', bg: 'bg-primary/10' },
         ].map((s, i) => (
@@ -1413,7 +1462,14 @@ const CaptainMyOrders = ({ user, allOrders, captainTableNumbers }) => {
       </div>
 
       <div className="space-y-3">
-          {orders.map(ord => {
+          {filtered.length === 0 && (
+            <div className="py-16 text-center text-text-muted">
+              <ClipboardList size={36} className="mx-auto mb-3 opacity-20" />
+              <p className="font-bold text-sm uppercase tracking-widest">No orders found</p>
+              <p className="text-xs mt-1">Try changing the time period or status filter</p>
+            </div>
+          )}
+          {filtered.map(ord => {
             const isExpanded = expandedOrder === (ord._id || ord.id);
             return (
               <div key={ord._id || ord.id}
@@ -2161,16 +2217,21 @@ const ReservationsPanel = () => {
 
 // ─── FEEDBACK BOX ─────────────────────────────────────────────────────────────
 const FeedbackBox = ({ userRole = 'owner' }) => {
+  const { user } = useAuth();
   const [feedback, setFeedback] = useState([]);
   const [replyingTo, setReplyingTo] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   const [replyMsg, setReplyMsg] = useState('');
   const [loading, setLoading] = useState(true);
-  // Manager defaults to 'unread'; Owner defaults to 'all'
   const [filter, setFilter] = useState(userRole === 'manager' ? 'unread' : 'all');
   const [fbDelConfirm, setFbDelConfirm] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  // Local map: feedbackId → 'owner'|'manager' — persists replied_by when backend doesn't return it
+  const [localReplyBy, setLocalReplyBy] = useState({});
+  // Date filter: 'all' | 'today' | 'custom'
+  const [dateFilter, setDateFilter] = useState('all');
+  const [selectedDate, setSelectedDate] = useState('');
   const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const load = useCallback(async (silent = false) => {
@@ -2190,7 +2251,9 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
     if (!replyText.trim()) return;
     setReplySending(true);
     try {
-      await feedbackAPI.reply(id, replyText);
+      await feedbackAPI.reply(id, replyText, userRole);
+      // Store who replied locally — backend may not return replied_by field
+      setLocalReplyBy(prev => ({ ...prev, [id]: userRole }));
       setReplyMsg('Reply sent via email ✓');
       setReplyingTo(null); setReplyText('');
       setTimeout(() => setReplyMsg(''), 4000);
@@ -2206,16 +2269,53 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
   };
 
   const unread = feedback.filter(f => !f.is_read).length;
-  // Manager sees: unread + needs reply; Owner sees: everything
-  const filtered = userRole === 'manager'
+
+  // Status/category filter
+  const statusFiltered = userRole === 'manager'
     ? (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f.is_read) : feedback.filter(f => !f.is_read || !f.replied_at))
     : (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f.is_read) : feedback.filter(f => f.category === filter));
 
+  // Date filter on top of status filter
+  const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+  const filtered = statusFiltered.filter(f => {
+    if (dateFilter === 'all') return true;
+    const fDate = new Date(f.created_at).toLocaleDateString('en-CA');
+    if (dateFilter === 'today') return fDate === todayStr;
+    if (dateFilter === 'custom' && selectedDate) return fDate === selectedDate;
+    return true;
+  });
+
+  // Group by date
+  const grouped = filtered.reduce((acc, f) => {
+    const key = new Date(f.created_at).toLocaleDateString('en-CA');
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(f);
+    return acc;
+  }, {});
+  const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
+  const formatGroupDate = (dateStr) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    const today = new Date(); today.setHours(0,0,0,0);
+    const yesterday = new Date(today); yesterday.setDate(today.getDate()-1);
+    if (d.getTime() === today.getTime()) return 'Today';
+    if (d.getTime() === yesterday.getTime()) return 'Yesterday';
+    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  };
+
   const starColor = (n) => n >= 4 ? 'text-green-400' : n >= 3 ? 'text-yellow-400' : 'text-red-400';
+
+  // Reply label based on who replied
+  const getReplyLabel = (f) => {
+    // Prefer backend replied_by, then local state map, then default to current userRole
+    const by = f.replied_by || localReplyBy[f._id] || userRole;
+    if (by === 'manager') return { label: 'Manager Reply', color: 'text-blue-400', border: 'border-blue-500/20', bg: 'bg-blue-500/5' };
+    return { label: 'Owner Reply', color: 'text-green-400', border: 'border-green-500/20', bg: 'bg-green-500/5' };
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
             <MessageSquare size={28} className="text-primary" />Feedback Box
@@ -2237,97 +2337,148 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
           </button>
         </div>
       </div>
-      <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5 w-fit">
-        {['all', 'unread'].map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filter === f ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{f}</button>
-        ))}
+
+      {/* Filters row */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Status filter */}
+        <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
+          {['all', 'unread'].map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${filter === f ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>{f}</button>
+          ))}
+        </div>
+        {/* Date filter */}
+        <div className="flex gap-2 bg-white/5 p-1.5 rounded-xl border border-white/5">
+          {[['all','All Dates'],['today','Today'],['custom','Pick Date']].map(([val, lbl]) => (
+            <button key={val} onClick={() => setDateFilter(val)}
+              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${dateFilter === val ? 'bg-primary text-white' : 'text-text-muted hover:text-white'}`}>
+              {val === 'custom' && <Calendar size={10} />}{lbl}
+            </button>
+          ))}
+        </div>
+        {/* Calendar picker for custom date */}
+        {dateFilter === 'custom' && (
+          <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
+            max={todayStr}
+            className="bg-bg-main border border-white/10 text-white text-xs font-bold px-3 py-2 rounded-xl outline-none focus:border-primary transition-all" />
+        )}
+        {/* Active date badge */}
+        {dateFilter !== 'all' && (
+          <span className="text-[10px] text-primary font-black px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-xl flex items-center gap-1.5">
+            <Calendar size={10} />
+            {dateFilter === 'today' ? 'Showing: Today' : selectedDate ? `Showing: ${new Date(selectedDate+'T00:00:00').toLocaleDateString(undefined, {month:'short',day:'numeric',year:'numeric'})}` : 'Select a date'}
+            <button onClick={() => { setDateFilter('all'); setSelectedDate(''); }} className="ml-1 text-text-muted hover:text-white transition-all">✕</button>
+          </span>
+        )}
       </div>
+
       {replyMsg && <p className="text-xs text-primary font-bold px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl">{replyMsg}</p>}
       {loading ? <div className="flex justify-center py-20"><Loader size={28} className="animate-spin text-primary" /></div> : (
-        <div className="space-y-3">
-          {filtered.map(f => (
-            <div key={f._id} className={`bg-secondary/40 rounded-2xl border p-5 ${f.is_read ? 'border-white/5' : 'border-primary/30 bg-primary/5'}`}>
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-text-muted">
-                    <User size={16} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-white">{f.customer_name || f.customer_id?.name || 'Anonymous'}</p>
-                    <p className="text-[10px] text-text-muted">{f.category} · {new Date(f.created_at).toLocaleDateString()}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-lg font-black ${starColor(f.rating)}`}>{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)}</span>
-                  {!f.is_read && (
-                    <button onClick={() => markRead(f._id)} className="text-[10px] px-3 py-1 bg-primary/20 text-primary border border-primary/30 rounded-lg font-black uppercase hover:bg-primary hover:text-white transition-all">
-                      Mark Read
-                    </button>
-                  )}
-                </div>
-              </div>
-              {f.mobile_number && (
-                <p className="text-xs text-text-muted mb-2 flex items-center gap-1">
-                  <Phone size={10} className="text-primary" /> {f.mobile_number}
-                </p>
-              )}
-              {f.message && <p className="text-sm text-white/80 bg-white/5 rounded-xl p-3 mb-2">{f.message}</p>}
-              {f.suggestion && (
-                <div className="bg-primary/5 border border-primary/20 rounded-xl p-3">
-                  <p className="text-[10px] text-primary font-black uppercase tracking-widest mb-1">Suggestion</p>
-                  <p className="text-sm text-white/70">{f.suggestion}</p>
-                </div>
-              )}
-              {/* Email display */}
-              {(f.customer_email||f.customer_id?.email) && (
-                <p className="text-[10px] text-text-muted flex items-center gap-1 mt-2">
-                  <Mail size={9} className="text-primary" />{f.customer_email||f.customer_id?.email}
-                </p>
-              )}
-              {/* Owner reply */}
-              {f.owner_reply && (
-                <div className="mt-2 bg-green-500/5 border border-green-500/20 rounded-xl p-3">
-                  <p className="text-[9px] text-green-400 font-black uppercase tracking-widest mb-1">
-                    <Mail size={9} /> Owner Reply {f.reply_sent_email?'· Sent ✓':'· Draft'}
-                  </p>
-                  <p className="text-xs text-white/70">{f.owner_reply}</p>
-                </div>
-              )}
-              {/* Reply button */}
-              {(f.customer_email||f.customer_id?.email) && (
-                <div className="mt-3">
-                  {replyingTo===f._id ? (
-                    <div className="bg-white/5 rounded-xl p-3 space-y-2">
-                      <p className="text-[10px] text-text-muted font-bold">Reply to: {f.customer_email||f.customer_id?.email}</p>
-                      <textarea rows={3} value={replyText} onChange={e=>setReplyText(e.target.value)} autoFocus
-                        placeholder="Type your reply — will be emailed to the customer..."
-                        className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary resize-none" />
-                      <div className="flex gap-2">
-                        <button onClick={()=>handleReply(f._id)} disabled={replySending||!replyText.trim()}
-                          className="px-4 py-1.5 bg-primary text-white rounded-lg text-xs font-black uppercase flex items-center gap-1.5 disabled:opacity-60">
-                          <Mail size={11}/>{replySending?'Sending…':'Send Reply'}
-                        </button>
-                        <button onClick={()=>{setReplyingTo(null);setReplyText('');}}
-                          className="px-4 py-1.5 border border-white/20 rounded-lg text-xs font-black uppercase hover:bg-white/5">Cancel</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button onClick={()=>{setReplyingTo(f._id);setReplyText(f.owner_reply||'');}}
-                      className="text-[10px] px-3 py-1.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg font-black uppercase hover:bg-blue-500 hover:text-white transition-all flex items-center gap-1.5">
-                      <Mail size={10}/>{f.owner_reply?'Edit Reply':'Reply via Email'}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-          {filtered.length === 0 && (
+        <div className="space-y-6">
+          {sortedDates.length === 0 && (
             <div className="py-20 text-center text-text-muted">
               <MessageSquare size={40} className="mx-auto mb-3 opacity-20" />
               <p className="font-bold text-sm uppercase tracking-widest">No feedback found</p>
             </div>
           )}
+          {sortedDates.map(dateKey => (
+            <div key={dateKey}>
+              {/* Date group header */}
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-xl">
+                  <Calendar size={11} className="text-primary" />
+                  <span className="text-[11px] font-black text-white uppercase tracking-widest">{formatGroupDate(dateKey)}</span>
+                  <span className="text-[10px] text-text-muted font-bold">· {grouped[dateKey].length} feedback</span>
+                </div>
+                <div className="flex-1 h-px bg-white/5" />
+              </div>
+              <div className="space-y-3">
+                {grouped[dateKey].map(f => {
+                  const replyMeta = getReplyLabel(f);
+                  return (
+                    <div key={f._id} className={`bg-secondary/40 rounded-2xl border p-5 ${f.is_read ? 'border-white/5' : 'border-primary/30 bg-primary/5'}`}>
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-text-muted">
+                            <User size={16} />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-white">{f.customer_name || f.customer_id?.name || 'Anonymous'}</p>
+                            <p className="text-[10px] text-text-muted">{f.category} · {new Date(f.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-lg font-black ${starColor(f.rating)}`}>{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)}</span>
+                          {!f.is_read && (
+                            <button onClick={() => markRead(f._id)} className="text-[10px] px-3 py-1 bg-primary/20 text-primary border border-primary/30 rounded-lg font-black uppercase hover:bg-primary hover:text-white transition-all">
+                              Mark Read
+                            </button>
+                          )}
+                          {userRole === 'owner' && (
+                            <button onClick={() => setFbDelConfirm(f._id)} className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-all"><Trash2 size={13} /></button>
+                          )}
+                        </div>
+                      </div>
+                      {f.mobile_number && (
+                        <p className="text-xs text-text-muted mb-2 flex items-center gap-1">
+                          <Phone size={10} className="text-primary" /> {f.mobile_number}
+                        </p>
+                      )}
+                      {f.message && <p className="text-sm text-white/80 bg-white/5 rounded-xl p-3 mb-2">{f.message}</p>}
+                      {f.suggestion && (
+                        <div className="bg-primary/5 border border-primary/20 rounded-xl p-3">
+                          <p className="text-[10px] text-primary font-black uppercase tracking-widest mb-1">Suggestion</p>
+                          <p className="text-sm text-white/70">{f.suggestion}</p>
+                        </div>
+                      )}
+                      {(f.customer_email||f.customer_id?.email) && (
+                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-2">
+                          <Mail size={9} className="text-primary" />{f.customer_email||f.customer_id?.email}
+                        </p>
+                      )}
+                      {/* Reply display — shows Manager Reply or Owner Reply based on who replied */}
+                      {f.owner_reply && (
+                        <div className={`mt-2 ${replyMeta.bg} border ${replyMeta.border} rounded-xl p-3`}>
+                          <p className={`text-[9px] ${replyMeta.color} font-black uppercase tracking-widest mb-1 flex items-center gap-1`}>
+                            <Mail size={9} /> {replyMeta.label} {f.reply_sent_email?'· Sent ✓':'· Draft'}
+                          </p>
+                          <p className="text-xs text-white/70">{f.owner_reply}</p>
+                        </div>
+                      )}
+                      {/* Reply button */}
+                      {(f.customer_email||f.customer_id?.email) && (
+                        <div className="mt-3">
+                          {replyingTo===f._id ? (
+                            <div className="bg-white/5 rounded-xl p-3 space-y-2">
+                              <p className="text-[10px] text-text-muted font-bold">
+                                Replying as <span className={userRole === 'manager' ? 'text-blue-400' : 'text-yellow-400'}>{userRole === 'manager' ? '🧑‍💼 Manager' : '👑 Owner'}</span> → {f.customer_email||f.customer_id?.email}
+                              </p>
+                              <textarea rows={3} value={replyText} onChange={e=>setReplyText(e.target.value)} autoFocus
+                                placeholder="Type your reply — will be emailed to the customer..."
+                                className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl text-white text-sm outline-none focus:border-primary resize-none" />
+                              <div className="flex gap-2">
+                                <button onClick={()=>handleReply(f._id)} disabled={replySending||!replyText.trim()}
+                                  className="px-4 py-1.5 bg-primary text-white rounded-lg text-xs font-black uppercase flex items-center gap-1.5 disabled:opacity-60">
+                                  <Mail size={11}/>{replySending?'Sending…':'Send Reply'}
+                                </button>
+                                <button onClick={()=>{setReplyingTo(null);setReplyText('');}}
+                                  className="px-4 py-1.5 border border-white/20 rounded-lg text-xs font-black uppercase hover:bg-white/5">Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button onClick={()=>{setReplyingTo(f._id);setReplyText(f.owner_reply||'');}}
+                              className="text-[10px] px-3 py-1.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg font-black uppercase hover:bg-blue-500 hover:text-white transition-all flex items-center gap-1.5">
+                              <Mail size={10}/>{f.owner_reply?'Edit Reply':'Reply via Email'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
       <ConfirmDialog
@@ -2600,7 +2751,15 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                   )}
                   {a.has_offer && (
                     <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
-                      🎁 {a.offer_discount}% OFF · {a.offer_items?.includes('ALL') ? 'All Items' : `${a.offer_items?.length || 0} item${(a.offer_items?.length || 0) > 1 ? 's' : ''}`}
+                      🎁 {a.offer_discount}% OFF · {a.offer_scope === 'all' ? 'All Items' : (() => {
+                        // offer_items may be { id, name } objects (backend-resolved) or raw IDs
+                        const names = (a.offer_items || []).map(item => {
+                          if (item?.name) return item.name;
+                          return menuItems.find(m => (m._id||m.id) === item)?.name || null;
+                        }).filter(Boolean);
+                        if (names.length > 0) return names.slice(0,2).join(', ') + (names.length > 2 ? ` +${names.length-2}` : '');
+                        return `${a.offer_items?.length || 0} item${(a.offer_items?.length||0)!==1?'s':''}`;
+                      })()}
                     </span>
                   )}
                   {a.is_scheduled && a.scheduled_date && (
@@ -2647,25 +2806,30 @@ const AnnouncementsPanel = ({ isAdmin }) => {
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      {a.offer_items.map(itemId => {
+                      {a.offer_items.map((item, idx) => {
+                        // Backend resolves offer_items to { id, name } objects
+                        // Also support raw string IDs for backward compat
+                        const itemId  = item?.id || item;
+                        const itemName = item?.name
+                          || menuItems.find(m => (m._id || m.id) === itemId)?.name
+                          || null;
                         const mi = menuItems.find(m => (m._id || m.id) === itemId);
-                        if (!mi) return null;
-                        const discounted = (mi.price * (1 - a.offer_discount / 100)).toFixed(2);
+                        const discounted = mi ? (mi.price * (1 - a.offer_discount / 100)).toFixed(2) : null;
                         return (
-                          <div key={itemId} className="flex items-center justify-between text-[10px] bg-white/5 rounded-lg px-2 py-1">
-                            <span className="text-white font-bold">{mi.name}</span>
+                          <div key={itemId || idx} className="flex items-center justify-between text-[10px] bg-white/5 rounded-lg px-2 py-1">
+                            <span className="text-white font-bold">
+                              {itemName || <span className="text-white/40 italic">Unknown Item</span>}
+                            </span>
                             <span className="flex items-center gap-1.5">
-                              <span className="line-through text-white/30">${mi.price?.toFixed(2)}</span>
-                              <span className="text-green-400 font-black">${discounted}</span>
+                              {mi && <span className="line-through text-white/30">${mi.price?.toFixed(2)}</span>}
+                              {discounted && <span className="text-green-400 font-black">${discounted}</span>}
+                              {!discounted && <span className="text-green-400 font-black">{a.offer_discount}% OFF</span>}
                             </span>
                           </div>
                         );
                       })}
                       <p className="text-[10px] text-green-400/70 font-bold pt-1">
-                        Est. avg saving: ${(a.offer_items.map(id => {
-                          const mi = menuItems.find(m => (m._id || m.id) === id);
-                          return mi ? mi.price * a.offer_discount / 100 : 0;
-                        }).reduce((s, v) => s + v, 0) / Math.max(a.offer_items.length, 1)).toFixed(2)} per item
+                        {`${a.offer_discount}% OFF applies to all selected items`}
                       </p>
                     </div>
                   )}
@@ -4954,7 +5118,7 @@ const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, dele
             </p>
             <p className="text-[10px] text-text-muted mt-0.5">
               {isDeliveryCaptain
-                ? 'You see and manage all delivery & pickup orders only. Use 🚗 Dispatch to dispatch ready orders.'
+                ? 'Delivery orders: Start → Done → Dispatch → Paid. Pickup/Takeaway orders: Start → Done → Collected.'
                 : `You see and manage orders for your assigned tables only. Buttons on other-zone tables are locked.`}
             </p>
           </div>
@@ -6285,7 +6449,7 @@ const RidersPanel = ({ currentUserRole }) => {
     };
 
     const geocodeAndPlace = async (d) => {
-      const addr = d.delivery_address || '';
+      const addr = d.delivery_address || d.order_id?.delivery_address || '';
       if (!addr) return;
       try {
         // Use backend proxy — browser cannot set User-Agent, Nominatim blocks localhost
@@ -6383,9 +6547,12 @@ const RidersPanel = ({ currentUserRole }) => {
     assigned: 'bg-blue-400', picked_up: 'bg-orange-400', in_transit: 'bg-green-400',
   };
 
-  const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
+  const pendingDeliveries = deliveries.filter(d => d.status === 'pending' && d.order_id?.order_type === 'delivery');
+  const pendingPickups    = deliveries.filter(d => d.status === 'pending' && ['pickup','takeaway'].includes(d.order_id?.order_type));
   const activeDeliveries  = deliveries.filter(d => ['assigned','picked_up','in_transit'].includes(d.status));
   const totalEarnings     = deliveries.filter(d => d.status === 'delivered').reduce((s, d) => s + (d.delivery_fee || 0), 0);
+  // Only delivery orders need dispatch (rider assigned but not yet dispatched)
+  const awaitingDispatch  = deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched && d.order_id?.order_type === 'delivery');
 
   return (
     <div className="space-y-8">
@@ -6396,7 +6563,7 @@ const RidersPanel = ({ currentUserRole }) => {
           <p className="text-text-muted text-sm mt-1">
             {['owner', 'manager'].includes(currentUserRole)
               ? 'Manage delivery riders, track live deliveries and performance'
-              : 'Dispatch orders to riders and track live deliveries'}
+              : 'Dispatch delivery orders to riders and track live deliveries'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -6417,12 +6584,12 @@ const RidersPanel = ({ currentUserRole }) => {
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Riders',   value: riders.length,           color: 'text-primary',    bg: 'bg-primary/10',    icon: Truck    },
-          { label: 'Active Now',     value: activeDeliveries.length, color: 'text-green-400',  bg: 'bg-green-500/10',  icon: Activity },
-          { label: 'Pending Orders', value: pendingDeliveries.length,color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: Package  },
+          { label: 'Total Riders',      value: riders.length,            color: 'text-primary',    bg: 'bg-primary/10',    icon: Truck    },
+          { label: 'Active Deliveries', value: activeDeliveries.length,  color: 'text-green-400',  bg: 'bg-green-500/10',  icon: Activity },
+          { label: 'Pending Delivery',  value: pendingDeliveries.length, color: 'text-yellow-400', bg: 'bg-yellow-500/10', icon: Package  },
           ['owner', 'manager'].includes(currentUserRole)
-            ? { label: 'Total Paid Out',   value: `$${totalEarnings}`,                                                         color: 'text-blue-400',   bg: 'bg-blue-500/10',   icon: DollarSign }
-            : { label: 'Ready to Dispatch',value: deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).length, color: 'text-blue-400', bg: 'bg-blue-500/10', icon: Truck },
+            ? { label: 'Total Paid Out',      value: `$${totalEarnings}`,     color: 'text-blue-400', bg: 'bg-blue-500/10',   icon: DollarSign }
+            : { label: 'Ready to Dispatch',   value: awaitingDispatch.length, color: 'text-blue-400', bg: 'bg-blue-500/10',   icon: Truck },
         ].map(({ label, value, color, bg, icon: Icon }) => (
           <div key={label} className="bg-secondary/40 rounded-2xl border border-white/5 p-5 flex items-center gap-4">
             <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shrink-0`}><Icon size={18} className={color} /></div>
@@ -6434,18 +6601,21 @@ const RidersPanel = ({ currentUserRole }) => {
         ))}
       </div>
 
-      {/* Deliveries awaiting dispatch — assigned but not yet dispatched */}
-      {deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).length > 0 && (
+      {/* Delivery orders awaiting dispatch — rider assigned but captain hasn't dispatched yet */}
+      {awaitingDispatch.length > 0 && (
         <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5">
           <h4 className="text-sm font-black text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-            <Truck size={14} /> {deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).length} Order{deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).length !== 1 ? 's' : ''} Ready to Dispatch
+            <Truck size={14} /> {awaitingDispatch.length} Delivery Order{awaitingDispatch.length !== 1 ? 's' : ''} Ready to Dispatch
           </h4>
           <div className="space-y-2">
-            {deliveries.filter(d => d.status === 'assigned' && !d.captain_dispatched).map(d => (
+            {awaitingDispatch.map(d => (
               <div key={d._id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 gap-4 flex-wrap">
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-white">Order #{d.order_id?.order_number || '—'}</p>
-                  <p className="text-xs text-text-muted truncate">{d.delivery_address}</p>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-sm font-bold text-white">Order #{d.order_id?.order_number || '—'}</p>
+                    <span className="text-[8px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-full font-black uppercase">🚗 Delivery</span>
+                  </div>
+                  <p className="text-xs text-text-muted truncate">{d.delivery_address || d.order_id?.delivery_address}</p>
                   <p className="text-[10px] text-blue-400">Rider: {d.driver_id?.name || '—'} · Waiting for dispatch</p>
                 </div>
                 <button onClick={async () => {
@@ -6460,23 +6630,51 @@ const RidersPanel = ({ currentUserRole }) => {
         </div>
       )}
 
-      {/* Pending deliveries needing assignment */}
+      {/* Pending delivery orders — waiting for a rider to accept */}
       {pendingDeliveries.length > 0 && (
         <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-2xl p-5">
           <h4 className="text-sm font-black text-yellow-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-            <AlertTriangle size={14} /> {pendingDeliveries.length} Order{pendingDeliveries.length !== 1 ? 's' : ''} Waiting for a Rider
+            <AlertTriangle size={14} /> {pendingDeliveries.length} Delivery Order{pendingDeliveries.length !== 1 ? 's' : ''} Waiting for a Rider
           </h4>
           <div className="space-y-2">
             {pendingDeliveries.slice(0, 5).map(d => (
               <div key={d._id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 gap-4 flex-wrap">
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-white">{d.order_id?.order_number || '—'}</p>
-                  <p className="text-xs text-text-muted truncate">{d.delivery_address}</p>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-sm font-bold text-white">{d.order_id?.order_number || '—'}</p>
+                    <span className="text-[8px] px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/20 rounded-full font-black uppercase">🚗 Delivery</span>
+                  </div>
+                  <p className="text-xs text-text-muted truncate">{d.delivery_address || d.order_id?.delivery_address}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="text-xs text-text-muted">{d.customer_name}</span>
-                  <span className="text-[10px] font-black px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/20 uppercase">Waiting</span>
+                  <span className="text-[10px] font-black px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/20 uppercase">Waiting for Rider</span>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pickup orders — no rider needed, customer collects */}
+      {pendingPickups.length > 0 && (
+        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5">
+          <h4 className="text-sm font-black text-emerald-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <Package size={14} /> {pendingPickups.length} Pickup Order{pendingPickups.length !== 1 ? 's' : ''} — Customer Collecting
+          </h4>
+          <div className="space-y-2">
+            {pendingPickups.slice(0, 5).map(d => (
+              <div key={d._id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-sm font-bold text-white">{d.order_id?.order_number || '—'}</p>
+                    <span className="text-[8px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-full font-black uppercase">📦 Pickup</span>
+                  </div>
+                  <p className="text-xs text-text-muted">{d.customer_name || 'Walk-in'}</p>
+                </div>
+                <span className="text-[10px] font-black px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 uppercase shrink-0">
+                  No Rider Needed
+                </span>
               </div>
             ))}
           </div>
@@ -7910,7 +8108,7 @@ const navigate = useNavigate();
   // captain/manager/owner can do served / paid / dispatched
   const updateOrderStatus = useCallback(async (id, status) => {
     const CHEF_OK    = ['start_cooking', 'completed_cooking'];
-    const CAPTAIN_OK = ['dispatched', 'served', 'paid', 'cancelled'];
+    const CAPTAIN_OK = ['start_cooking', 'completed_cooking', 'dispatched', 'served', 'paid', 'cancelled'];
     if (user.role === 'chef'    && !CHEF_OK.includes(status))    return;
     if (user.role === 'captain' && !CAPTAIN_OK.includes(status)) return;
 

@@ -180,7 +180,7 @@ export const feedbackAPI = {
   create:      (body)        => request('/feedback',               { method: 'POST',  body: JSON.stringify(body) }),
   markRead:    (id)          => request(`/feedback/${id}/read`,    { method: 'PATCH' }),
   markAllRead: ()            => request('/feedback/mark-all-read', { method: 'PATCH' }),
-  reply:       (id, reply_message) => request(`/feedback/${id}/reply`, { method: 'POST', body: JSON.stringify({ reply_message }) }),
+  reply:       (id, reply_message, replied_by) => request(`/feedback/${id}/reply`, { method: 'POST', body: JSON.stringify({ reply_message, replied_by }) }),
   delete:      (id)          => request(`/feedback/${id}`,         { method: 'DELETE' }),
 };
 

@@ -72,8 +72,8 @@ const PICKUP_STEPS = [
 ];
 
 const DINEIN_STEP_IDX   = { pending:0, start_cooking:1, completed_cooking:2, served:3, paid:4 };
-const DELIVERY_STEP_IDX = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, in_transit:3, served:3, delivered:4, paid:5 };
-const PICKUP_STEP_IDX   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, served:3, paid:4 };
+const DELIVERY_STEP_IDX = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, in_transit:3, picked_up:3, served:3, delivered:4, paid:5 };
+const PICKUP_STEP_IDX   = { pending:0, start_cooking:1, completed_cooking:2, dispatched:3, served:3, picked_up:3, paid:4 };
 
 function getStepsForOrder(order) {
   const ot = order?.order_type || 'dine-in';
@@ -112,23 +112,34 @@ const OrderTracker = ({ order }) => {
   const { steps, idx } = getStepsForOrder(order);
   const curStepIdx = idx[order.status] ?? 0;
   const isDone = ['paid', 'served', 'delivered'].includes(order.status);
+  const isPickup = order.order_type === 'pickup';
   const isDelivery = order.order_type === 'delivery';
   const isDispatched = ['dispatched', 'in_transit', 'picked_up'].includes(order.status);
 
   const statusMsg = {
     pending:           'Your order has been placed and is waiting to be prepared.',
     start_cooking:     'Your order is being prepared by our kitchen team.',
-    completed_cooking: 'Your order is ready! Waiting to be dispatched.',
+    completed_cooking: isPickup
+      ? 'Your order is ready! Please come to the counter to collect it. 🏪'
+      : 'Your order is ready! Waiting to be dispatched.',
     served:            'Your order has been served. Enjoy your meal! 🍽',
-    paid:              'Thank you! Your order is complete. See you soon! 😊',
-    dispatched:        'Your order has been dispatched and is on the way! 🚗',
+    paid:              isPickup
+      ? 'Order picked up! Thank you, see you again soon! 😊'
+      : 'Thank you! Your order is complete. See you soon! 😊',
+    dispatched:        isPickup
+      ? 'Your order is at the counter, ready for collection! 🏪'
+      : 'Your order has been dispatched and is on the way! 🚗',
     in_transit:        'Your rider is on the way — almost there! 🛵',
     delivered:         'Your order has been delivered! Enjoy your meal! 🎉',
+    picked_up:         isPickup
+      ? 'Order collected — enjoy your meal! 😊'
+      : 'Your rider has picked up the order and is heading your way! 🛵',
   };
 
   // ── Border colour matches rider-page style per delivery status ─────────────
   const borderCls =
-    order.status === 'dispatched' || order.status === 'in_transit' ? 'border-emerald-500/40 bg-gradient-to-b from-emerald-500/5 to-transparent' :
+    (order.status === 'dispatched' || order.status === 'in_transit' || order.status === 'picked_up')
+      ? 'border-emerald-500/40 bg-gradient-to-b from-emerald-500/5 to-transparent' :
     order.status === 'delivered'  ? 'border-green-500/40 bg-gradient-to-b from-green-500/5 to-transparent' :
     order.status === 'paid'       ? 'border-yellow-500/30 bg-gradient-to-b from-yellow-500/5 to-transparent' :
     'border-white/10';
@@ -391,8 +402,8 @@ const ProfileHub = () => {
 
   // Auto-refresh live orders — faster when order is dispatched (rider moving)
   const liveRefreshInterval = React.useMemo(() => {
-    const hasDispatched = liveOrders.some(o => ['dispatched', 'in_transit'].includes(o.status));
-    return hasDispatched ? 8000 : 20000; // 8s while rider is moving, 20s otherwise
+    const hasDispatched = liveOrders.some(o => ['dispatched', 'in_transit', 'picked_up', 'delivered'].includes(o.status));
+    return hasDispatched ? 8000 : 20000; // 8s while rider is moving or awaiting payment, 20s otherwise
   }, [liveOrders]);
   useAutoRefresh(loadLiveOrders, liveRefreshInterval);
 

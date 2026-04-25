@@ -43,12 +43,12 @@ router.get('/available', protect, async (req, res, next) => {
 // GET /api/deliveries/completed
 router.get('/completed', protect, async (req, res, next) => {
   try {
-    const filter = { status: 'delivered' };
+    const filter = { status: { $in: ['delivered', 'paid'] } };
     if (req.user.role === 'delivery') filter.driver_id = req.user._id;
     const items = await Delivery.find(filter)
       .populate('order_id', 'order_number total')
       .populate('driver_id', 'name')
-      .sort({ delivered_at: -1 });
+      .sort({ updatedAt: -1 });
     res.json({ success: true, data: items });
   } catch (err) { next(err); }
 });
@@ -78,9 +78,9 @@ router.get('/my-skipped', protect, authorize('delivery'), async (req, res, next)
 // GET /api/deliveries/stats
 router.get('/stats', protect, async (req, res, next) => {
   try {
-    const all      = await Delivery.find({ driver_id: req.user._id, status: 'delivered' });
+    const all      = await Delivery.find({ driver_id: req.user._id, status: { $in: ['delivered', 'paid'] } });
     const today    = new Date(); today.setHours(0, 0, 0, 0);
-    const todayD   = all.filter(d => new Date(d.delivered_at) >= today);
+    const todayD   = all.filter(d => new Date(d.delivered_at || d.paid_at || d.updatedAt) >= today);
     const earnings = all.reduce((s, d) => s + (d.delivery_fee || 0), 0);
     const todayEarn= todayD.reduce((s, d) => s + (d.delivery_fee || 0), 0);
     const skipped  = await Delivery.countDocuments({ rejected_by: req.user._id });
@@ -106,7 +106,7 @@ router.get('/live-locations', protect, authorize('owner', 'manager', 'captain'),
 router.patch('/:id/location', protect, authorize('delivery'), async (req, res, next) => {
   try {
     const { lat, lng, address } = req.body;
-    const delivery = await Delivery.findById(req.params.id);
+    const delivery = await Delivery.findById(req.params.id).populate('order_id', 'order_number');
     if (!delivery) return res.status(404).json({ success: false, message: 'Not found' });
     if (delivery.driver_id?.toString() !== req.user._id.toString())
       return res.status(403).json({ success: false, message: 'Not your delivery' });
@@ -198,10 +198,10 @@ router.patch('/:id/dispatch', protect, authorize('captain', 'manager', 'owner'),
 router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', 'captain'), async (req, res, next) => {
   try {
     const { status, current_location } = req.body;
-    const VALID = ['picked_up', 'in_transit', 'delivered', 'failed'];
+    const VALID = ['picked_up', 'in_transit', 'delivered', 'paid', 'failed'];
     if (!VALID.includes(status))
       return res.status(400).json({ success: false, message: 'Invalid status' });
-    const delivery = await Delivery.findById(req.params.id);
+    const delivery = await Delivery.findById(req.params.id).populate('order_id', 'order_number');
     if (!delivery) return res.status(404).json({ success: false, message: 'Not found' });
     if (req.user.role === 'delivery' && delivery.driver_id?.toString() !== req.user._id.toString())
       return res.status(403).json({ success: false, message: 'Not your delivery' });
@@ -217,21 +217,30 @@ router.patch('/:id/status', protect, authorize('delivery', 'manager', 'owner', '
     if (status === 'picked_up')  delivery.picked_up_at  = new Date();
     if (status === 'in_transit') delivery.in_transit_at = new Date();
     if (status === 'delivered')  delivery.delivered_at  = new Date();
+    if (status === 'paid')       delivery.paid_at       = new Date();
     await delivery.save();
     // Sync order status so customer live tracking stays accurate
     const orderStatusMap = {
       picked_up:  'dispatched',   // rider picked up — still shows dispatched on customer side
       in_transit: 'dispatched',   // on the way — still dispatched from order perspective
       delivered:  'delivered',
+      paid:       'paid',         // payment collected — order fully complete
     };
     if (orderStatusMap[status] && delivery.order_id) {
       await Order.findByIdAndUpdate(delivery.order_id, { status: orderStatusMap[status] });
     }
     if (status === 'delivered') {
-      const managers = await User.find({ role: { $in: ['owner','manager'] }, is_active: true });
-      await Notification.insertMany(managers.map(u => ({
-        user_id: u._id, type: 'delivery', title: '✅ Delivery Completed',
-        message: `Order delivered by ${req.user.name}. Fee: $${delivery.delivery_fee || 0}`,
+      // Notify owner, manager AND the delivery captain so they can collect payment
+      const notifyUsers = await User.find({
+        role: { $in: ['owner', 'manager', 'captain'] },
+        is_active: true,
+      });
+      const orderNum = delivery.order_id?.order_number || delivery.order_id || 'unknown';
+      await Notification.insertMany(notifyUsers.map(u => ({
+        user_id: u._id,
+        type: 'delivery',
+        title: '🏠 Order Delivered — Collect Payment',
+        message: `${req.user.name} delivered order #${orderNum}. Please collect $${delivery.delivery_fee || 0} payment from the customer.`,
       })));
     }
     res.json({ success: true, data: delivery });

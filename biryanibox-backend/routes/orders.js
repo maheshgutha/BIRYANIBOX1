@@ -62,8 +62,8 @@ const getCaptainForTable = async (tableNumber) => {
 
 // ── Status permission rules ────────────────────────────────────────────────
 const STATUS_PERMISSIONS = {
-  start_cooking:     ['chef'],
-  completed_cooking: ['chef'],
+  start_cooking:     ['chef', 'captain', 'manager', 'owner'], // delivery captain can cook pickup orders
+  completed_cooking: ['chef', 'captain', 'manager', 'owner'], // delivery captain can mark pickup ready
   dispatched:        ['captain', 'manager', 'owner'],
   served:            ['captain', 'manager', 'owner'],
   paid:              ['captain', 'manager', 'owner', 'delivery'], // rider can mark paid
@@ -75,7 +75,7 @@ const STATUS_PERMISSIONS = {
 const VALID_TRANSITIONS = {
   pending:           ['start_cooking', 'cancelled'],
   start_cooking:     ['completed_cooking', 'cancelled'],
-  completed_cooking: ['dispatched', 'served'],   // dine-in skips dispatch → served
+  completed_cooking: ['dispatched', 'served', 'paid'],   // pickup skips dispatch → directly paid; dine-in → served
   dispatched:        ['served', 'paid'],          // delivery: dispatched→paid; dine-in: dispatched→served
   delivered:         ['paid'],                    // delivery: delivered→paid (rider marks paid)
   served:            ['paid'],
@@ -177,9 +177,16 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
     if (req.user.role === 'customer' && req.user._id.toString() !== req.params.customerId) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
+    // Include 'delivered' and 'paid' so the customer sees the final completed step
+    // on the live tracker instead of the order just vanishing.
+    // We still exclude 'cancelled' and truly-old paid orders (>2h) to keep the list clean.
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const orders = await Order.find({
       customer_id: req.params.customerId,
-      status: { $nin: ['paid', 'cancelled', 'delivered'] },
+      $or: [
+        { status: { $nin: ['paid', 'cancelled', 'delivered'] } },
+        { status: { $in: ['delivered', 'paid'] }, updated_at: { $gte: twoHoursAgo } },
+      ],
     })
       .populate('captain_id', 'name')
       .populate('chef_id', 'name')
@@ -655,7 +662,7 @@ router.patch('/:id/status', protect, async (req, res, next) => {
     }
 
     // ── Captain zone constraint: captain can only serve/pay their own tables ──
-    if (userRole === 'captain' && ['served', 'paid'].includes(status)) {
+    if (userRole === 'captain' && ['served', 'paid', 'start_cooking', 'completed_cooking'].includes(status)) {
       const captainTables = await RestaurantTable.find({ captain_id: req.user._id, is_active: true });
       const captainTableNums = captainTables.map(t => t.table_number);
       const isDeliveryCaptain = captainTableNums.length === 0;

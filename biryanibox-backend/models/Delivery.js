@@ -7,22 +7,23 @@ const DeliverySchema = new mongoose.Schema({
   // Customer info captured at checkout
   customer_name:     { type: String },
   customer_id:       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  customer_email:    { type: String },   // delivery contact email
-  phone:             { type: String },   // delivery contact phone
+  customer_email:    { type: String },
+  phone:             { type: String },
   delivery_address:  { type: String, required: true },
   delivery_notes:    { type: String },
-  knock_bell:        { type: Boolean, default: true }, // true = ring bell/knock, false = do not disturb
+  knock_bell:        { type: Boolean, default: true },
 
   // Lifecycle:
   // pending    → waiting for a rider to accept
   // assigned   → rider accepted, not yet picked up
   // picked_up  → rider has the food
   // in_transit → on the way to customer
-  // delivered  → completed
+  // delivered  → food delivered, awaiting payment collection
+  // paid       → payment collected, order fully complete
   // failed     → could not deliver
   status: {
     type: String,
-    enum: ['pending', 'assigned', 'picked_up', 'in_transit', 'delivered', 'failed'],
+    enum: ['pending', 'assigned', 'picked_up', 'in_transit', 'delivered', 'paid', 'failed'],
     default: 'pending',
   },
 
@@ -47,6 +48,7 @@ const DeliverySchema = new mongoose.Schema({
   picked_up_at:      { type: Date },
   in_transit_at:     { type: Date },
   delivered_at:      { type: Date },
+  paid_at:           { type: Date },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Delivery', DeliverySchema);

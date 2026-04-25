@@ -437,6 +437,10 @@ router.post('/', protect, async (req, res, next) => {
       const tableRec = await RestaurantTable.findOne({ table_number: resolvedTableNum });
       if (tableRec?.captain_id) assignedCaptainId = tableRec.captain_id;
     }
+    // If still no captain and the staff member placing the order IS a captain, assign them
+    if (!assignedCaptainId && req.user.role === 'captain') {
+      assignedCaptainId = req.user._id;
+    }
 
     const finalOrderType = isDelivery ? 'delivery' : isTakeaway ? 'pickup' : (order_type || 'dine-in');
 
@@ -736,7 +740,9 @@ router.patch('/:id/status', protect, async (req, res, next) => {
       updateData.captain_id = req.user._id;
     }
 
-    const updated = await Order.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    const updated = await Order.findByIdAndUpdate(req.params.id, updateData, { new: true })
+      .populate('captain_id', 'name')
+      .populate('chef_id', 'name');
 
     // ── Loyalty points on paid ─────────────────────────────────────────────
     if (status === 'paid' && updated.customer_id) {

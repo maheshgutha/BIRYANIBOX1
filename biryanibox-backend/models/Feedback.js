@@ -11,6 +11,7 @@ const FeedbackSchema = new mongoose.Schema({
   suggestion:    { type: String, maxlength: 2000 },
   // 'ambience' is the canonical DB value; frontend was sending 'ambiance' → normalised in route
   category:      { type: String, enum: ['food', 'service', 'ambience', 'delivery', 'general'], default: 'general' },
+  // ── Owner read/reply tracking ──────────────────────────────────────────
   is_read:       { type: Boolean, default: false },
   read_by:       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   read_at:       { type: Date },
@@ -18,6 +19,15 @@ const FeedbackSchema = new mongoose.Schema({
   owner_replied_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   owner_replied_at: { type: Date },
   reply_sent_email: { type: Boolean, default: false },
+
+  // ── Manager read/reply tracking (separate from owner) ──────────────────
+  manager_is_read:       { type: Boolean, default: false },
+  manager_read_by:       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  manager_read_at:       { type: Date },
+  manager_reply:         { type: String, maxlength: 2000 },
+  manager_replied_by:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  manager_replied_at:    { type: Date },
+  manager_reply_sent_email: { type: Boolean, default: false },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('Feedback', FeedbackSchema);

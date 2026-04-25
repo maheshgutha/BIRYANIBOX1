@@ -2268,12 +2268,13 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
     catch {}
   };
 
-  const unread = feedback.filter(f => !f.is_read).length;
+  // Use _role_is_read: backend attaches role-aware read state to each doc
+  const unread = feedback.filter(f => !f._role_is_read).length;
 
-  // Status/category filter
+  // Status/category filter using role-aware field
   const statusFiltered = userRole === 'manager'
-    ? (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f.is_read) : feedback.filter(f => !f.is_read || !f.replied_at))
-    : (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f.is_read) : feedback.filter(f => f.category === filter));
+    ? (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f._role_is_read) : feedback.filter(f => !f._role_is_read || !f._role_replied_at))
+    : (filter === 'all' ? feedback : filter === 'unread' ? feedback.filter(f => !f._role_is_read) : feedback.filter(f => f.category === filter));
 
   // Date filter on top of status filter
   const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
@@ -2305,11 +2306,11 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
 
   const starColor = (n) => n >= 4 ? 'text-green-400' : n >= 3 ? 'text-yellow-400' : 'text-red-400';
 
-  // Reply label based on who replied
+  // Reply label — backend provides _role_label based on caller's role
   const getReplyLabel = (f) => {
-    // Prefer backend replied_by, then local state map, then default to current userRole
-    const by = f.replied_by || localReplyBy[f._id] || userRole;
-    if (by === 'manager') return { label: 'Manager Reply', color: 'text-blue-400', border: 'border-blue-500/20', bg: 'bg-blue-500/5' };
+    if (f._role_label === 'Manager Reply') {
+      return { label: 'Manager Reply', color: 'text-blue-400', border: 'border-blue-500/20', bg: 'bg-blue-500/5' };
+    }
     return { label: 'Owner Reply', color: 'text-green-400', border: 'border-green-500/20', bg: 'bg-green-500/5' };
   };
 
@@ -2396,7 +2397,7 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
                 {grouped[dateKey].map(f => {
                   const replyMeta = getReplyLabel(f);
                   return (
-                    <div key={f._id} className={`bg-secondary/40 rounded-2xl border p-5 ${f.is_read ? 'border-white/5' : 'border-primary/30 bg-primary/5'}`}>
+                    <div key={f._id} className={`bg-secondary/40 rounded-2xl border p-5 ${f._role_is_read ? 'border-white/5' : 'border-primary/30 bg-primary/5'}`}>
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-text-muted">
@@ -2409,7 +2410,7 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
                         </div>
                         <div className="flex items-center gap-3">
                           <span className={`text-lg font-black ${starColor(f.rating)}`}>{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)}</span>
-                          {!f.is_read && (
+                          {!f._role_is_read && (
                             <button onClick={() => markRead(f._id)} className="text-[10px] px-3 py-1 bg-primary/20 text-primary border border-primary/30 rounded-lg font-black uppercase hover:bg-primary hover:text-white transition-all">
                               Mark Read
                             </button>
@@ -2437,12 +2438,12 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
                         </p>
                       )}
                       {/* Reply display — shows Manager Reply or Owner Reply based on who replied */}
-                      {f.owner_reply && (
+                      {f._role_reply && (
                         <div className={`mt-2 ${replyMeta.bg} border ${replyMeta.border} rounded-xl p-3`}>
                           <p className={`text-[9px] ${replyMeta.color} font-black uppercase tracking-widest mb-1 flex items-center gap-1`}>
-                            <Mail size={9} /> {replyMeta.label} {f.reply_sent_email?'· Sent ✓':'· Draft'}
+                            <Mail size={9} /> {replyMeta.label} {f._role_reply_sent?'· Sent ✓':'· Draft'}
                           </p>
-                          <p className="text-xs text-white/70">{f.owner_reply}</p>
+                          <p className="text-xs text-white/70">{f._role_reply}</p>
                         </div>
                       )}
                       {/* Reply button */}
@@ -2466,9 +2467,9 @@ const FeedbackBox = ({ userRole = 'owner' }) => {
                               </div>
                             </div>
                           ) : (
-                            <button onClick={()=>{setReplyingTo(f._id);setReplyText(f.owner_reply||'');}}
+                            <button onClick={()=>{setReplyingTo(f._id);setReplyText(f._role_reply||'');}}
                               className="text-[10px] px-3 py-1.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg font-black uppercase hover:bg-blue-500 hover:text-white transition-all flex items-center gap-1.5">
-                              <Mail size={10}/>{f.owner_reply?'Edit Reply':'Reply via Email'}
+                              <Mail size={10}/>{f._role_reply?'Edit Reply':'Reply via Email'}
                             </button>
                           )}
                         </div>

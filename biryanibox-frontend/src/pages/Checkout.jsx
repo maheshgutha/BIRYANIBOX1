@@ -77,10 +77,11 @@ const Checkout = () => {
         order_type:       orderType,
         delivery_address: deliveryAddress.trim() || undefined,
         delivery_notes:   deliveryNotes.trim()   || undefined,
-
         knock_bell:       knockBell,
-        coupon_code:      appliedCoupon?.code     || undefined,
-        coupon_discount:  couponDiscount           || undefined,
+        // ── Discount fields ── now properly applied by backend ───────────
+        coupon_code:      appliedCoupon?.code      || undefined,
+        coupon_discount:  couponDiscount  > 0 ? couponDiscount : undefined,
+        gift_card_code:   appliedGiftCard?.code    || undefined,   // if gift card used
       };
       const res = await checkoutAPI.process(payload);
       setOrderNumber(res.data?.order?.order_number || `BOX-${Math.floor(Math.random() * 90000 + 10000)}`);

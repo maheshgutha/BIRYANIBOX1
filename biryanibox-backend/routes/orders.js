@@ -66,14 +66,18 @@ const STATUS_PERMISSIONS = {
   completed_cooking: ['chef'],
   dispatched:        ['captain', 'manager', 'owner'],
   served:            ['captain', 'manager', 'owner'],
-  paid:              ['captain', 'manager', 'owner'],
+  paid:              ['captain', 'manager', 'owner', 'delivery'], // rider can mark paid
   cancelled:         ['manager', 'owner'],
 };
+// Note: actual next-status is computed dynamically in getNextStatus() based on order_type
+// Delivery/pickup: dispatched → delivered → paid  (no 'served' step)
+// Dine-in/takeaway: completed_cooking → served → paid
 const VALID_TRANSITIONS = {
   pending:           ['start_cooking', 'cancelled'],
   start_cooking:     ['completed_cooking', 'cancelled'],
-  completed_cooking: ['dispatched', 'served'],
-  dispatched:        ['served', 'paid'],
+  completed_cooking: ['dispatched', 'served'],   // dine-in skips dispatch → served
+  dispatched:        ['served', 'paid'],          // delivery: dispatched→paid; dine-in: dispatched→served
+  delivered:         ['paid'],                    // delivery: delivered→paid (rider marks paid)
   served:            ['paid'],
   paid:              [],
   cancelled:         [],
@@ -185,7 +189,15 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
     const all = [];
     for (const order of orders) {
       const items = await OrderItem.find({ order_id: order._id }).populate('menu_item_id', 'name');
-      all.push({ ...order.toObject(), items });
+      // For delivery orders, include delivery record with live rider location
+      let delivery = null;
+      if (order.order_type === 'delivery') {
+        delivery = await Delivery.findOne({ order_id: order._id })
+          .select('status captain_dispatched driver_id rider_lat rider_lng current_location assigned_at dispatched_at picked_up_at in_transit_at delivered_at')
+          .populate('driver_id', 'name phone vehicle_type')
+          .lean();
+      }
+      all.push({ ...order.toObject(), items, delivery });
     }
     res.json({ success: true, data: all[0], all });
   } catch (err) { next(err); }
@@ -300,7 +312,21 @@ router.get('/', protect, async (req, res, next) => {
       if (!itemsByOrder[key]) itemsByOrder[key] = [];
       itemsByOrder[key].push({ _id: item._id, menu_item_id: item.menu_item_id?._id || item.menu_item_id, name: item.name || item.menu_item_id?.name || 'Unknown Item', category: item.menu_item_id?.category || '', image_url: item.menu_item_id?.image_url || '', quantity: item.quantity, unit_price: item.unit_price, price: item.unit_price });
     });
-    const data = orders.map(o => ({ ...o.toObject(), items: itemsByOrder[o._id.toString()] || [] }));
+    // For delivery orders include delivery record so dashboard can gate dispatch button
+    const deliveryOrderIds = orders.filter(o => o.order_type === 'delivery').map(o => o._id);
+    const deliveryRecords = deliveryOrderIds.length
+      ? await Delivery.find({ order_id: { $in: deliveryOrderIds } })
+          .select('order_id status driver_id captain_dispatched rider_lat rider_lng')
+          .lean()
+      : [];
+    const deliveryByOrder = {};
+    deliveryRecords.forEach(d => { deliveryByOrder[d.order_id.toString()] = d; });
+
+    const data = orders.map(o => ({
+      ...o.toObject(),
+      items:    itemsByOrder[o._id.toString()] || [],
+      delivery: o.order_type === 'delivery' ? (deliveryByOrder[o._id.toString()] || null) : null,
+    }));
     res.json({ success: true, count: data.length, data });
   } catch (err) { next(err); }
 });
@@ -330,7 +356,12 @@ router.get('/:id', protect, async (req, res, next) => {
 router.post('/', protect, async (req, res, next) => {
   try {
     const { items, table_number, order_type, payment_method, spiceness,
-            delivery_address, delivery_notes, distance_km, knock_bell, pickup_extra_items } = req.body;
+            delivery_address, delivery_notes, distance_km, knock_bell, pickup_extra_items,
+            // Discount fields sent from Cart.jsx frontend
+            coupon_discount: rawCouponDiscount,
+            gift_card_discount: rawGiftDiscount,
+            coupon_code,
+          } = req.body;
 
     // For customers: always use their own ID as customer_id; ignore any captain_id from body
     // For staff (POS): use the customer_id from body if provided
@@ -356,16 +387,29 @@ router.post('/', protect, async (req, res, next) => {
       if (!menuItem.is_available) return res.status(400).json({ success: false, message: `${menuItem.name} is unavailable` });
     }
 
-    let total = 0;
+    let subtotal = 0;
     const orderItems = [];
     for (const item of items) {
       const menuItem = await MenuItem.findById(item.menu_item_id);
-      total += menuItem.price * item.quantity;
+      subtotal += menuItem.price * item.quantity;
       orderItems.push({ menu_item_id: item.menu_item_id, name: menuItem.name, quantity: item.quantity, unit_price: menuItem.price });
     }
+    subtotal = +subtotal.toFixed(2);
 
-    const dist = parseFloat(distance_km) || 0;
+    const dist        = parseFloat(distance_km) || 0;
     const deliveryFee = isDelivery ? (dist > 0 ? Math.round(dist * 2) : 5) : 0;
+
+    // ── Apply discounts (only for authenticated customers; staff POS skips these) ──
+    // Cap each discount at the remaining amount to prevent negative totals
+    const isCustomer = req.user.role === 'customer';
+    const couponDiscount = isCustomer
+      ? +Math.max(0, Math.min(parseFloat(rawCouponDiscount) || 0, subtotal)).toFixed(2)
+      : 0;
+    const giftDiscount = isCustomer
+      ? +Math.max(0, Math.min(parseFloat(rawGiftDiscount) || 0, subtotal - couponDiscount)).toFixed(2)
+      : 0;
+
+    const total = +Math.max(0, subtotal - couponDiscount - giftDiscount + deliveryFee).toFixed(2);
 
     // Resolve numeric table number — handles both '1' and 'Table 1' formats
     let resolvedTableNum = null;
@@ -396,9 +440,16 @@ router.post('/', protect, async (req, res, next) => {
 
     const order = await Order.create({
       customer_id, captain_id: assignedCaptainId, table_number,
-      total: +(total + deliveryFee).toFixed(2),
+      subtotal,                                          // original item total before discounts
+      coupon_discount:    couponDiscount,                // reward coupon deduction
+      gift_card_discount: giftDiscount,                  // gift card deduction
+      coupon_code:        couponDiscount > 0 ? (coupon_code || null) : null,
+      total,                                             // FINAL amount paid
       order_type: finalOrderType,
-      payment_method, status: initialStatus,
+      payment_method: (couponDiscount > 0 && giftDiscount > 0) ? 'mixed'
+                      : giftDiscount > 0 ? 'gift_card'
+                      : (payment_method || 'cash'),
+      status: initialStatus,
       confirmation_expires_at: confirmationExpiresAt,
       spiceness: spiceness || 'medium',
       delivery_address: needsAddress ? delivery_address.trim() : undefined,
@@ -631,7 +682,23 @@ router.patch('/:id/status', protect, async (req, res, next) => {
     if (status === 'start_cooking')    timeUpdate.cooking_started_at   = new Date();
     if (status === 'completed_cooking') timeUpdate.cooking_completed_at = new Date();
     if (status === 'served')            timeUpdate.served_at             = new Date();
+    if (status === 'delivered')         timeUpdate.served_at             = new Date(); // reuse served_at for delivery
     if (status === 'paid')              timeUpdate.paid_at               = new Date();
+
+    // Delivery role: can ONLY mark paid on delivery/pickup orders they handled
+    if (userRole === 'delivery') {
+      if (status !== 'paid') {
+        return res.status(403).json({ success: false, message: 'Riders can only mark orders as Paid.' });
+      }
+      if (!['delivery', 'pickup', 'takeaway'].includes(order.order_type)) {
+        return res.status(403).json({ success: false, message: 'Riders can only mark delivery/pickup orders.' });
+      }
+      // Verify the rider was assigned this order
+      const dlv = await Delivery.findOne({ order_id: order._id });
+      if (!dlv || dlv.driver_id?.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: 'You are not assigned to this order.' });
+      }
+    }
 
     const updateData = { status, ...timeUpdate };
     if ((status === 'start_cooking' || status === 'completed_cooking') && userRole === 'chef') {

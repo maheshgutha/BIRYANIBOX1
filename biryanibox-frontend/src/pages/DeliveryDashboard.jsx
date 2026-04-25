@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/useContextHooks';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { deliveryAPI, notificationsAPI } from '../services/api';
+import { deliveryAPI, notificationsAPI, ordersAPI } from '../services/api';
 import {
   Package, MapPin, Clock, CheckCircle, XCircle, LogOut, Bell, RefreshCw,
   Truck, DollarSign, TrendingUp, Loader, Navigation, Phone, User,
@@ -57,6 +57,7 @@ const STATUS_CONFIG = {
   in_transit: { label: 'On the Way', color: 'text-emerald-400', bg: 'bg-emerald-500/15 border-emerald-500/40', dot: 'bg-emerald-400', glow: 'shadow-emerald-500/30' },
   delivered:  { label: 'Delivered',  color: 'text-green-400',   bg: 'bg-green-500/15 border-green-500/40',  dot: 'bg-green-400',   glow: 'shadow-green-500/30' },
   failed:     { label: 'Failed',     color: 'text-red-400',     bg: 'bg-red-500/15 border-red-500/40',    dot: 'bg-red-400',     glow: 'shadow-red-500/30' },
+  paid:       { label: 'Paid',       color: 'text-yellow-400',  bg: 'bg-yellow-500/15 border-yellow-500/40', dot: 'bg-yellow-400', glow: 'shadow-yellow-500/30' },
 };
 
 // ── Mini Map Component ────────────────────────────────────────────────────
@@ -219,7 +220,7 @@ const StatCard = ({ icon: Icon, label, value, color = 'text-orange-400', bg = 'b
 );
 
 // ── Delivery Card ──────────────────────────────────────────────────────────
-const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, onRefresh, actLoading }) => {
+const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliver, onFail, onPaid, onRefresh, actLoading }) => {
   const order = delivery.order_id || {};
   const cfg = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
   const canAccept  = delivery.status === 'pending';
@@ -241,9 +242,11 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
     { status: 'picked_up',  label: 'Picked Up', icon: '📦' },
     { status: 'in_transit', label: 'On the Way',icon: '🛵' },
     { status: 'delivered',  label: 'Delivered', icon: '🏠' },
+    { status: 'paid',       label: 'Paid',       icon: '💰' },
   ];
-  const STEP_ORDER = ['assigned','picked_up','in_transit','delivered'];
-  const curIdx = STEP_ORDER.indexOf(delivery.status);
+  const STEP_ORDER = ['assigned','picked_up','in_transit','delivered','paid'];
+  const curIdx = STEP_ORDER.indexOf(delivery.status === 'paid' ? 'paid' : delivery.status);
+  const canPaid   = delivery.status === 'delivered' && order.status !== 'paid';
 
   return (
     <motion.div layout initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
@@ -459,6 +462,13 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
             </button>
           </>
         )}
+        {/* Paid button — rider marks order as collected/paid after delivery */}
+        {canPaid && (
+          <button onClick={() => onPaid(delivery._id, order._id)} disabled={actLoading}
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-600 hover:to-amber-600 text-black text-xs font-black py-3.5 px-4 rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-yellow-500/30">
+            <DollarSign size={14} /> 💰 Mark as Paid — Collection Done!
+          </button>
+        )}
       </div>
     </motion.div>
   );
@@ -610,6 +620,17 @@ export default function DeliveryDashboard() {
     finally { setActLoading(false); }
   };
 
+  // Rider marks the order as paid (collection done after delivery)
+  const handlePaid = async (deliveryId, orderId) => {
+    setActLoading(true);
+    try {
+      if (orderId) await ordersAPI.updateStatus(orderId, 'paid');
+      showFlash('💰 Order marked as paid! Well done!', 'success');
+      await loadAll();
+    } catch (e) { showFlash(e.message || 'Failed to mark paid', 'error'); }
+    finally { setActLoading(false); }
+  };
+
   const handleFail = async (id) => {
     setActLoading(true);
     try {
@@ -734,7 +755,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : available.map(d => (
                 <DeliveryCard key={d._id} delivery={d} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onPaid={handlePaid} onRefresh={refresh} actLoading={actLoading} />
               ))}
             </AnimatePresence>
           )}
@@ -753,7 +774,7 @@ export default function DeliveryDashboard() {
                 </motion.div>
               ) : (
                 <DeliveryCard key={myActive._id} delivery={myActive} onAccept={handleAccept} onSkip={handleSkip}
-                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onRefresh={refresh} actLoading={actLoading} />
+                  onPickup={handlePickup} onTransit={handleTransit} onDeliver={handleDeliver} onFail={handleFail} onPaid={handlePaid} onRefresh={refresh} actLoading={actLoading} />
               )}
             </AnimatePresence>
           )}

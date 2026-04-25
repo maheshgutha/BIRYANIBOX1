@@ -454,18 +454,29 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
   };
 
   // Order-type-aware transitions:
-  // Dine-in orders skip the dispatch step → completed_cooking goes straight to served
-  // Delivery/pickup/takeaway orders go through dispatched first
+  // Status flow by order type:
+  // Dine-in:           pending → cooking → ready → served → paid
+  // Delivery/Pickup:   pending → cooking → ready → dispatched → paid   (NO served step)
   const getNextStatus = (order) => {
-    const isDineIn = !['delivery', 'pickup', 'takeaway'].includes(order.order_type);
-    const BASE_TRANSITIONS = {
+    const isDeliveryType = ['delivery', 'pickup', 'takeaway'].includes(order.order_type);
+    if (isDeliveryType) {
+      const DELIVERY_TRANSITIONS = {
+        pending:           'start_cooking',
+        start_cooking:     'completed_cooking',
+        completed_cooking: 'dispatched',
+        dispatched:        'paid',       // skip 'served' for delivery/pickup
+        delivered:         'paid',
+      };
+      return DELIVERY_TRANSITIONS[order.status] || null;
+    }
+    // Dine-in / default
+    const DINEIN_TRANSITIONS = {
       pending:           'start_cooking',
       start_cooking:     'completed_cooking',
-      completed_cooking: isDineIn ? 'served' : 'dispatched',
-      dispatched:        'served',
+      completed_cooking: 'served',
       served:            'paid',
     };
-    return BASE_TRANSITIONS[order.status] || null;
+    return DINEIN_TRANSITIONS[order.status] || null;
   };
 
   // Keep TRANSITIONS as a static map for any code that reads it directly (e.g. button color check)
@@ -483,22 +494,25 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
     if (!next) return false;
     if (user.role === 'chef') return chefStatuses.includes(next);
     if (user.role === 'captain') {
-      // Delivery captain can dispatch (completed_cooking → dispatched); dine-in captains serve directly
-      if (isDeliveryCaptain) return [...captainStatuses, 'dispatched'].includes(next);
+      if (isDeliveryCaptain) {
+        // Delivery captain: can dispatch and mark paid (no served for delivery/pickup)
+        return ['dispatched', 'paid'].includes(next);
+      }
+      // Dine-in captain: served + paid only
       return captainStatuses.includes(next);
     }
     if (['manager', 'owner'].includes(user.role)) return managerStatuses.includes(next);
     return false;
   };
 
-  // Label for the advance button — delivery captain sees "🚗 Dispatch" instead of "Serve"
+  // Button labels per next status
   const getActionLabel = (order) => {
     const next = getNextStatus(order);
     if (!next) return '';
-    if (isDeliveryCaptain && next === 'dispatched') return '🚗 Dispatch';
-    if (isDeliveryCaptain && next === 'served')     return '✓ Serve';
-    if (isDeliveryCaptain && next === 'paid')       return '✓ Collected';
-    const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', dispatched: '🚗 Dispatch', served: '🍽️ Serve', paid: 'Paid ✓' };
+    const isDeliveryType = ['delivery','pickup','takeaway'].includes(order.order_type);
+    if (next === 'dispatched') return '🚗 Dispatch';
+    if (next === 'paid' && isDeliveryType) return '💰 Mark Collected';
+    const labels = { start_cooking: '▶ Start', completed_cooking: '✓ Done', served: '🍽️ Serve', paid: 'Paid ✓' };
     return labels[next] || next;
   };
 
@@ -613,16 +627,38 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                       </>
                     )}
                     {/* Main action button — only shown for in-zone orders */}
-                    {canAdvance(ord) && inZone && (
-                      <button onClick={() => onStatusUpdate(id, getNextStatus(ord))}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${
-                          isDeliveryCaptain && getNextStatus(ord) === 'dispatched'
-                            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500 hover:text-white'
-                            : 'bg-primary text-white hover:bg-primary-hover'
-                        }`}>
-                        {getActionLabel(ord)}
-                      </button>
-                    )}
+                    {canAdvance(ord) && inZone && (() => {
+                      const nextSt = getNextStatus(ord);
+                      // Dispatch gate: only allow dispatch when a rider has accepted (delivery.status === 'assigned')
+                      const isDispatchAction = nextSt === 'dispatched' && ord.order_type === 'delivery';
+                      const deliveryRec = ord.delivery || null;
+                      const riderAssigned = deliveryRec?.driver_id && deliveryRec?.status === 'assigned';
+                      const dispatchBlocked = isDispatchAction && !riderAssigned;
+
+                      if (dispatchBlocked) {
+                        return (
+                          <div className="flex flex-col items-end gap-1">
+                            <button disabled
+                              className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase bg-white/5 text-text-muted border border-white/10 cursor-not-allowed opacity-60">
+                              🚗 Dispatch
+                            </button>
+                            <span className="text-[8px] text-yellow-400 font-bold uppercase tracking-widest">
+                              ⏳ Awaiting rider
+                            </span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button onClick={() => onStatusUpdate(id, nextSt)}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${
+                            isDeliveryCaptain && nextSt === 'dispatched'
+                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500 hover:text-white'
+                              : 'bg-primary text-white hover:bg-primary-hover'
+                          }`}>
+                          {getActionLabel(ord)}
+                        </button>
+                      );
+                    })()}
                     {/* Out-of-zone indicator for dine-in captains only */}
                     {user.role === 'captain' && !inZone && !isDeliveryCaptain && canAdvance(ord) && (
                       <span className="text-[9px] text-text-muted px-2 py-1 bg-white/5 rounded-lg border border-white/10 uppercase tracking-widest">
@@ -1964,7 +2000,7 @@ const ReservationsPanel = () => {
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Date *</label>
                 <input type="date" required value={form.date} style={{ colorScheme: "dark" }} onChange={sf('date')} min={new Date().toISOString().split('T')[0]}
-                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
+                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Time *</label>
@@ -3477,7 +3513,11 @@ const LeaveModule = ({ user }) => {
 
   // Active filter for stat card clicks
   const [filterStatus, setFilterStatus] = useState('all');
-  const displayedLeaves = filterStatus === 'all' ? leaves : leaves.filter(l => l.status === filterStatus);
+  const displayedLeaves = filterStatus === 'all'
+    ? leaves
+    : filterStatus === 'mine'
+      ? leaves.filter(l => String(l.user_id?._id || l.user_id) === String(user._id))
+      : leaves.filter(l => l.status === filterStatus);
 
   return (
     <div className="space-y-6">
@@ -3504,12 +3544,13 @@ const LeaveModule = ({ user }) => {
 
       <AnimatePresence>{msg.text && <Flash msg={msg} />}</AnimatePresence>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 md:gap-4">
+      {/* Stats — 4 tabs: Pending / Approved / Rejected / Mine */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 md:gap-4">
         {[
-          { label: 'Pending',  value: pending,  color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', filter: 'pending'  },
-          { label: 'Approved', value: approved, color: 'text-green-400',  bg: 'bg-green-500/10',  border: 'border-green-500/30',  filter: 'approved' },
-          { label: isStaff ? 'My Applications' : 'Rejected', value: isStaff ? myLeaves.length : rejected, color: isStaff ? 'text-primary' : 'text-red-400', bg: isStaff ? 'bg-primary/10' : 'bg-red-500/10', border: isStaff ? 'border-primary/20' : 'border-red-500/30', filter: isStaff ? 'all' : 'rejected' },
+          { label: 'Pending',          value: pending,         color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', filter: 'pending'  },
+          { label: 'Approved',         value: approved,        color: 'text-green-400',  bg: 'bg-green-500/10',  border: 'border-green-500/30',  filter: 'approved' },
+          { label: 'Rejected',         value: rejected,        color: 'text-red-400',    bg: 'bg-red-500/10',    border: 'border-red-500/30',    filter: 'rejected' },
+          { label: 'My Applications',  value: myLeaves.length, color: 'text-primary',    bg: 'bg-primary/10',    border: 'border-primary/20',    filter: 'mine'     },
         ].map(({ label, value, color, bg, border, filter }) => {
           const isActive = filterStatus === filter;
           return (
@@ -3535,13 +3576,27 @@ const LeaveModule = ({ user }) => {
             <form onSubmit={handleApply} className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">From Date *</label>
-                <input type="date" required value={form.from_date} style={{ colorScheme: "dark" }} onChange={sf('from_date')} style={{ colorScheme: "dark" }}
-                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
+                <input type="date" required value={form.from_date}
+                  style={{ colorScheme: 'dark' }}
+                  min={new Date().toISOString().split('T')[0]}
+                  onChange={e => {
+                    const newFrom = e.target.value;
+                    setForm(p => ({
+                      ...p,
+                      from_date: newFrom,
+                      // Auto-reset to_date if it would be before from_date
+                      to_date: (p.to_date && p.to_date < newFrom) ? newFrom : p.to_date,
+                    }));
+                  }}
+                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">To Date *</label>
-                <input type="date" required value={form.to_date} style={{ colorScheme: "dark" }} onChange={sf('to_date')} style={{ colorScheme: "dark" }}
-                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" style={{ colorScheme: "dark" }} />
+                <input type="date" required value={form.to_date}
+                  style={{ colorScheme: 'dark' }}
+                  min={form.from_date || new Date().toISOString().split('T')[0]}
+                  onChange={sf('to_date')}
+                  className="w-full bg-bg-main border border-white/20 p-3 rounded-xl focus:border-primary outline-none text-white text-sm" />
               </div>
               <div>
                 <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Leave Type</label>
@@ -4846,12 +4901,24 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
 };
 
 // ─── ORDER BOOKING (live orders panel + POS) ─────────────────────────────────
-const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, deleteOrder, captainTableNumbers }) => {
+const OrderBookingPanel = ({ orders, user, updateOrderStatus, confirmOrder, deleteOrder, captainTableNumbers, liveDeliveries = [] }) => {
+  // Augment each delivery order with its live delivery record for dispatch gating
+  const ordersWithDelivery = React.useMemo(() => {
+    if (!liveDeliveries.length) return orders;
+    const dlvMap = {};
+    liveDeliveries.forEach(d => {
+      const oid = d.order_id?._id || d.order_id;
+      if (oid) dlvMap[String(oid)] = d;
+    });
+    return orders.map(o =>
+      o.order_type === 'delivery' ? { ...o, delivery: dlvMap[String(o._id)] || o.delivery || null } : o
+    );
+  }, [orders, liveDeliveries]);
   const [filterStatus, setFilterStatus] = useState('all');
-  const filtered = filterStatus === 'all' ? orders : orders.filter(o => o.status === filterStatus);
+  const filtered = filterStatus === 'all' ? ordersWithDelivery : ordersWithDelivery.filter(o => o.status === filterStatus);
 
   // Count orders needing confirmation
-  const pendingConfirmCount = orders.filter(o => o.status === 'pending_confirmation').length;
+  const pendingConfirmCount = ordersWithDelivery.filter(o => o.status === 'pending_confirmation').length;
 
   const isDeliveryCaptain = user.role === 'captain' && (!captainTableNumbers || captainTableNumbers.length === 0);
   const isDineInCaptain   = user.role === 'captain' && captainTableNumbers && captainTableNumbers.length > 0;
@@ -7744,6 +7811,20 @@ const navigate = useNavigate();
   } = useOrders();
 
   const defaultTab = user.role === 'chef' ? 'kitchen' : user.role === 'captain' ? 'tables' : 'overview';
+  const [liveDeliveries, setLiveDeliveries] = React.useState([]);
+
+  // Load delivery records for dispatch gating
+  React.useEffect(() => {
+    const loadDeliveries = async () => {
+      try {
+        const r = await deliveryAPI.getAll();
+        setLiveDeliveries(r.data || []);
+      } catch {}
+    };
+    loadDeliveries();
+    const interval = setInterval(loadDeliveries, 15000);
+    return () => clearInterval(interval);
+  }, []);
   // ── URL tab history: back/forward navigates between tabs ──────────────────
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (() => {
@@ -7944,7 +8025,7 @@ const navigate = useNavigate();
             {activeTab === 'orders' && (
               <MotionDiv key="orders" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
                 <KitchenFlowBar orders={orders} />
-                <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} confirmOrder={confirmOrder} deleteOrder={deleteOrder} captainTableNumbers={captainTableNumbers} />
+                <OrderBookingPanel orders={orders} user={user} updateOrderStatus={updateOrderStatus} confirmOrder={confirmOrder} deleteOrder={deleteOrder} captainTableNumbers={captainTableNumbers} liveDeliveries={liveDeliveries} />
               </MotionDiv>
             )}
 

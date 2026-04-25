@@ -53,14 +53,14 @@ const DINEIN_STEPS = [
   { key: 'served',            label: 'Served',    emoji: '🍽' },
   { key: 'paid',              label: 'Done',      emoji: '✓'  },
 ];
-// Delivery tracker steps
+// Delivery tracker steps — matches rider page flow (no 'Served' for delivery)
 const DELIVERY_STEPS = [
   { key: 'pending',           label: 'Placed',     emoji: '🛒' },
   { key: 'start_cooking',     label: 'Preparing',  emoji: '🔥' },
   { key: 'completed_cooking', label: 'Ready',      emoji: '✅' },
   { key: 'dispatched',        label: 'Dispatched', emoji: '🚗' },
-  { key: 'delivered',         label: 'Delivered',  emoji: '📦' },
-  { key: 'paid',              label: 'Paid',       emoji: '✓'  },
+  { key: 'delivered',         label: 'Delivered',  emoji: '🏠' },
+  { key: 'paid',              label: 'Paid',       emoji: '💰' },
 ];
 // Pickup tracker steps
 const PICKUP_STEPS = [
@@ -111,7 +111,9 @@ const getSpendHistory = (uid) => {
 const OrderTracker = ({ order }) => {
   const { steps, idx } = getStepsForOrder(order);
   const curStepIdx = idx[order.status] ?? 0;
-  const isDone = order.status === 'paid' || order.status === 'served' || order.status === 'delivered';
+  const isDone = ['paid', 'served', 'delivered'].includes(order.status);
+  const isDelivery = order.order_type === 'delivery';
+  const isDispatched = ['dispatched', 'in_transit', 'picked_up'].includes(order.status);
 
   const statusMsg = {
     pending:           'Your order has been placed and is waiting to be prepared.',
@@ -124,15 +126,22 @@ const OrderTracker = ({ order }) => {
     delivered:         'Your order has been delivered! Enjoy your meal! 🎉',
   };
 
+  // ── Border colour matches rider-page style per delivery status ─────────────
+  const borderCls =
+    order.status === 'dispatched' || order.status === 'in_transit' ? 'border-emerald-500/40 bg-gradient-to-b from-emerald-500/5 to-transparent' :
+    order.status === 'delivered'  ? 'border-green-500/40 bg-gradient-to-b from-green-500/5 to-transparent' :
+    order.status === 'paid'       ? 'border-yellow-500/30 bg-gradient-to-b from-yellow-500/5 to-transparent' :
+    'border-white/10';
+
   return (
-    <div className="bg-secondary/40 border border-white/10 rounded-3xl p-6 space-y-5">
+    <div className={`rounded-3xl overflow-hidden border-2 p-6 space-y-5 ${borderCls}`}>
+      {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-1">Order Number</p>
           <p className="text-2xl font-black text-primary">#{order.order_number}</p>
           <p className="text-sm text-white/40 mt-1 capitalize">
-            {order.order_type}
-            {order.table_number ? ' · Table ' + order.table_number : ''}
+            {order.order_type}{order.table_number ? ' · Table ' + order.table_number : ''}
           </p>
         </div>
         <div className="text-right">
@@ -141,28 +150,29 @@ const OrderTracker = ({ order }) => {
         </div>
       </div>
 
-      {/* Progress steps */}
-      <div className="relative">
-        <div className="absolute top-5 left-0 right-0 h-0.5 bg-white/10 z-0" />
-        <div
-          className="absolute top-5 left-0 h-0.5 bg-primary z-0 transition-all duration-700"
-          style={{ width: `${(curStepIdx / (steps.length - 1)) * 100}%` }}
-        />
-        <div className="flex items-start justify-between relative z-10">
+      {/* Progress steps — same step tracker style as rider page */}
+      <div className="px-1">
+        <div className="flex items-center">
           {steps.map((step, i) => {
-            const done   = i <= curStepIdx;
-            const active = i === curStepIdx;
+            const stepDone   = i < curStepIdx;
+            const stepActive = i === curStepIdx;
             return (
-              <div key={step.key} className="flex flex-col items-center gap-2" style={{ flex: 1 }}>
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 text-sm transition-all duration-500
-                  ${done ? 'bg-primary border-primary text-white shadow-lg shadow-primary/30'
-                         : 'bg-secondary border-white/20 text-white/20'}`}>
-                  {step.emoji}
+              <div key={step.key} className="flex items-center flex-1">
+                <div className="flex flex-col items-center gap-1">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] border-2 transition-all
+                    ${stepDone   ? 'bg-green-500 border-green-500 shadow-lg shadow-green-500/40 text-white'
+                    : stepActive ? 'bg-primary border-primary shadow-lg shadow-primary/40 animate-pulse text-white'
+                    : 'bg-white/5 border-white/15 text-white/20'}`}>
+                    {stepDone ? '✓' : step.emoji}
+                  </div>
+                  <span className={`text-[8px] font-black uppercase tracking-wider text-center leading-tight
+                    ${stepActive ? 'text-primary' : stepDone ? 'text-green-400' : 'text-white/20'}`}>
+                    {step.label}
+                  </span>
                 </div>
-                <p className={`text-[9px] font-black uppercase tracking-widest text-center leading-tight
-                  ${active ? 'text-primary' : done ? 'text-white/60' : 'text-white/20'}`}>
-                  {step.label}
-                </p>
+                {i < steps.length - 1 && (
+                  <div className={`flex-1 h-0.5 mb-4 mx-1 transition-all ${stepDone ? 'bg-green-500' : 'bg-white/10'}`} />
+                )}
               </div>
             );
           })}
@@ -170,9 +180,9 @@ const OrderTracker = ({ order }) => {
       </div>
 
       {/* Items */}
-      <div className="bg-white/5 rounded-2xl p-4">
-        <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-3">Items</p>
-        <div className="space-y-2">
+      <div className="bg-white/5 rounded-2xl px-4 py-3">
+        <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-2">Items</p>
+        <div className="space-y-1.5">
           {(order.items || []).map((item, i) => (
             <div key={i} className="flex justify-between items-center text-sm">
               <span className="text-white/70">{item.name || item.menu_item_id?.name}</span>
@@ -182,23 +192,106 @@ const OrderTracker = ({ order }) => {
         </div>
       </div>
 
-      {/* Meta info */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white/5 rounded-xl p-3">
-          <p className="text-[9px] text-white/30 font-bold uppercase mb-1">Placed At</p>
-          <p className="text-sm font-black text-white">
-            {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </p>
+      {/* Delivery address for delivery orders */}
+      {isDelivery && order.delivery_address && (
+        <div className="flex items-start gap-2.5 bg-white/5 rounded-xl px-3 py-2.5">
+          <span className="text-orange-400 mt-0.5">📍</span>
+          <span className="text-white/70 text-sm leading-relaxed">{order.delivery_address}</span>
         </div>
-        {order.captain_id && (
-          <div className="bg-white/5 rounded-xl p-3">
-            <p className="text-[9px] text-white/30 font-bold uppercase mb-1">Captain</p>
-            <p className="text-sm font-black text-white">{order.captain_id.name || '—'}</p>
+      )}
+
+      {/* Rider Live Tracking — mirrors the rider page card style */}
+      {isDelivery && isDispatched && (
+        <div className={`rounded-2xl border-2 overflow-hidden ${
+          order.status === 'in_transit' ? 'border-emerald-500/40 bg-emerald-500/5'
+          : 'border-blue-500/40 bg-blue-500/5'
+        }`}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/8">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{order.status === 'in_transit' ? '🛵' : '🏍️'}</span>
+              <div>
+                <p className="text-white font-black text-sm">
+                  {order.delivery?.driver_id?.name || 'Your Rider'}
+                </p>
+                <p className="text-white/40 text-[10px] font-bold capitalize">
+                  {order.delivery?.driver_id?.vehicle_type || 'rider'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`px-3 py-1 rounded-full text-[10px] font-black border ${
+                order.status === 'in_transit'
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                  : 'bg-blue-500/15 border-blue-500/40 text-blue-400'
+              }`}>
+                {order.status === 'in_transit' ? 'On the Way' : 'Picked Up'}
+              </span>
+              {order.delivery?.driver_id?.phone && (
+                <a href={`tel:${order.delivery.driver_id.phone}`}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-green-500/20 border border-green-500/30 rounded-xl text-[10px] text-green-400 font-black hover:bg-green-500/30 transition-all">
+                  📞 Call
+                </a>
+              )}
+            </div>
           </div>
-        )}
+
+          {/* Map link — same as rider page "Show Map" button */}
+          {order.delivery?.rider_lat && order.delivery?.rider_lng ? (
+            <a href={`https://www.google.com/maps?q=${order.delivery.rider_lat},${order.delivery.rider_lng}`}
+              target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-between w-full px-4 py-3 hover:bg-white/5 transition-all">
+              <div className="flex items-center gap-2">
+                <span className="text-orange-400">📍</span>
+                <div>
+                  <p className="text-xs font-black text-white">Live Location — Tap to open Maps</p>
+                  {order.delivery.current_location && (
+                    <p className="text-[10px] text-white/40 mt-0.5 truncate max-w-[220px]">{order.delivery.current_location}</p>
+                  )}
+                </div>
+              </div>
+              <span className="text-white/30 text-sm">→</span>
+            </a>
+          ) : (
+            <div className="flex items-center gap-2 px-4 py-3">
+              <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
+              <p className="text-xs text-white/40">Rider location updating...</p>
+            </div>
+          )}
+
+          {/* Mini timeline — matches rider page step tracker */}
+          <div className="flex items-center px-4 pb-3 gap-1">
+            {[
+              { label: 'Accepted',  time: order.delivery?.assigned_at,   icon: '✅' },
+              { label: 'Picked Up', time: order.delivery?.picked_up_at,  icon: '📦' },
+              { label: 'On Way',    time: order.delivery?.in_transit_at, icon: '🛵' },
+            ].map((s, i, arr) => {
+              const done = !!s.time;
+              return (
+                <React.Fragment key={s.label}>
+                  <div className="flex flex-col items-center gap-1">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] border transition-all ${done ? 'bg-green-500 border-green-500 text-white' : 'bg-white/5 border-white/15 text-white/20'}`}>
+                      {done ? '✓' : s.icon}
+                    </div>
+                    <span className={`text-[8px] font-black uppercase ${done ? 'text-green-400' : 'text-white/20'}`}>{s.label}</span>
+                    {s.time && <span className="text-[8px] text-white/30">{new Date(s.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                  </div>
+                  {i < arr.length - 1 && <div className={`flex-1 h-0.5 mb-6 mx-0.5 ${done && arr[i+1].time ? 'bg-green-500' : 'bg-white/10'}`} />}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Placed time */}
+      <div className="bg-white/5 rounded-xl px-4 py-2.5">
+        <p className="text-[9px] text-white/30 font-bold uppercase mb-1">Placed At</p>
+        <p className="text-sm font-black text-white">
+          {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </p>
       </div>
 
-      {/* Status message */}
+      {/* Status message — same orange/green banner style */}
       <div className={`rounded-2xl p-4 text-sm font-bold text-center border
         ${isDone
           ? 'bg-green-500/10 border-green-500/20 text-green-400'
@@ -296,8 +389,12 @@ const ProfileHub = () => {
     }
   }, [activeTab, loadLiveOrders]);
 
-  // Auto-refresh live orders silently every 20s
-  useAutoRefresh(loadLiveOrders, 20000);
+  // Auto-refresh live orders — faster when order is dispatched (rider moving)
+  const liveRefreshInterval = React.useMemo(() => {
+    const hasDispatched = liveOrders.some(o => ['dispatched', 'in_transit'].includes(o.status));
+    return hasDispatched ? 8000 : 20000; // 8s while rider is moving, 20s otherwise
+  }, [liveOrders]);
+  useAutoRefresh(loadLiveOrders, liveRefreshInterval);
 
   const loadTab = useCallback(async (tab, silent = false) => {
     if (!user) return;

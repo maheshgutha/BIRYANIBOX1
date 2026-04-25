@@ -7,7 +7,18 @@ const OrderSchema = new mongoose.Schema({
   chef_id:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   station_id:     { type: mongoose.Schema.Types.ObjectId, ref: 'KitchenStation' },
   table_number:   { type: String, maxlength: 10 },
-  total:          { type: Number, required: true, min: 0 },
+
+  // ── Price breakdown ────────────────────────────────────────────────────
+  subtotal:           { type: Number, default: 0, min: 0 }, // sum of item prices before discounts
+  coupon_discount:    { type: Number, default: 0, min: 0 }, // reward coupon deduction
+  gift_card_discount: { type: Number, default: 0, min: 0 }, // gift card deduction
+  tier_discount:      { type: Number, default: 0, min: 0 }, // loyalty tier % discount
+  delivery_fee:       { type: Number, min: 0, default: 0 },
+  total:              { type: Number, required: true, min: 0 }, // FINAL amount after all discounts
+
+  // coupon / gift-card meta
+  coupon_code:        { type: String, default: null },
+  gift_card_code:     { type: String, default: null },
 
   // pending_confirmation (dine-in awaiting owner/manager approval within 10 min)
   // → pending → start_cooking → completed_cooking → served → paid | cancelled
@@ -21,7 +32,7 @@ const OrderSchema = new mongoose.Schema({
   confirmation_expires_at: { type: Date },
 
   order_type:     { type: String, enum: ['dine-in', 'delivery', 'takeaway', 'pickup'], default: 'dine-in' },
-  payment_method: { type: String, enum: ['upi', 'card', 'cash', 'gift_card'] },
+  payment_method: { type: String, enum: ['upi', 'card', 'cash', 'gift_card', 'mixed'] },
   spiceness:      { type: String, enum: ['mild', 'medium', 'hot', 'extra_hot'], default: 'medium' },
   rating:         { type: Number, min: 1, max: 5 },
   feedback:       { type: String },
@@ -30,12 +41,11 @@ const OrderSchema = new mongoose.Schema({
   delivery_address:  { type: String },
   delivery_notes:    { type: String },
 
-  knock_bell:        { type: Boolean, default: true },  // true = ring doorbell/knock, false = do not disturb
+  knock_bell:        { type: Boolean, default: true },
 
   // Pickup extra items requested by customer (e.g. spoons, sambar, curries)
   pickup_extra_items: { type: String },
   distance_km:       { type: Number, min: 0 },
-  delivery_fee:      { type: Number, min: 0, default: 0 },
 
   // Delivery customer contact info (captured from POS delivery form)
   delivery_customer_name:  { type: String },

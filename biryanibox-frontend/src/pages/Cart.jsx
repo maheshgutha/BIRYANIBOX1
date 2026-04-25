@@ -626,6 +626,10 @@ const Cart = () => {
         table_number: orderMode === 'dinein' ? selectedTable : undefined,
         customer_id:  user?._id || user?.id,
         total:        grandTotal,
+        // ── Discount fields so backend saves correct final total ──────────
+        coupon_discount:    couponDiscAmt  > 0 ? couponDiscAmt  : undefined,
+        gift_card_discount: giftDiscAmt    > 0 ? giftDiscAmt    : undefined,
+        coupon_code:        appliedCoupon  ? appliedCoupon.code  : undefined,
         ...(orderMode === 'delivery' ? {
           delivery_address: deliveryAddr.trim(),
           delivery_notes:   deliveryNotes.trim() || undefined,

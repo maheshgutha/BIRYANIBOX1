@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const MotionDiv = motion.div;
 import { useCart, useAuth } from '../context/useContextHooks';
 import { useNavigate } from 'react-router-dom';
-import { checkoutAPI, usersAPI } from '../services/api';
+import { checkoutAPI, usersAPI, deliveryPricingAPI } from '../services/api';
 import { getOrderType } from '../components/Navbar';
 import {
   CreditCard, MapPin, CheckCircle, ChevronLeft,
@@ -32,10 +32,16 @@ const Checkout = () => {
   const [appliedCoupon,    setAppliedCoupon]    = useState(null);
   const [couponLoading,    setCouponLoading]    = useState(false);
 
-  const DELIVERY_FEE  = 5;
+  // ── Delivery pricing (dynamic) ───────────────────────────────────────────
+  const [pricingData,    setPricingData]    = useState(null);  // full API result
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingError,   setPricingError]   = useState('');
+  const pricingTimer = React.useRef(null);
+
   const couponDiscount = appliedCoupon ? appliedCoupon.amount : 0;
-  const subtotal      = total;
-  const grandTotal    = Math.max(0, subtotal + (orderType === 'delivery' ? DELIVERY_FEE : 0) - couponDiscount);
+  const subtotal       = total;
+  const dynamicFee     = pricingData?.deliveryFee ?? 0;
+  const grandTotal     = Math.max(0, subtotal + (orderType === 'delivery' ? dynamicFee : 0) - couponDiscount);
 
   // Load user's reward coupons
   useEffect(() => {
@@ -54,6 +60,26 @@ const Checkout = () => {
     window.addEventListener('bb_order_mode_change', handler);
     return () => window.removeEventListener('bb_order_mode_change', handler);
   }, []);
+
+  // ── Auto-calculate delivery fee when address changes ─────────────────────
+  useEffect(() => {
+    if (orderType !== 'delivery') { setPricingData(null); setPricingError(''); return; }
+    if (!deliveryAddress || deliveryAddress.trim().length < 10) { setPricingData(null); setPricingError(''); return; }
+
+    clearTimeout(pricingTimer.current);
+    pricingTimer.current = setTimeout(async () => {
+      setPricingLoading(true); setPricingError('');
+      try {
+        const res = await deliveryPricingAPI.calculate(deliveryAddress.trim(), subtotal);
+        setPricingData(res.data);
+      } catch (err) {
+        setPricingError(err.message || 'Could not calculate delivery fee.');
+        setPricingData(null);
+      } finally { setPricingLoading(false); }
+    }, 800);
+
+    return () => clearTimeout(pricingTimer.current);
+  }, [deliveryAddress, orderType, subtotal]);
 
   const applyCoupon = async (coupon) => {
     setCouponLoading(true);
@@ -151,9 +177,64 @@ const Checkout = () => {
                             </label>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3 p-3 bg-primary/5 border border-primary/20 rounded-xl">
-                          <Truck size={14} className="text-primary shrink-0" />
-                          <p className="text-xs text-text-muted">Delivery fee of <span className="text-primary font-bold">${DELIVERY_FEE}</span> will be added. Estimated: 30–45 minutes.</p>
+                        {/* Dynamic Delivery Pricing Panel */}
+                        <div className="rounded-xl border border-primary/20 overflow-hidden">
+                          {pricingLoading && (
+                            <div className="flex items-center gap-3 p-3 bg-primary/5">
+                              <Truck size={14} className="text-primary shrink-0 animate-pulse" />
+                              <p className="text-xs text-text-muted animate-pulse">Calculating delivery fee…</p>
+                            </div>
+                          )}
+                          {pricingError && !pricingLoading && (
+                            <div className="flex items-center gap-2 p-3 bg-red-500/10">
+                              <p className="text-xs text-red-400">{pricingError}</p>
+                            </div>
+                          )}
+                          {pricingData && !pricingLoading && (
+                            <div className="bg-primary/5 p-3 space-y-2">
+                              <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-widest">
+                                <Truck size={13} /> Delivery Details
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-black/20 rounded-lg p-2">
+                                  <p className="text-text-muted">Distance</p>
+                                  <p className="text-white font-bold">{pricingData.distance}</p>
+                                </div>
+                                <div className="bg-black/20 rounded-lg p-2">
+                                  <p className="text-text-muted">Est. Time</p>
+                                  <p className="text-white font-bold">{pricingData.duration}</p>
+                                </div>
+                              </div>
+                              {pricingData.freeDelivery ? (
+                                <p className="text-green-400 text-xs font-bold text-center">🎉 Free delivery on this order!</p>
+                              ) : (
+                                <div className="space-y-1 text-xs text-text-muted">
+                                  <div className="flex justify-between"><span>Base ({pricingData.breakdown?.base !== undefined ? `first ${3} km` : ''})</span><span className="text-white">₹{pricingData.breakdown?.base}</span></div>
+                                  {(pricingData.breakdown?.distanceCharge || 0) > 0 && (
+                                    <div className="flex justify-between"><span>Distance charge</span><span className="text-white">₹{pricingData.breakdown.distanceCharge}</span></div>
+                                  )}
+                                  {(pricingData.breakdown?.timeCharge || 0) > 0 && (
+                                    <div className="flex justify-between"><span>{pricingData.breakdown.timeLabel}</span><span className="text-yellow-400">₹{pricingData.breakdown.timeCharge}</span></div>
+                                  )}
+                                  {(pricingData.breakdown?.smallOrderFee || 0) > 0 && (
+                                    <div className="flex justify-between"><span>Small order fee</span><span className="text-orange-400">₹{pricingData.breakdown.smallOrderFee}</span></div>
+                                  )}
+                                  <div className="flex justify-between border-t border-white/10 pt-1 font-bold text-primary">
+                                    <span>Delivery Fee</span><span>₹{pricingData.deliveryFee}</span>
+                                  </div>
+                                  {pricingData.source === 'estimated' && (
+                                    <p className="text-[10px] text-text-muted italic">* Estimated — add Google Maps API key for exact routing</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {!pricingData && !pricingLoading && !pricingError && (
+                            <div className="flex items-center gap-3 p-3 bg-primary/5">
+                              <Truck size={14} className="text-primary shrink-0" />
+                              <p className="text-xs text-text-muted">Enter your address above to see the delivery fee.</p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -249,7 +330,7 @@ const Checkout = () => {
                     {orderType === 'delivery' && (
                       <div className="flex justify-between text-primary">
                         <span className="flex items-center gap-1"><Truck size={12} /> Delivery fee</span>
-                        <span>+${DELIVERY_FEE.toFixed(2)}</span>
+                        <span>{pricingLoading ? '…' : pricingData ? `+₹${dynamicFee}` : '—'}</span>
                       </div>
                     )}
                     {appliedCoupon && (

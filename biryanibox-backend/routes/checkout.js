@@ -114,9 +114,25 @@ router.post('/', protect, async (req, res, next) => {
       afterGiftCard
     )).toFixed(2);
 
-    // ── 4. Delivery fee ────────────────────────────────────────────────────
-    const DELIVERY_FEE = 40;
-    const deliveryFee  = order_type === 'delivery' ? DELIVERY_FEE : 0;
+    // ── 4. Delivery fee (dynamic — computed by pricing engine) ─────────────
+    let deliveryFee = 0;
+    let deliveryDistanceKm = 0;
+    if (order_type === 'delivery' && delivery_address) {
+      try {
+        const { calculateDeliveryPrice } = require('../services/deliveryPricingService');
+        const pricing = await calculateDeliveryPrice(delivery_address, subtotal);
+        if (!pricing.error) {
+          deliveryFee        = pricing.deliveryFee;
+          deliveryDistanceKm = pricing.distanceKm || 0;
+        } else {
+          // Address out of range — reject order
+          return res.status(422).json({ success: false, message: pricing.error });
+        }
+      } catch (pErr) {
+        console.error('[Checkout] Pricing engine error:', pErr.message);
+        deliveryFee = 40; // safe fallback if service is temporarily unavailable
+      }
+    }
 
     // ── 5. Final total ─────────────────────────────────────────────────────
     const finalTotal = +Math.max(0, subtotal - giftCardUsed - couponDiscount + deliveryFee).toFixed(2);
@@ -153,6 +169,7 @@ router.post('/', protect, async (req, res, next) => {
       delivery_notes:     order_type === 'delivery' ? (delivery_notes || '') : undefined,
       knock_bell:         order_type === 'delivery' ? (knock_bell !== false) : undefined,
       pickup_extra_items: order_type === 'pickup' ? (pickup_extra_items || '') : undefined,
+      distance_km:        order_type === 'delivery' ? deliveryDistanceKm : undefined,
     });
 
     // ── 9. Create order items + deduct ingredients ─────────────────────────

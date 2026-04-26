@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 const MotionDiv = motion.div;
 import { useOrders } from '../context/useContextHooks';
-import { tablesAPI } from '../services/api';
+import { tablesAPI, deliveryPricingAPI } from '../services/api';
 import {
   ShoppingCart, Plus, Minus, CheckCircle, Bell, X,
   Package, User, Clock, DollarSign, MapPin, Truck,
@@ -110,60 +110,37 @@ const POS = ({ user, onBack }) => {
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [customerPhone,   setCustomerPhone]   = useState('');
   const [deliveryNotes,   setDeliveryNotes]   = useState('');
-  const [distanceMiles,   setDistanceMiles]   = useState('');
   const [deliveryError,   setDeliveryError]   = useState('');
 
   const isDeliveryOrder = orderMode === 'delivery';
   const isPickupOrder   = orderMode === 'pickup';
-  const RATE_PER_MILE   = 3;
 
-  // Restaurant coordinates — update these to your actual restaurant location
-  const RESTAURANT_LAT = 16.5062;  // Vijayawada default — update to actual restaurant lat
-  const RESTAURANT_LNG = 80.6480;  // Vijayawada default — update to actual restaurant lng
-
-  const [geoLoading, setGeoLoading] = useState(false);
-  const [geoError,   setGeoError]   = useState('');
-
-  const dist        = parseFloat(distanceMiles) || 0;
-  const deliveryFee = isDeliveryOrder && dist > 0 ? Math.round(dist * RATE_PER_MILE) : 0;
-
-  // Haversine distance (km) between two lat/lng points
-  const haversineKm = (lat1, lon1, lat2, lon2) => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  };
-
-  // Auto-calculate distance when delivery address is typed (debounced)
+  // ── Dynamic delivery pricing (replaces hardcoded RATE_PER_MILE / haversine) ─
+  const [pricingData,    setPricingData]    = useState(null);
+  const [geoLoading,     setGeoLoading]     = useState(false);
+  const [geoError,       setGeoError]       = useState('');
   const geocodeTimer = React.useRef(null);
+
+  const dist        = pricingData?.distanceKm || 0;
+  const deliveryFee = pricingData?.deliveryFee || 0;
+
+  // Auto-fetch delivery pricing from backend when address is typed (debounced 900 ms)
   const autoCalcDistance = React.useCallback((address) => {
-    if (!address || address.trim().length < 10) { setGeoError(''); return; }
+    if (!address || address.trim().length < 10) { setGeoError(''); setPricingData(null); return; }
     clearTimeout(geocodeTimer.current);
     geocodeTimer.current = setTimeout(async () => {
       setGeoLoading(true); setGeoError('');
       try {
-        const encoded = encodeURIComponent(address.trim());
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`,
-          { headers: { 'Accept-Language': 'en', 'User-Agent': 'BiryaniBoxPOS/1.0' } }
-        );
-        const data = await res.json();
-        if (data && data.length > 0) {
-          const { lat, lon } = data[0];
-          const km = haversineKm(RESTAURANT_LAT, RESTAURANT_LNG, parseFloat(lat), parseFloat(lon));
-          const miles = km * 0.621371;
-          setDistanceMiles(miles.toFixed(2));
-          setGeoError('');
-        } else {
-          setGeoError('Address not found — enter distance manually.');
-        }
-      } catch {
-        setGeoError('Could not auto-calculate distance — enter manually.');
+        const rawTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+        const res = await deliveryPricingAPI.calculate(address.trim(), rawTotal);
+        setPricingData(res.data);
+        setGeoError('');
+      } catch (err) {
+        setGeoError(err.message || 'Could not calculate delivery fee.');
+        setPricingData(null);
       } finally { setGeoLoading(false); }
-    }, 900); // 900ms debounce
-  }, [RESTAURANT_LAT, RESTAURANT_LNG]);
+    }, 900);
+  }, [cart]);
 
   // Load available tables from API
   const loadTables = async () => {
@@ -191,7 +168,8 @@ const POS = ({ user, onBack }) => {
       setKnockBell(true);
       setDeliveryAddress('');
       setDeliveryNotes('');
-      setDistanceMiles('');
+      setPricingData(null);
+      setGeoError('');
       setDeliveryError('');
       setCustomerEmail('');
       setCustomerPhone('');
@@ -255,9 +233,8 @@ const POS = ({ user, onBack }) => {
       if (!customerEmail.trim() || !/\S+@\S+\.\S+/.test(customerEmail)) { setDeliveryError('Valid email is required for delivery.'); return; }
       if (!deliveryAddress.trim()) { setDeliveryError('Delivery address is required.'); return; }
       if (!customerPhone.trim()) { setDeliveryError('Phone number is required for delivery.'); return; }
-      const d = parseFloat(distanceMiles);
-      if (!geoLoading && (!distanceMiles || isNaN(d) || d <= 0)) { setDeliveryError('Please enter the delivery distance in miles (or wait for auto-calculation).'); return; }
-      if (d > 6) { setDeliveryError(`We only deliver within 6 miles. Entered distance (${d} mi) exceeds limit.`); return; }
+      if (geoLoading) { setDeliveryError('Please wait while delivery fee is being calculated.'); return; }
+      if (!pricingData) { setDeliveryError('Could not calculate delivery fee. Please check the address and try again.'); return; }
     }
 
     setShowPlaceOrderConfirm(true);
@@ -274,7 +251,7 @@ const POS = ({ user, onBack }) => {
       ...(isDeliveryOrder ? {
         delivery_address: deliveryAddress.trim(),
         delivery_notes:   deliveryNotes.trim(),
-        distance_km:      dist * 1.609, // convert miles → km for backend
+        distance_km:      dist,                  // already in km from pricingData
         customer_email:   customerEmail.trim(),
         customer_phone:   customerPhone.trim(),
         customer_name:    customerName.trim(),
@@ -294,7 +271,7 @@ const POS = ({ user, onBack }) => {
     setPaymentMethod('');
     setDeliveryAddress('');
     setDeliveryNotes('');
-    setDistanceMiles('');
+    setPricingData(null);
     setCustomerEmail('');
     setCustomerPhone('');
     setCustomerName('');
@@ -348,7 +325,7 @@ const POS = ({ user, onBack }) => {
                     {isPickupOrder ? '📦 Confirm Pickup Order' : isDeliveryOrder ? '🚚 Confirm Delivery Order' : '🍽 Confirm Dine-In Order'}
                   </h3>
                   <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${confirmColors.badge}`}>
-                    {isDeliveryOrder ? `${dist} mi · $${deliveryFee} delivery fee` : isPickupOrder ? 'Counter pickup' : `Table ${selectedTable}`}
+                    {isDeliveryOrder ? `${pricingData ? pricingData.distance : '—'} · ₹${deliveryFee} delivery` : isPickupOrder ? 'Counter pickup' : `Table ${selectedTable}`}
                   </span>
                 </div>
               </div>
@@ -385,8 +362,8 @@ const POS = ({ user, onBack }) => {
                       <MapPin size={12} className="text-blue-400 mt-0.5 shrink-0" />
                       <span className="text-white/80">{deliveryAddress}</span>
                     </div>
-                    <div><span className="text-text-muted">Distance:</span> <span className="text-blue-400 font-bold ml-1">{dist} mi</span></div>
-                    <div><span className="text-text-muted">Delivery fee:</span> <span className="text-blue-400 font-bold ml-1">${deliveryFee}</span></div>
+                    <div><span className="text-text-muted">Distance:</span> <span className="text-blue-400 font-bold ml-1">{pricingData ? pricingData.distance : '—'}</span></div>
+                    <div><span className="text-text-muted">Delivery fee:</span> <span className="text-blue-400 font-bold ml-1">₹{deliveryFee}</span></div>
                   </div>
 
                   {/* Arrival preference radio */}
@@ -642,29 +619,62 @@ const POS = ({ user, onBack }) => {
                     </div>
                     <div>
                       <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block flex items-center gap-1.5">
-                        Distance (miles) <span className="text-red-400">*</span>
+                        Delivery Distance
                         {geoLoading && <span className="text-blue-400 text-[9px] animate-pulse">📍 Calculating…</span>}
-                        {!geoLoading && dist > 0 && !geoError && <span className="text-green-400 text-[9px]">📍 Auto-calculated</span>}
+                        {!geoLoading && pricingData && !geoError && <span className="text-green-400 text-[9px]">📍 Auto-calculated</span>}
+                        {geoError && <span className="text-red-400 text-[9px]">⚠ {geoError}</span>}
                       </label>
-                      <input
-                        type="number" min="0.1" max="6" step="0.1"
-                        value={distanceMiles}
-                        onChange={e => { setDistanceMiles(e.target.value); setDeliveryError(''); setGeoError(''); }}
-                        placeholder="Auto-calculated from address"
-                        className={`w-full bg-bg-main border p-3 rounded-xl text-sm text-white placeholder:text-white/20 focus:outline-none transition-colors ${dist > 6 ? 'border-red-500/50 bg-red-500/5' : !distanceMiles && deliveryError ? 'border-red-500/60 bg-red-500/5' : dist > 0 ? 'border-green-500/40' : 'border-white/10 focus:border-blue-400'}`}
-                      />
-                      {geoError && <p className="text-[10px] text-yellow-400 mt-1">{geoError}</p>}
+                      <div className={`w-full bg-bg-main border p-3 rounded-xl text-sm transition-colors ${pricingData ? 'border-green-500/40 text-white' : 'border-white/10 text-text-muted'}`}>
+                        {pricingData ? `${pricingData.distance} · ${pricingData.duration}` : 'Auto-calculated from address above'}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Delivery fee calc */}
-                  {dist > 0 && (
-                    <div className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-bold border ${dist > 6 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-blue-500/10 border-blue-500/20 text-blue-400'}`}>
-                      <span className="flex items-center gap-1.5">
-                        <Navigation size={11} />
-                        {dist > 6 ? `${dist} mi exceeds 6 mi limit ✗` : `${dist} mi × $${RATE_PER_MILE}/mi`}
-                      </span>
-                      {dist <= 6 && <span>Delivery fee: ${deliveryFee}</span>}
+                  {/* Dynamic delivery pricing breakdown */}
+                  {(geoLoading || pricingData || geoError) && (
+                    <div className="rounded-xl border border-blue-500/20 overflow-hidden">
+                      {geoLoading && (
+                        <div className="flex items-center gap-2 p-3 bg-blue-500/10 text-blue-400 text-xs">
+                          <Navigation size={12} className="animate-pulse" />
+                          <span className="animate-pulse">Calculating delivery fee via Google Maps…</span>
+                        </div>
+                      )}
+                      {geoError && !geoLoading && (
+                        <div className="p-3 bg-red-500/10 text-red-400 text-xs">{geoError}</div>
+                      )}
+                      {pricingData && !geoLoading && (
+                        <div className="bg-blue-500/5 p-3 space-y-2">
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-black/20 rounded-lg p-2">
+                              <p className="text-text-muted">Distance</p>
+                              <p className="text-white font-bold">{pricingData.distance}</p>
+                            </div>
+                            <div className="bg-black/20 rounded-lg p-2">
+                              <p className="text-text-muted">Est. Time</p>
+                              <p className="text-white font-bold">{pricingData.duration}</p>
+                            </div>
+                          </div>
+                          {pricingData.freeDelivery ? (
+                            <p className="text-green-400 text-xs font-bold text-center">🎉 Free delivery on this order!</p>
+                          ) : (
+                            <div className="space-y-1 text-xs text-text-muted">
+                              <div className="flex justify-between"><span>Base charge</span><span className="text-white">₹{pricingData.breakdown?.base}</span></div>
+                              {(pricingData.breakdown?.distanceCharge || 0) > 0 && (
+                                <div className="flex justify-between"><span>Distance charge</span><span className="text-white">₹{pricingData.breakdown.distanceCharge}</span></div>
+                              )}
+                              {(pricingData.breakdown?.timeCharge || 0) > 0 && (
+                                <div className="flex justify-between"><span>{pricingData.breakdown.timeLabel}</span><span className="text-yellow-400">₹{pricingData.breakdown.timeCharge}</span></div>
+                              )}
+                              <div className="flex justify-between border-t border-white/10 pt-1 font-bold text-blue-400">
+                                <span>Delivery Fee</span><span>₹{pricingData.deliveryFee}</span>
+                              </div>
+                            </div>
+                          )}
+                          {pricingData.source === 'estimated' && (
+                            <p className="text-[9px] text-text-muted italic">* Estimated — add GOOGLE_MAPS_API_KEY for exact routing</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -713,6 +723,13 @@ const POS = ({ user, onBack }) => {
                         <h3 className={`text-lg font-bold leading-tight ${available ? 'text-white group-hover:text-primary transition-colors' : 'text-white/50'}`}>{item.name}</h3>
                         <p className="text-lg font-bold text-white">${item.price}</p>
                       </div>
+                      {(item.spice_level ?? 0) > 0 && (
+                        <div className="flex items-center gap-1 mb-1">
+                          {Array(item.spice_level ?? 0).fill(0).map((_, i) => (
+                            <span key={i} className="text-[11px]">🌶️</span>
+                          ))}
+                        </div>
+                      )}
                       <p className="text-xs text-text-muted leading-relaxed line-clamp-2">Authentic recipe crafted with premium saffron and heritage spices.</p>
                     </div>
                     <button disabled={!available}
@@ -805,10 +822,10 @@ const POS = ({ user, onBack }) => {
                 <span>Table / Type</span>
                 <span className="text-white">{isDeliveryOrder ? 'Delivery' : isPickupOrder ? 'Pickup' : selectedTable}</span>
               </div>
-              {isDeliveryOrder && dist > 0 && dist <= 6 && (
+              {isDeliveryOrder && deliveryFee > 0 && (
                 <div className="flex justify-between items-center text-xs text-blue-400 font-bold">
-                  <span className="flex items-center gap-1"><Truck size={10} /> Delivery ({dist} mi)</span>
-                  <span>+${deliveryFee}</span>
+                  <span className="flex items-center gap-1"><Truck size={10} /> Delivery {pricingData ? `(${pricingData.distance})` : ''}</span>
+                  <span>+₹{deliveryFee}</span>
                 </div>
               )}
               <div className="flex justify-between items-center text-xl font-bold text-white font-heading">
@@ -827,8 +844,8 @@ const POS = ({ user, onBack }) => {
 
             <button
               onClick={handlePlaceOrder}
-              disabled={cart.length === 0 || (isDeliveryOrder && dist > 6)}
-              className={`w-full py-5 rounded-2xl flex items-center justify-center gap-3 font-black uppercase tracking-widest transition-all shadow-xl text-sm ${cart.length === 0 || (isDeliveryOrder && dist > 6) ? 'bg-white/5 text-text-muted cursor-not-allowed border border-white/5' : 'bg-gradient-to-r from-primary to-yellow-500 text-white hover:shadow-primary/30 hover:scale-[1.02] active:scale-100'}`}>
+              disabled={cart.length === 0 || (isDeliveryOrder && geoLoading)}
+              className={`w-full py-5 rounded-2xl flex items-center justify-center gap-3 font-black uppercase tracking-widest transition-all shadow-xl text-sm ${cart.length === 0 || (isDeliveryOrder && geoLoading) ? 'bg-white/5 text-text-muted cursor-not-allowed border border-white/5' : 'bg-gradient-to-r from-primary to-yellow-500 text-white hover:shadow-primary/30 hover:scale-[1.02] active:scale-100'}`}>
               {isDeliveryOrder ? <Truck size={20} /> : isPickupOrder ? <Package size={20} /> : <CheckCircle size={20} />}
               {isDeliveryOrder ? 'PLACE DELIVERY ORDER' : isPickupOrder ? 'PLACE PICKUP ORDER' : 'PLACE AN ORDER'}
             </button>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart, useAuth } from '../context/useContextHooks';
-import { ordersAPI, tablesAPI, giftCardsAPI, loyaltyAPI } from '../services/api';
+import { ordersAPI, tablesAPI, giftCardsAPI, loyaltyAPI, deliveryPricingAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import {
   ShoppingBag, Plus, Minus, ArrowRight, ChevronLeft,
@@ -463,6 +463,13 @@ const Cart = () => {
   const [knockBell,     setKnockBell]     = useState(true);  // true = ring bell, false = do not disturb
   const [orderError,    setOrderError]    = useState('');
   const [pickupExtraItems, setPickupExtraItems] = useState(''); // extra items for pickup confirmation
+  const [paymentMethod, setPaymentMethod] = useState('');   // 'cash' | 'card' | 'upi'
+
+  // ── Delivery pricing (dynamic) ────────────────────────────────────────────
+  const [pricingData,    setPricingData]    = useState(null);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingError,   setPricingError]   = useState('');
+  const pricingTimerRef = useRef(null);
 
   // Gift card state
   const [giftInput,      setGiftInput]      = useState('');
@@ -504,6 +511,29 @@ const Cart = () => {
     }).catch(() => { setLoyaltyTier(null); setTierPct(0); });
   }, [user]);
 
+  // ── Auto-calculate delivery fee when address changes (debounced 800ms) ─────
+  useEffect(() => {
+    if (orderMode !== 'delivery') { setPricingData(null); setPricingError(''); return; }
+    if (!deliveryAddr || deliveryAddr.trim().length < 8) { setPricingData(null); setPricingError(''); return; }
+    clearTimeout(pricingTimerRef.current);
+    pricingTimerRef.current = setTimeout(async () => {
+      setPricingLoading(true); setPricingError('');
+      try {
+        const res = await deliveryPricingAPI.calculate(deliveryAddr.trim(), total);
+        setPricingData(res.data);
+      } catch (err) {
+        setPricingError(err.message || 'Could not calculate delivery fee.');
+        setPricingData(null);
+      } finally { setPricingLoading(false); }
+    }, 800);
+    return () => clearTimeout(pricingTimerRef.current);
+  }, [deliveryAddr, orderMode, total]);
+
+  // Reset pricing when switching away from delivery mode
+  useEffect(() => {
+    if (orderMode !== 'delivery') { setPricingData(null); setPricingError(''); }
+  }, [orderMode]);
+
   // Load available tables when dine-in is selected
   useEffect(() => {
     if (orderMode === 'dinein') {
@@ -527,7 +557,8 @@ const Cart = () => {
   const giftDiscAmt     = appliedGift   ? Math.min(appliedGift.applied, parseFloat((total - couponDiscAmt).toFixed(2))) : 0;
   const tierDiscAmt     = tierPct > 0   ? parseFloat(((total - couponDiscAmt - giftDiscAmt) * tierPct / 100).toFixed(2)) : 0;
   const discountAmt     = couponDiscAmt; // keep for legacy coupon display
-  const grandTotal      = parseFloat((total + SERVICE_FEE - couponDiscAmt - giftDiscAmt - tierDiscAmt).toFixed(2));
+  const deliveryFee     = (orderMode === 'delivery' && pricingData) ? (pricingData.deliveryFee || 0) : 0;
+  const grandTotal      = parseFloat((total + SERVICE_FEE + deliveryFee - couponDiscAmt - giftDiscAmt - tierDiscAmt).toFixed(2));
 
   const handleCopy = (code) => {
     navigator.clipboard.writeText(code).catch(() => {});
@@ -617,15 +648,19 @@ const Cart = () => {
     // Validate address for takeaway
     if (orderMode === 'delivery' && !deliveryAddr.trim()) { setOrderError('Delivery address is required for home delivery.'); return; }
 
+    // Validate payment method
+    if (!paymentMethod) { setOrderError('Please select a payment method to continue.'); return; }
+
     setPlacing(true);
     try {
       const snapshot = cart.map(i => ({ name: i.name, quantity: i.quantity, unit_price: i.price }));
       const payload = {
         items: cart.map(i => ({ menu_item_id: i._id || i.id, quantity: i.quantity })),
-        order_type:   orderMode === 'dinein' ? 'dine-in' : orderMode, // 'dine-in' | 'pickup' | 'delivery'
-        table_number: orderMode === 'dinein' ? selectedTable : undefined,
-        customer_id:  user?._id || user?.id,
-        total:        grandTotal,
+        order_type:      orderMode === 'dinein' ? 'dine-in' : orderMode,
+        table_number:    orderMode === 'dinein' ? selectedTable : undefined,
+        customer_id:     user?._id || user?.id,
+        total:           grandTotal,
+        payment_method:  paymentMethod,
         // ── Discount fields so backend saves correct final total ──────────
         coupon_discount:    couponDiscAmt  > 0 ? couponDiscAmt  : undefined,
         gift_card_discount: giftDiscAmt    > 0 ? giftDiscAmt    : undefined,
@@ -634,6 +669,7 @@ const Cart = () => {
           delivery_address: deliveryAddr.trim(),
           delivery_notes:   deliveryNotes.trim() || undefined,
           knock_bell:       knockBell,
+          distance_km:      pricingData?.distanceKm || undefined,
         } : {}),
         ...(orderMode === 'pickup' ? {
           delivery_notes: deliveryNotes.trim() || undefined,
@@ -880,6 +916,14 @@ const Cart = () => {
               <div className="bg-secondary/30 border border-white/10 rounded-2xl p-5 space-y-3">
                 <div className="flex justify-between text-sm"><span className="text-text-muted">Subtotal</span><span className="font-bold">${total.toFixed(2)}</span></div>
                 <div className="flex justify-between text-sm"><span className="text-text-muted">Service Fee</span><span className="font-bold">${SERVICE_FEE.toFixed(2)}</span></div>
+                {orderMode === 'delivery' && (
+                  <div className="flex justify-between text-sm text-primary">
+                    <span className="flex items-center gap-1"><Truck size={12} /> Delivery Fee{pricingData ? ` (${pricingData.distance})` : ''}</span>
+                    <span className="font-bold">
+                      {pricingLoading ? '…' : pricingData?.freeDelivery ? '🎉 Free' : pricingData ? `+₹${pricingData.deliveryFee}` : '—'}
+                    </span>
+                  </div>
+                )}
                 {appliedCoupon && <div className="flex justify-between text-sm text-green-400"><span>🎟 Reward Code ({appliedCoupon.code.slice(-8)})</span><span>-${couponDiscAmt.toFixed(2)}</span></div>}
                 {appliedGift && <div className="flex justify-between text-sm text-blue-400"><span>🎁 Gift Card ({appliedGift.code}) — using ${appliedGift.applied.toFixed(2)}</span><span>-${giftDiscAmt.toFixed(2)}</span></div>}
                 {tierDiscAmt > 0 && <div className="flex justify-between text-sm text-amber-400"><span>⭐ {loyaltyTier} Discount ({tierPct}%)</span><span>-${tierDiscAmt.toFixed(2)}</span></div>}
@@ -1140,10 +1184,109 @@ const Cart = () => {
                         </label>
                       </div>
                     </div>
+                    {/* ── Live Delivery Pricing Breakdown ─────────────────── */}
+                    <div className="rounded-xl border border-primary/20 overflow-hidden">
+                      {pricingLoading && (
+                        <div className="flex items-center gap-2 p-3 bg-primary/5 text-text-muted text-xs animate-pulse">
+                          <Truck size={13} className="text-primary shrink-0" />
+                          Calculating delivery fee…
+                        </div>
+                      )}
+                      {pricingError && !pricingLoading && (
+                        <div className="p-3 bg-red-500/10 text-red-400 text-xs font-bold">{pricingError}</div>
+                      )}
+                      {pricingData && !pricingLoading && (
+                        <div className="bg-primary/5 p-3 space-y-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-1.5">
+                            <Truck size={11} /> Delivery Details
+                          </p>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-black/20 rounded-lg p-2">
+                              <p className="text-text-muted text-[10px]">Distance</p>
+                              <p className="text-white font-bold">{pricingData.distance}</p>
+                            </div>
+                            <div className="bg-black/20 rounded-lg p-2">
+                              <p className="text-text-muted text-[10px]">Est. Time</p>
+                              <p className="text-white font-bold">{pricingData.duration}</p>
+                            </div>
+                          </div>
+                          {pricingData.freeDelivery ? (
+                            <p className="text-green-400 text-xs font-bold text-center">🎉 Free delivery on this order!</p>
+                          ) : (
+                            <div className="space-y-1 text-xs text-text-muted">
+                              <div className="flex justify-between">
+                                <span>Base (first {3} km)</span>
+                                <span className="text-white">₹{pricingData.breakdown?.base}</span>
+                              </div>
+                              {(pricingData.breakdown?.distanceCharge || 0) > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Distance charge</span>
+                                  <span className="text-white">₹{pricingData.breakdown.distanceCharge}</span>
+                                </div>
+                              )}
+                              {(pricingData.breakdown?.timeCharge || 0) > 0 && (
+                                <div className="flex justify-between">
+                                  <span>{pricingData.breakdown.timeLabel}</span>
+                                  <span className="text-yellow-400">₹{pricingData.breakdown.timeCharge}</span>
+                                </div>
+                              )}
+                              {(pricingData.breakdown?.smallOrderFee || 0) > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Small order fee</span>
+                                  <span className="text-orange-400">₹{pricingData.breakdown.smallOrderFee}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between border-t border-white/10 pt-1 font-bold text-primary">
+                                <span>Delivery Fee</span>
+                                <span>₹{pricingData.deliveryFee}</span>
+                              </div>
+                            </div>
+                          )}
+                          {pricingData.source === 'estimated' && (
+                            <p className="text-[9px] text-text-muted italic">* Estimated — configure Google Maps API for exact routing</p>
+                          )}
+                        </div>
+                      )}
+                      {!pricingData && !pricingLoading && !pricingError && (
+                        <div className="flex items-center gap-2 p-3 bg-primary/5 text-text-muted text-xs">
+                          <Truck size={13} className="text-primary shrink-0" />
+                          Enter your address above to see delivery fee
+                        </div>
+                      )}
+                    </div>
+
                     {!deliveryAddr.trim() && (
                       <p className="text-[10px] text-yellow-400 font-bold">⚠ Delivery address is required</p>
                     )}
                   </div>
+                )}
+              </div>
+
+              {/* ── Payment Method (required) ── */}
+              <div className="bg-secondary/30 border border-white/10 rounded-2xl p-4 space-y-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-text-muted flex items-center gap-2">
+                  <CreditCard size={13} className="text-primary" /> Payment Method <span className="text-red-400">*</span>
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'cash', label: 'Cash',  emoji: '💵' },
+                    { id: 'card', label: 'Card',  emoji: '💳' },
+                    { id: 'upi',  label: 'UPI',   emoji: '📱' },
+                  ].map(({ id, label, emoji }) => (
+                    <button key={id} type="button"
+                      onClick={() => { setPaymentMethod(id); setOrderError(''); }}
+                      className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border font-black text-xs uppercase tracking-widest transition-all ${
+                        paymentMethod === id
+                          ? 'bg-primary/15 border-primary text-primary'
+                          : 'bg-white/5 border-white/10 text-text-muted hover:border-white/30 hover:text-white'
+                      }`}>
+                      <span className="text-lg">{emoji}</span>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {!paymentMethod && (
+                  <p className="text-[10px] text-yellow-400 font-bold">⚠ Select a payment method to place your order</p>
                 )}
               </div>
 
@@ -1157,7 +1300,7 @@ const Cart = () => {
               {/* Place order button */}
               <button
                 onClick={handlePlaceOrder}
-                disabled={placing || cart.length === 0 || (orderMode === 'dinein' && !selectedTable) || (orderMode === 'delivery' && !deliveryAddr.trim())}
+                disabled={placing || cart.length === 0 || !paymentMethod || (orderMode === 'dinein' && !selectedTable) || (orderMode === 'delivery' && !deliveryAddr.trim())}
                 className="relative w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest overflow-hidden group disabled:opacity-60 disabled:cursor-not-allowed transition-all"
                 style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', boxShadow: '0 4px 24px rgba(245,158,11,0.35)' }}
               >

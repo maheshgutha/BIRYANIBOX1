@@ -576,7 +576,14 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                       {(() => {
                         const raw = String(ord.table_number || '');
                         const n = parseInt(raw);
-                        return (!isNaN(n) && String(n) === raw) ? `Table ${n}` : (raw || '—');
+                        // If table_number is a plain number → "Table N"
+                        if (!isNaN(n) && String(n) === raw) return `Table ${n}`;
+                        // If table_number already has text (e.g. "Takeaway") → show as-is
+                        if (raw && raw !== '—') return raw;
+                        // Fallback: derive label from order_type (customer delivery/pickup)
+                        if (ord.order_type === 'delivery')                         return '🚴 Home Delivery';
+                        if (ord.order_type === 'pickup' || ord.order_type === 'takeaway') return '📦 Takeaway';
+                        return '—';
                       })()}
                     </span>
                     {/* Zone indicator for captains */}
@@ -4596,7 +4603,7 @@ const MenuMaster = ({ menu: ctxMenu, updateMenuStock, toggleMenuAvailability, in
   // Sync from context
   useEffect(() => { setMenuItems(ctxMenu || []); }, [ctxMenu]);
 
-  const categories = ['Biryani', 'Appetizers', 'Breads', 'Desserts', 'Combos', 'Drinks'];
+  const categories = ['Appetizers', 'Beverages', 'Biryani', 'Curries', 'Desserts', 'Dosa', 'Pulao', 'Street Style', 'Tiffins'];
 
   const filtered = menuItems.filter(item => {
     const matchSearch = !search || item.name.toLowerCase().includes(search.toLowerCase()) || (item.category || '').toLowerCase().includes(search.toLowerCase());
@@ -5239,7 +5246,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
       </AnimatePresence>
 
       {/* Group filter pills */}
-      <div className="flex flex-wrap gap-2 mb-4">
+      {/* <div className="flex flex-wrap gap-2 mb-4">
         {ING_GROUPS.map(g => {
           const cnt = g.key==='all' ? localIngredients.length : localIngredients.filter(i=>(i.category||'other')===g.key).length;
           if(g.key!=='all'&&cnt===0) return null;
@@ -5250,7 +5257,7 @@ const IngredientManager = ({ ingredients, updateIngredientStock }) => {
             </button>
           );
         })}
-      </div>
+      </div> */}
 
       {/* Ingredient Cards */}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">

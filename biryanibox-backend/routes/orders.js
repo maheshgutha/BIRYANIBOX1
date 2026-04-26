@@ -407,8 +407,24 @@ router.post('/', protect, async (req, res, next) => {
     }
     subtotal = +subtotal.toFixed(2);
 
-    const dist        = parseFloat(distance_km) || 0;
-    const deliveryFee = isDelivery ? (dist > 0 ? Math.round(dist * 2) : 5) : 0;
+    const dist = parseFloat(distance_km) || 0;
+
+    // Dynamic delivery fee via pricing engine
+    let deliveryFee = 0;
+    if (isDelivery && delivery_address) {
+      try {
+        const { calculateDeliveryPrice } = require('../services/deliveryPricingService');
+        const pricing = await calculateDeliveryPrice(delivery_address, subtotal);
+        if (!pricing.error) {
+          deliveryFee = pricing.deliveryFee;
+        } else {
+          return res.status(422).json({ success: false, message: pricing.error });
+        }
+      } catch (pErr) {
+        console.error('[Orders] Pricing engine error:', pErr.message);
+        deliveryFee = dist > 0 ? Math.round(dist * 10) : 40; // fallback
+      }
+    }
 
     // ── Apply discounts (only for authenticated customers; staff POS skips these) ──
     // Cap each discount at the remaining amount to prevent negative totals

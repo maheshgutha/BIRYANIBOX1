@@ -372,3 +372,25 @@ export const shiftsAPI_ext = {
   checkout:      () => request('/shifts/checkout',      { method: 'POST', body: '{}' }),
   checkinStatus: () => request('/shifts/checkin-status'),
 };
+
+// ── DELIVERY PRICING ──────────────────────────────────────────────
+export const deliveryPricingAPI = {
+  /**
+   * Calculate delivery fee for a given destination + cart value.
+   * @param {string|{lat:number,lng:number}} destination  Address or coordinates
+   * @param {number} orderValue  Current cart subtotal (₹)
+   * @returns Promise<{distance, distanceKm, duration, deliveryFee, freeDelivery, breakdown}>
+   */
+  calculate: (destination, orderValue = 0) =>
+    request('/delivery-pricing/calculate', {
+      method: 'POST',
+      body: JSON.stringify({ destination, orderValue }),
+    }),
+
+  /** Get current pricing config (base_price, per_km_rate, etc.) */
+  getConfig: () => request('/delivery-pricing/config'),
+
+  /** Update pricing config — owner/manager only */
+  updateConfig: (body) =>
+    request('/delivery-pricing/config', { method: 'PUT', body: JSON.stringify(body) }),
+};

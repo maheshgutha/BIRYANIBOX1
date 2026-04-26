@@ -863,7 +863,6 @@ const Home = () => {
       <PromoGrid navigate={navigate} />
       <Testimonials />
       <CustomerAnnouncements />
-      <CustomerFeedback />
       <Footer />
 
       {/* Cart Float Badge */}

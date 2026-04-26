@@ -47,6 +47,7 @@ app.use('/api/feedback',      require('./routes/Feedback'));
 app.use('/api/leaves',        require('./routes/leaves'));
 app.use('/api/budget',        require('./routes/Budget'));
 app.use('/api/waste',         require('./routes/Waste'));
+app.use('/api/delivery-pricing', require('./routes/deliveryPricing'));
 
 app.get('/', (req, res) => res.json({ message: 'Biryani Box API Running', status: 'ok' }));
 app.use(errorHandler);

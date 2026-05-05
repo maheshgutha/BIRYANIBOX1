@@ -16,12 +16,11 @@ import { useCart } from '../context/useContextHooks';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
-import heroBiryani from '../assets/hero-biryani.png';
-import muttonBiryani from '../assets/mutton-biryani.png';
+import heroBiryani from '../assets/hero.png';
+import muttonBiryani from '../assets/hero.png';
 import chickenTikka from '../assets/chicken-tikka.png';
 import rasmalai from '../assets/rasmalai.png';
 import backgroundInterior from '../assets/background.png';
-// Carousel images
 import gulabJamun from '../assets/gulabjamum.png';
 import mangoLassi from '../assets/mangolassi.png';
 import muttonBiryaniNew from '../assets/muttonbiryani.png';

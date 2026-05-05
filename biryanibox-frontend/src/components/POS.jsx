@@ -10,10 +10,11 @@ import {
   CreditCard, Banknote, Smartphone, ChevronRight,
 } from 'lucide-react';
 
-import heroBiryani   from '../assets/hero-biryani.png';
-import muttonBiryani from '../assets/mutton-biryani.png';
-import chickenTikka  from '../assets/chicken-tikka.png';
-import rasmalai      from '../assets/rasmalai.png';
+import heroImg       from '../assets/hero.png';
+const heroBiryani   = heroImg;
+const muttonBiryani = heroImg;
+const chickenTikka  = heroImg;
+const rasmalai      = heroImg;
 
 /* ─── Customer Notification Toast ────────────────────────────────────────── */
 const CustomerNotificationToast = ({ notification, onDismiss }) => {

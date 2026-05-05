@@ -674,19 +674,25 @@ const OrderTable = ({ orders, user, onStatusUpdate, onConfirmOrder, onDelete, st
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
-                    {/* pending_confirmation: Accept / Reject (owner + manager only) */}
-                    {ord.status === 'pending_confirmation' && ['owner', 'manager'].includes(user.role) && onConfirmOrder && (
-                      <>
-                        <button onClick={() => onConfirmOrder(id, 'accept')}
-                          className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-green-500 hover:text-white transition-all">
-                          ✓ Accept
-                        </button>
-                        <button onClick={() => onConfirmOrder(id, 'reject')}
-                          className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-red-500 hover:text-white transition-all">
-                          ✗ Reject
-                        </button>
-                      </>
-                    )}
+                    {/* pending_confirmation: Accept / Reject (owner + manager + dine-in captain for their tables) */}
+                    {ord.status === 'pending_confirmation' && onConfirmOrder && (() => {
+                      const isOwnerManager = ['owner', 'manager'].includes(user.role);
+                      const isDineInCaptain = user.role === 'captain' && !isDeliveryCaptain && ord.order_type === 'dine-in';
+                      const captainInZone = isDineInCaptain && isCaptainOrderInZone(ord);
+                      if (!isOwnerManager && !captainInZone) return null;
+                      return (
+                        <>
+                          <button onClick={() => onConfirmOrder(id, 'accept')}
+                            className="px-3 py-1.5 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-green-500 hover:text-white transition-all">
+                            ✓ Accept
+                          </button>
+                          <button onClick={() => onConfirmOrder(id, 'reject')}
+                            className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-red-500 hover:text-white transition-all">
+                            ✗ Reject
+                          </button>
+                        </>
+                      );
+                    })()}
                     {/* Main action button — only shown for in-zone orders */}
                     {canAdvance(ord) && inZone && (() => {
                       const nextSt = getNextStatus(ord);
@@ -8409,7 +8415,7 @@ const navigate = useNavigate();
     setTimeout(() => setRefreshing(false), 600);
   }, [loadOrders]);
 
-  // Accept / Reject a dine-in pending_confirmation order (owner + manager only)
+  // Accept / Reject a dine-in pending_confirmation order (owner + manager + dine-in captain for their tables)
   const confirmOrder = useCallback(async (id, action) => {
     try {
       await ordersAPI.confirmOrder(id, action);

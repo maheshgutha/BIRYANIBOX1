@@ -297,6 +297,36 @@ const OrderTracker = ({ order }) => {
         </div>
       )}
 
+      {/* Staff name — who served/dispatched */}
+      {(() => {
+        const servedByName = order.served_by?.name;
+        if (!servedByName) return null;
+
+        let label = '';
+        let emoji = '';
+        if (order.order_type === 'dine-in' && ['served', 'paid'].includes(order.status)) {
+          label = 'Served by'; emoji = '🍽️';
+        } else if (order.order_type === 'pickup' && ['dispatched', 'paid'].includes(order.status)) {
+          label = 'At Counter'; emoji = '🏪';
+        } else if (order.order_type === 'delivery' && ['dispatched', 'delivered', 'paid'].includes(order.status)) {
+          label = 'Dispatched by'; emoji = '🚗';
+        }
+
+        if (!label) return null;
+
+        return (
+          <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-2.5">
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-primary/30 shrink-0">
+              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${servedByName}`} alt="" className="w-full h-full" />
+            </div>
+            <div>
+              <p className="text-[9px] text-white/30 font-bold uppercase">{emoji} {label}</p>
+              <p className="text-sm font-black text-white">{servedByName}</p>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Placed time */}
       <div className="bg-white/5 rounded-xl px-4 py-2.5">
         <p className="text-[9px] text-white/30 font-bold uppercase mb-1">Placed At</p>

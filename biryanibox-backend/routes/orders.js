@@ -187,6 +187,7 @@ router.get('/live/:customerId', protect, async (req, res, next) => {
     })
       .populate('captain_id', 'name')
       .populate('chef_id', 'name')
+      .populate('served_by', 'name')
       .sort({ created_at: -1 });
     if (!orders.length) return res.json({ success: true, data: null, all: [] });
     // Return first as 'data' for backward compat, plus full array as 'all'

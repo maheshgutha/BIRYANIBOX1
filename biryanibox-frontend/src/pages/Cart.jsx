@@ -920,7 +920,7 @@ const Cart = () => {
                   <div className="flex justify-between text-sm text-primary">
                     <span className="flex items-center gap-1"><Truck size={12} /> Delivery Fee{pricingData ? ` (${pricingData.distance})` : ''}</span>
                     <span className="font-bold">
-                      {pricingLoading ? '…' : pricingData?.freeDelivery ? '🎉 Free' : pricingData ? `+₹${pricingData.deliveryFee}` : '—'}
+                      {pricingLoading ? '…' : pricingData?.freeDelivery ? '🎉 Free' : pricingData ? `+$${pricingData.deliveryFee}` : '—'}
                     </span>
                   </div>
                 )}
@@ -1216,29 +1216,29 @@ const Cart = () => {
                             <div className="space-y-1 text-xs text-text-muted">
                               <div className="flex justify-between">
                                 <span>Base (first {3} km)</span>
-                                <span className="text-white">₹{pricingData.breakdown?.base}</span>
+                                <span className="text-white">${pricingData.breakdown?.base}</span>
                               </div>
                               {(pricingData.breakdown?.distanceCharge || 0) > 0 && (
                                 <div className="flex justify-between">
                                   <span>Distance charge</span>
-                                  <span className="text-white">₹{pricingData.breakdown.distanceCharge}</span>
+                                  <span className="text-white">${pricingData.breakdown.distanceCharge}</span>
                                 </div>
                               )}
                               {(pricingData.breakdown?.timeCharge || 0) > 0 && (
                                 <div className="flex justify-between">
                                   <span>{pricingData.breakdown.timeLabel}</span>
-                                  <span className="text-yellow-400">₹{pricingData.breakdown.timeCharge}</span>
+                                  <span className="text-yellow-400">${pricingData.breakdown.timeCharge}</span>
                                 </div>
                               )}
                               {(pricingData.breakdown?.smallOrderFee || 0) > 0 && (
                                 <div className="flex justify-between">
                                   <span>Small order fee</span>
-                                  <span className="text-orange-400">₹{pricingData.breakdown.smallOrderFee}</span>
+                                  <span className="text-orange-400">${pricingData.breakdown.smallOrderFee}</span>
                                 </div>
                               )}
                               <div className="flex justify-between border-t border-white/10 pt-1 font-bold text-primary">
                                 <span>Delivery Fee</span>
-                                <span>₹{pricingData.deliveryFee}</span>
+                                <span>${pricingData.deliveryFee}</span>
                               </div>
                             </div>
                           )}

@@ -845,14 +845,183 @@ const Contact = () => {
 };
 
 // ─── Home (Main page assembly) ────────────────────────────────────────────────
+// ─── Previous Order Suggestion Popup ─────────────────────────────────────────
+const PreviousOrderPopup = ({ onAccept, onDismiss, lastOrder, secondsLeft }) => {
+  if (!lastOrder) return null;
+  const itemCount = lastOrder.items ? lastOrder.items.length : 0;
+  const previewItems = (lastOrder.items || [])
+    .slice(0, 3)
+    .map(i => i.name || i.item_name)
+    .filter(Boolean);
+  // Countdown ring: 0–60 mapped to stroke-dashoffset
+  const radius = 10;
+  const circumference = 2 * Math.PI * radius;
+  const progress = (secondsLeft / 60);
+  const strokeOffset = circumference * (1 - progress);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 80, scale: 0.95 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 80, scale: 0.95 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+      className="fixed top-20 right-4 z-[200] w-80"
+    >
+      <div className="bg-secondary border border-primary/40 rounded-3xl shadow-2xl shadow-primary/20 p-5 overflow-hidden relative">
+        {/* Top accent line — shrinks as time runs out */}
+        <div className="absolute top-0 left-0 h-1 bg-gradient-to-r from-primary to-primary-hover rounded-t-3xl transition-all duration-1000"
+          style={{ width: `${progress * 100}%` }} />
+
+        {/* Header row: icon + text + countdown */}
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center text-2xl shrink-0">
+            🍛
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
+              Continue Where You Left Off
+            </p>
+            <p className="text-white font-bold text-sm mb-1">Order Again?</p>
+            <p className="text-text-muted text-xs truncate">
+              {previewItems.join(', ')}
+              {itemCount > 3 ? ` +${itemCount - 3} more` : ''}
+            </p>
+          </div>
+          {/* Countdown ring only — no skip here */}
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <div className="relative w-9 h-9">
+              <svg viewBox="0 0 24 24" className="w-9 h-9 -rotate-90">
+                <circle cx="12" cy="12" r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2.5" />
+                <circle cx="12" cy="12" r={radius} fill="none" stroke="rgb(229,138,48)" strokeWidth="2.5"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={strokeOffset}
+                  strokeLinecap="round"
+                  style={{ transition: 'stroke-dashoffset 1s linear' }}
+                />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-black text-white/70">
+                {secondsLeft}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={onAccept}
+            className="flex-1 py-3 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-primary-hover transition-all flex items-center justify-center gap-2"
+          >
+            <ShoppingBag size={14} /> Add to Cart & Continue
+          </button>
+          <button
+            onClick={onDismiss}
+            className="px-4 py-3 bg-white/8 border border-white/15 text-white/70 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-400 transition-all flex items-center justify-center gap-1.5"
+          >
+            <X size={13} /> Cancel
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── Home (Main page assembly) ────────────────────────────────────────────────
 const Home = () => {
-  const { cart } = useCart();
+  const { cart, addToCart } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { orders } = useOrders();
+
+  const [showPrevOrderPopup, setShowPrevOrderPopup] = useState(false);
+  const [prevOrder, setPrevOrder] = useState(null);
+  const [popupSecondsLeft, setPopupSecondsLeft] = useState(60); // 1-minute countdown
+  const popupDismissedRef = React.useRef(false);
+  const autoHideTimerRef = React.useRef(null);
+  const countdownRef = React.useRef(null);
+
+  // On page open: after 1.5s show popup if user has previous orders
+  // The popup auto-dismisses after exactly 60 seconds
+  useEffect(() => {
+    if (!user || popupDismissedRef.current) return;
+    const showTimer = setTimeout(() => {
+      try {
+        const paidOrders = (orders || []).filter(
+          o => o.status === 'paid' || o.status === 'served' || o.status === 'completed'
+        );
+        if (paidOrders.length > 0) {
+          const last = paidOrders[paidOrders.length - 1];
+          if (last.items && last.items.length > 0) {
+            setPrevOrder(last);
+            setShowPrevOrderPopup(true);
+            setPopupSecondsLeft(60);
+
+            // Auto-dismiss after 60 seconds
+            autoHideTimerRef.current = setTimeout(() => {
+              setShowPrevOrderPopup(false);
+            }, 60000);
+
+            // Countdown ticker every second
+            let secs = 60;
+            countdownRef.current = setInterval(() => {
+              secs -= 1;
+              setPopupSecondsLeft(secs);
+              if (secs <= 0) clearInterval(countdownRef.current);
+            }, 1000);
+          }
+        }
+      } catch (_) {}
+    }, 1500);
+
+    return () => {
+      clearTimeout(showTimer);
+      clearTimeout(autoHideTimerRef.current);
+      clearInterval(countdownRef.current);
+    };
+  // Only run once on mount — do NOT put orders/user in deps to avoid re-triggering
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleAcceptPrevOrder = () => {
+    if (!prevOrder || !prevOrder.items) return;
+    clearTimeout(autoHideTimerRef.current);
+    clearInterval(countdownRef.current);
+    prevOrder.items.forEach(item => {
+      addToCart({
+        id:       item.menu_item || item._id || item.id,
+        _id:      item.menu_item || item._id || item.id,
+        name:     item.name || item.item_name || 'Item',
+        price:    item.price || item.unit_price || 0,
+        category: item.category || '',
+      });
+    });
+    setShowPrevOrderPopup(false);
+    navigate('/cart');
+  };
+
+  const handleDismissPopup = () => {
+    clearTimeout(autoHideTimerRef.current);
+    clearInterval(countdownRef.current);
+    popupDismissedRef.current = true;
+    setShowPrevOrderPopup(false);
+  };
 
   return (
     <div className="bg-bg-main">
       <Navbar />
+
+      {/* ── Previous Order Suggestion Popup ── */}
+      <AnimatePresence>
+        {showPrevOrderPopup && (
+          <PreviousOrderPopup
+            lastOrder={prevOrder}
+            onAccept={handleAcceptPrevOrder}
+            onDismiss={handleDismissPopup}
+            secondsLeft={popupSecondsLeft}
+          />
+        )}
+      </AnimatePresence>
+
       <Hero navigate={navigate} user={user} />
       <RestaurantVideo />
       <PopularItems />

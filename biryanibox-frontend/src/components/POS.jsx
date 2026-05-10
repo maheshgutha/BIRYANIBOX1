@@ -326,7 +326,7 @@ const POS = ({ user, onBack }) => {
                     {isPickupOrder ? '📦 Confirm Pickup Order' : isDeliveryOrder ? '🚚 Confirm Delivery Order' : '🍽 Confirm Dine-In Order'}
                   </h3>
                   <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${confirmColors.badge}`}>
-                    {isDeliveryOrder ? `${pricingData ? pricingData.distance : '—'} · ₹${deliveryFee} delivery` : isPickupOrder ? 'Counter pickup' : `Table ${selectedTable}`}
+                    {isDeliveryOrder ? `${pricingData ? pricingData.distance : '—'} · $${deliveryFee} delivery` : isPickupOrder ? 'Counter pickup' : `Table ${selectedTable}`}
                   </span>
                 </div>
               </div>
@@ -364,7 +364,7 @@ const POS = ({ user, onBack }) => {
                       <span className="text-white/80">{deliveryAddress}</span>
                     </div>
                     <div><span className="text-text-muted">Distance:</span> <span className="text-blue-400 font-bold ml-1">{pricingData ? pricingData.distance : '—'}</span></div>
-                    <div><span className="text-text-muted">Delivery fee:</span> <span className="text-blue-400 font-bold ml-1">₹{deliveryFee}</span></div>
+                    <div><span className="text-text-muted">Delivery fee:</span> <span className="text-blue-400 font-bold ml-1">${deliveryFee}</span></div>
                   </div>
 
                   {/* Arrival preference radio */}
@@ -659,15 +659,15 @@ const POS = ({ user, onBack }) => {
                             <p className="text-green-400 text-xs font-bold text-center">🎉 Free delivery on this order!</p>
                           ) : (
                             <div className="space-y-1 text-xs text-text-muted">
-                              <div className="flex justify-between"><span>Base charge</span><span className="text-white">₹{pricingData.breakdown?.base}</span></div>
+                              <div className="flex justify-between"><span>Base charge</span><span className="text-white">${pricingData.breakdown?.base}</span></div>
                               {(pricingData.breakdown?.distanceCharge || 0) > 0 && (
-                                <div className="flex justify-between"><span>Distance charge</span><span className="text-white">₹{pricingData.breakdown.distanceCharge}</span></div>
+                                <div className="flex justify-between"><span>Distance charge</span><span className="text-white">${pricingData.breakdown.distanceCharge}</span></div>
                               )}
                               {(pricingData.breakdown?.timeCharge || 0) > 0 && (
-                                <div className="flex justify-between"><span>{pricingData.breakdown.timeLabel}</span><span className="text-yellow-400">₹{pricingData.breakdown.timeCharge}</span></div>
+                                <div className="flex justify-between"><span>{pricingData.breakdown.timeLabel}</span><span className="text-yellow-400">${pricingData.breakdown.timeCharge}</span></div>
                               )}
                               <div className="flex justify-between border-t border-white/10 pt-1 font-bold text-blue-400">
-                                <span>Delivery Fee</span><span>₹{pricingData.deliveryFee}</span>
+                                <span>Delivery Fee</span><span>${pricingData.deliveryFee}</span>
                               </div>
                             </div>
                           )}
@@ -826,7 +826,7 @@ const POS = ({ user, onBack }) => {
               {isDeliveryOrder && deliveryFee > 0 && (
                 <div className="flex justify-between items-center text-xs text-blue-400 font-bold">
                   <span className="flex items-center gap-1"><Truck size={10} /> Delivery {pricingData ? `(${pricingData.distance})` : ''}</span>
-                  <span>+₹{deliveryFee}</span>
+                  <span>+${deliveryFee}</span>
                 </div>
               )}
               <div className="flex justify-between items-center text-xl font-bold text-white font-heading">

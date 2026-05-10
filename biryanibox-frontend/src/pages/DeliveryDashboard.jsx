@@ -367,7 +367,7 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
                 <p className={`text-[10px] mt-0.5 ${isPrepaid ? 'text-green-400/70' : 'text-yellow-400/80'}`}>
                   {isPrepaid
                     ? `Payment done via ${pm.toUpperCase()} — no cash collection needed.`
-                    : `Collect ₹${orderTotal.toFixed(2)} cash from customer on delivery.`}
+                    : `Collect $${orderTotal.toFixed(2)} cash from customer on delivery.`}
                 </p>
               </div>
             </div>
@@ -523,7 +523,7 @@ const DeliveryCard = ({ delivery, onAccept, onSkip, onPickup, onTransit, onDeliv
                     <p className={`text-[10px] mt-0.5 ${isPrepaid ? 'text-green-400/70' : 'text-yellow-400/70'}`}>
                       {isPrepaid
                         ? `Payment was via ${(pm || '').toUpperCase()} — no cash needed. Tap Paid to complete.`
-                        : `Please collect ₹${orderTotal.toFixed(2)} cash from the customer, then tap Paid.`}
+                        : `Please collect $${orderTotal.toFixed(2)} cash from the customer, then tap Paid.`}
                     </p>
                   </div>
                 </div>

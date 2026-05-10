@@ -313,7 +313,7 @@ const GiftCards = () => {
                 {sentCards.map(card => (
                   <div key={card._id} className="bg-secondary/40 border border-white/10 rounded-3xl p-6">
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-3xl font-black text-primary">₹{card.denomination}</span>
+                      <span className="text-3xl font-black text-primary">${card.denomination}</span>
                       <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border ${statusBadge(card.status, card.balance)}`}>
                         {(card.status === 'used' || card.balance === 0) ? '✗ Fully Used' : '✓ Active'}
                       </span>
@@ -356,7 +356,7 @@ const GiftCards = () => {
                   </div>
                   <div>
                     <p className="text-[9px] font-black uppercase tracking-[0.4em] mb-3 opacity-60">Gift Card Value</p>
-                    <h2 className="text-6xl font-black font-heading">₹{amount}</h2>
+                    <h2 className="text-6xl font-black font-heading">${amount}</h2>
                   </div>
                 </div>
               </div>
@@ -392,12 +392,12 @@ const GiftCards = () => {
                       {amounts.map(val => (
                         <button key={val} onClick={() => setAmount(val)}
                           className={`px-6 py-3 rounded-2xl border font-black text-xs uppercase tracking-widest transition-all ${amount === val ? 'bg-primary border-primary text-white shadow-xl' : 'bg-white/5 border-white/10 text-white/40 hover:border-white/30'}`}>
-                          ₹{val}
+                          ${val}
                         </button>
                       ))}
                     </div>
                     <div className="mb-6">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Custom amount (₹)</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">Custom amount ($)</label>
                       <input type="number" min="10" max="100000" value={amount}
                         onChange={e => setAmount(Number(e.target.value))}
                         className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-sm text-white focus:outline-none focus:border-primary/50" />
@@ -465,7 +465,7 @@ const GiftCards = () => {
                     <h3 className="text-2xl font-black font-heading mb-8">3. Review & Send</h3>
                     <div className="space-y-3 mb-6">
                       {[
-                        ['Value',         `₹${amount}`],
+                        ['Value',         `$${amount}`],
                         ['From',          `${form.sender_name} (${form.sender_email})`],
                         ['To',            form.receiver_name],
                         ['Send to email', form.receiver_email],

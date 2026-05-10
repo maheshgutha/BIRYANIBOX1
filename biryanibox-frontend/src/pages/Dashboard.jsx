@@ -4036,6 +4036,53 @@ const CateringPanel = () => {
   });
   const [savingNew, setSavingNew] = useState(false);
   const snf = f => e => setNewForm(p => ({ ...p, [f]: e.target.value }));
+  const [editMenuOrderId, setEditMenuOrderId] = useState(null); // which confirmed order we're editing
+  const [editMenuText, setEditMenuText] = useState(''); // free-text menu edit
+  const [editNewPrice, setEditNewPrice] = useState(''); // recalculated price after menu edit
+  const [savingMenuEdit, setSavingMenuEdit] = useState(false);
+  const [cateringMenuItems, setCateringMenuItems] = useState([]); // live menu for price lookup
+
+  // Load menu items for price calc (silently, once)
+  useEffect(() => {
+    menuAPI.getAll().then(r => setCateringMenuItems(r.data || [])).catch(() => {});
+  }, []);
+
+  // ── Auto-recalculate price when editMenuText or guest_count changes ──────────
+  const CATERING_PACKAGES = [
+    { name: 'Basic Spread',   price_per_head: 18 },
+    { name: 'Premium Feast',  price_per_head: 28 },
+    { name: 'Royal Banquet',  price_per_head: 45 },
+  ];
+
+  const recalcPrice = (menuText, guestCount) => {
+    if (!menuText || !guestCount) return '';
+    const guests = Number(guestCount) || 0;
+    if (guests <= 0) return '';
+    const raw = menuText.trim();
+    // Package mode: "Package: Royal Banquet | Items: ..."
+    if (raw.startsWith('Package:')) {
+      const pkgName = raw.split('|')[0].replace('Package:', '').trim();
+      const pkg = CATERING_PACKAGES.find(p => p.name.toLowerCase() === pkgName.toLowerCase());
+      if (pkg) return String(Math.round(pkg.price_per_head * guests));
+    }
+    // Custom mode: parse item names and match to menu prices
+    const itemsPart = raw.startsWith('Custom Menu:') ? raw.replace('Custom Menu:', '') : raw;
+    const itemTokens = itemsPart.split(',').map(s => s.trim()).filter(Boolean);
+    if (itemTokens.length === 0) return '';
+    let totalCost = 0, matched = 0;
+    itemTokens.forEach(token => {
+      // token may be "Chicken Biryani ×3" or just "Chicken Biryani"
+      const match = token.match(/^(.+?)(?:\s*[×x]\s*(\d+))?$/);
+      const name = match ? match[1].trim() : token;
+      const qty  = match && match[2] ? parseInt(match[2]) : 1;
+      const mi = cateringMenuItems.find(m => m.name?.toLowerCase() === name.toLowerCase());
+      if (mi && mi.price) { totalCost += mi.price * qty; matched++; }
+    });
+    if (matched === 0) return '';
+    // price per item × qty, then multiply per guest (treat each token as a dish for all guests)
+    const costPerHead = totalCost / (itemTokens.length || 1);
+    return String(Math.round(costPerHead * guests));
+  };
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -4121,6 +4168,27 @@ const CateringPanel = () => {
       load();
     } catch (err) { flash(err.message || 'Failed to send quotation', 'error'); }
     finally { setSendingQuote(false); }
+  };
+
+  const handleSaveMenuEdit = async (id, guestCount) => {
+    if (!editMenuText.trim()) { flash('Menu cannot be empty', 'error'); return; }
+    setSavingMenuEdit(true);
+    try {
+      const updatePayload = { menu_selection: editMenuText };
+      // If we have a recalculated price, update total_price too
+      const calcPrice = editNewPrice ? parseFloat(editNewPrice) : null;
+      if (calcPrice && calcPrice > 0) {
+        updatePayload.total_price = calcPrice;
+        updatePayload.quote_value = calcPrice;
+      }
+      await cateringAPI.update(id, updatePayload);
+      flash(calcPrice ? `Menu updated! New price: $${calcPrice.toLocaleString()}` : 'Menu updated successfully!');
+      setEditMenuOrderId(null);
+      setEditMenuText('');
+      setEditNewPrice('');
+      load();
+    } catch (err) { flash(err.message || 'Failed to update menu', 'error'); }
+    finally { setSavingMenuEdit(false); }
   };
 
   const deleteOrder = async (id) => {
@@ -4457,10 +4525,19 @@ const CateringPanel = () => {
                     </>
                   )}
                   {o.status === 'confirmed' && (
-                    <button onClick={() => updateStatus(o._id, 'completed')}
-                      className="px-3 py-2 bg-blue-500/20 text-blue-400 text-[10px] font-black rounded-xl hover:bg-blue-500 hover:text-white transition-all">
-                      ✓ Complete
-                    </button>
+                    <>
+                      <button onClick={() => updateStatus(o._id, 'completed')}
+                        className="px-3 py-2 bg-blue-500/20 text-blue-400 text-[10px] font-black rounded-xl hover:bg-blue-500 hover:text-white transition-all">
+                        ✓ Complete
+                      </button>
+                      <button onClick={() => {
+                        if (editMenuOrderId === o._id) { setEditMenuOrderId(null); setEditMenuText(''); }
+                        else { setEditMenuOrderId(o._id); setEditMenuText(o.menu_selection || ''); }
+                      }}
+                        className="px-3 py-2 bg-orange-500/20 text-orange-400 text-[10px] font-black rounded-xl hover:bg-orange-500 hover:text-white transition-all">
+                        ✏ Edit Menu
+                      </button>
+                    </>
                   )}
                   {o.status !== 'cancelled' && o.status !== 'completed' && (
                     <button onClick={() => updateStatus(o._id, 'cancelled')}
@@ -4474,6 +4551,99 @@ const CateringPanel = () => {
                   </button>
                 </div>
               </div>
+
+              {/* ── Edit Menu Panel (after confirmation) ── */}
+              {editMenuOrderId === o._id && (() => {
+                const calcedPrice = recalcPrice(editMenuText, o.guest_count || o.guests);
+                const currentPrice = o.total_price || o.quote_value || 0;
+                const priceChanged = calcedPrice && Number(calcedPrice) !== Number(currentPrice);
+                return (
+                  <div className="px-5 pb-5 border-t border-orange-500/30 pt-4 bg-orange-500/5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black uppercase tracking-widest text-orange-400">✏ Edit Menu — Confirmed Order</p>
+                      <button onClick={() => { setEditMenuOrderId(null); setEditMenuText(''); setEditNewPrice(''); }}
+                        className="text-text-muted hover:text-white text-xs">✕ Close</button>
+                    </div>
+
+                    <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl px-3 py-2">
+                      <p className="text-[10px] text-orange-300 font-bold">⚠ Editing a CONFIRMED order. Changes update menu + recalculate price automatically.</p>
+                    </div>
+
+                    {/* Menu text editor */}
+                    <div>
+                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-2 block">Menu Selection</label>
+                      <textarea
+                        value={editMenuText}
+                        onChange={e => {
+                          setEditMenuText(e.target.value);
+                          const calc = recalcPrice(e.target.value, o.guest_count || o.guests);
+                          setEditNewPrice(calc);
+                        }}
+                        rows={4}
+                        placeholder="e.g. Package: Royal Banquet | Items: Mutton Biryani, Chicken Tikka, Dal Makhani"
+                        className="w-full bg-bg-main border border-white/10 p-3 rounded-xl text-sm text-white focus:border-orange-400 outline-none resize-none"
+                      />
+                      <p className="text-[10px] text-text-muted mt-1">
+                        Use format: <span className="text-white/60">Package: [Name] | Items: [item1, item2…]</span> or <span className="text-white/60">Custom Menu: [item ×qty, …]</span>
+                      </p>
+                    </div>
+
+                    {/* Live price recalculation block */}
+                    <div className={`rounded-2xl border p-4 grid grid-cols-3 gap-3 ${priceChanged ? 'bg-green-500/10 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
+                      <div>
+                        <p className="text-[9px] text-text-muted uppercase font-black tracking-widest mb-1">Guests</p>
+                        <p className="text-xl font-black text-white">{o.guest_count || o.guests || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-text-muted uppercase font-black tracking-widest mb-1">Current Price</p>
+                        <p className="text-xl font-black text-yellow-400">{currentPrice > 0 ? `$${Number(currentPrice).toLocaleString()}` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase font-black tracking-widest mb-1 text-green-400">New Price</p>
+                        {calcedPrice ? (
+                          <p className={`text-xl font-black ${priceChanged ? 'text-green-400' : 'text-white/50'}`}>
+                            ${Number(calcedPrice).toLocaleString()}
+                            {priceChanged && <span className="text-[10px] font-bold text-green-400 ml-1">↑ updated</span>}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-text-muted font-bold">Auto-calc…</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Manual price override */}
+                    <div>
+                      <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest mb-1.5 block">
+                        Override Price ($) <span className="normal-case font-normal text-text-muted">— leave blank to use auto-calculated</span>
+                      </label>
+                      <input
+                        type="number" min="0"
+                        value={editNewPrice}
+                        onChange={e => setEditNewPrice(e.target.value)}
+                        placeholder={calcedPrice || 'e.g. 3500'}
+                        className="w-full bg-bg-main border border-white/10 p-2.5 rounded-xl focus:border-orange-400 outline-none text-white text-sm"
+                      />
+                      {editNewPrice && Number(o.guest_count || o.guests) > 0 && (
+                        <p className="text-[10px] text-orange-400 font-bold mt-1">
+                          = ${(Number(editNewPrice) / Number(o.guest_count || o.guests)).toFixed(2)} per guest
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button onClick={() => handleSaveMenuEdit(o._id, o.guest_count || o.guests)} disabled={savingMenuEdit}
+                        className="px-5 py-2 bg-orange-500 text-white text-xs font-black rounded-xl hover:bg-orange-600 disabled:opacity-50 transition-all flex items-center gap-2">
+                        {savingMenuEdit
+                          ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"/> Saving…</>
+                          : <>✓ Save Menu {editNewPrice ? `& Update Price to $${Number(editNewPrice).toLocaleString()}` : 'Changes'}</>
+                        }
+                      </button>
+                      <button onClick={() => { setEditMenuOrderId(null); setEditMenuText(''); setEditNewPrice(''); }}
+                        className="px-4 py-2 border border-white/20 text-text-muted text-xs font-black rounded-xl hover:bg-white/5 transition-all">Cancel</button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── Quotation Form ── */}
               {selected === o._id && (

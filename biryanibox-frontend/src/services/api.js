@@ -1,6 +1,13 @@
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-const getToken = () => localStorage.getItem('bb_token');
+// Safe localStorage helpers — never throw when browser tracking prevention blocks storage
+const safeLS = {
+  get:    (k)      => { try { return localStorage.getItem(k); }      catch { return null; } },
+  set:    (k, v)   => { try { localStorage.setItem(k, v); }          catch {} },
+  remove: (k)      => { try { localStorage.removeItem(k); }          catch {} },
+};
+
+const getToken = () => safeLS.get('bb_token');
 
 const headers = (extra = {}) => ({
   'Content-Type': 'application/json',
@@ -9,27 +16,40 @@ const headers = (extra = {}) => ({
 });
 
 // Global 401 interceptor — clears stale/expired token immediately
-// so no more cascade of 401 errors from bad tokens
 const clearAuthOnUnauthorized = () => {
-  localStorage.removeItem('bb_token');
-  localStorage.removeItem('bb_user');
-  // Dispatch a custom event so AuthContext can react if needed
+  safeLS.remove('bb_token');
+  safeLS.remove('bb_user');
   window.dispatchEvent(new Event('bb:unauthorized'));
 };
 
 const request = async (path, options = {}) => {
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: headers(options.headers),
-  });
-  // 401 = token expired or invalid — clear it immediately to stop cascade
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers: headers(options.headers),
+    });
+  } catch (networkErr) {
+    throw new Error('Network error — is the server running?');
+  }
+
+  // 401 = token expired or invalid — clear it to stop cascade errors
   if (res.status === 401) {
-    // Don't clear on auth/login itself — those are expected 401s for wrong password
     if (!path.includes('/auth/login') && !path.includes('/auth/register')) {
       clearAuthOnUnauthorized();
     }
+    throw new Error('401');
   }
-  const data = await res.json();
+
+  // 404 on cart endpoints — silently return empty data instead of crashing
+  if (res.status === 404 && path.startsWith('/cart')) {
+    return { success: false, data: [], message: 'Not found' };
+  }
+
+  let data;
+  try { data = await res.json(); }
+  catch { throw new Error('Invalid response from server'); }
+
   if (!res.ok) throw new Error(data.message || 'Request failed');
   return data;
 };
@@ -378,7 +398,7 @@ export const deliveryPricingAPI = {
   /**
    * Calculate delivery fee for a given destination + cart value.
    * @param {string|{lat:number,lng:number}} destination  Address or coordinates
-   * @param {number} orderValue  Current cart subtotal (₹)
+   * @param {number} orderValue  Current cart subtotal ($)
    * @returns Promise<{distance, distanceKm, duration, deliveryFee, freeDelivery, breakdown}>
    */
   calculate: (destination, orderValue = 0) =>

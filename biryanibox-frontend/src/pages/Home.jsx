@@ -534,12 +534,25 @@ const Testimonials = () => (
 );
 
 // ─── Customer Announcements ──────────────────────────────────────────────────────
+const STAFF_ROLES = ['owner', 'manager', 'captain', 'chef', 'rider'];
+
 const CustomerAnnouncements = () => {
   const [items, setItems] = React.useState([]);
   const [busy,  setBusy]  = React.useState(true);
   React.useEffect(() => {
     announcementsAPI.getAll()
-      .then(r => setItems(r.data || []))
+      .then(r => {
+        // Safety filter: never show announcements that are staff-only
+        // (backend already filters, but double-check on the frontend too)
+        const customerOnly = (r.data || []).filter(a => {
+          const roles = a.target_roles || [];
+          if (roles.length === 0) return false; // no target = skip
+          const hasCustomer = roles.includes('customer');
+          const staffOnly   = roles.every(r => STAFF_ROLES.includes(r));
+          return hasCustomer && !staffOnly;
+        });
+        setItems(customerOnly);
+      })
       .catch(() => setItems([]))
       .finally(() => setBusy(false));
   }, []);
@@ -886,7 +899,7 @@ const PreviousOrderPopup = ({ onAccept, onDismiss, lastOrder, secondsLeft }) => 
             <div className="flex-1 min-w-0">
               <p className="text-[10px] font-black text-primary uppercase tracking-[0.18em] mb-1.5 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block animate-pulse" />
-                Do u  want to continue with Previous Order
+                Continue Where You Left Off
               </p>
               <p className="text-white font-black text-base mb-1">Order Again?</p>
               <p className="text-white/55 text-xs leading-relaxed truncate">

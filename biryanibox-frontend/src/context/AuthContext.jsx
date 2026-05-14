@@ -75,22 +75,25 @@ export const AuthProvider = ({ children }) => {
     try {
       const res = await authAPI.login({ email: emailOrRole, password });
       const u = normalizeUser(res.user);
-      localStorage.setItem('bb_token', res.token);
-      localStorage.setItem('bb_user', JSON.stringify(u));
-      setUser(u);
-      // Refresh from /me to ensure _id is correct
-      authAPI.me().then(meRes => {
-        const fullUser = normalizeUser(meRes.data);
-        setUser(fullUser);
-        localStorage.setItem('bb_user', JSON.stringify(fullUser));
-      }).catch(() => {});
-      return { success: true, user: u };
+      // NOTE: We do NOT call authAPI.me() here. The login response already
+      // contains full user data. A background me() call would race with the
+      // role-mismatch check in Login.jsx and restore state after we clear it.
+      // State is only committed after Login.jsx confirms the role is correct.
+      return { success: true, user: u, token: res.token };
     } catch (err) {
       setError(err.message);
       return { success: false, error: err.message };
     } finally {
       setLoading(false);
     }
+  };
+
+  // Called by Login.jsx after role is confirmed correct
+  const commitLogin = (user, token) => {
+    localStorage.setItem('bb_token', token);
+    localStorage.setItem('bb_user', JSON.stringify(user));
+    setUser(user);
+    window.dispatchEvent(new Event('bb:login'));
   };
 
   const register = async (name, email, phone, password) => {
@@ -139,7 +142,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, authReady, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, error, authReady, login, commitLogin, register, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

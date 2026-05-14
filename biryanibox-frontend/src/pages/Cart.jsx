@@ -10,24 +10,44 @@ import {
   UtensilsCrossed, Truck, ChevronsDown, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
-import heroImg       from '../assets/hero.png';
-const heroBiryani   = heroImg;
-const muttonBiryani = heroImg;
-const chickenTikka  = heroImg;
-const rasmalai      = heroImg;
+import heroImg         from '../assets/hero.png';
+import heroBiryaniImg   from '../assets/hero-biryani.png';
+import chickenTikkaImg  from '../assets/chicken-tikka.png';
+import rasmalaiImg      from '../assets/rasmalai.png';
+import muttonBiryaniImg from '../assets/muttonbiryani.png';
+import gulabjamunImg    from '../assets/gulabjamum.png';
+import mangolassiImg    from '../assets/mangolassi.png';
+
+const heroBiryani   = heroBiryaniImg;
+const muttonBiryani = muttonBiryaniImg;
+const chickenTikka  = chickenTikkaImg;
+const rasmalai      = rasmalaiImg;
+
+const API_BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
 
 const IMAGE_MAP = { heroBiryani, muttonBiryani, chickenTikka, rasmalai, hero: heroImg };
 const getItemImage = (item) => {
-  if (item.image_url && item.image_url.startsWith('http')) return item.image_url;
-  if (item.image && item.image.startsWith('http')) return item.image;
+  // Helper to resolve possibly-relative image URLs from the server
+  const resolve = (url) => {
+    if (!url || typeof url !== 'string') return null;
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('/')) return `${API_BASE_URL}${url}`;
+    return null;
+  };
+  const resolved = resolve(item.image_url) || resolve(item.image);
+  if (resolved) return resolved;
   if (item.image && IMAGE_MAP[item.image]) return IMAGE_MAP[item.image];
-  if (item.category === 'Biryani')    return heroBiryani;
-  if (item.category === 'Appetizers') return chickenTikka;
-  if (item.category === 'Breads')     return chickenTikka;
-  if (item.category === 'Curries')    return chickenTikka;
-  if (item.category === 'Desserts' || item.category === 'Dessert') return rasmalai;
-  if (item.category === 'Combos')     return muttonBiryani;
-  return heroBiryani;
+  // Category-based fallback using actual distinct assets
+  const cat = (item.category || '').toLowerCase();
+  if (cat === 'biryani' || cat.includes('biryani'))   return heroBiryaniImg;
+  if (cat === 'pulao'   || cat.includes('pulao'))     return muttonBiryaniImg;
+  if (cat === 'appetizers' || cat === 'starters')     return chickenTikkaImg;
+  if (cat === 'breads'  || cat === 'bread')           return chickenTikkaImg;
+  if (cat === 'curries' || cat === 'curry')           return chickenTikkaImg;
+  if (cat === 'desserts'|| cat === 'dessert')         return gulabjamunImg;
+  if (cat === 'drinks'  || cat === 'beverages')       return mangolassiImg;
+  if (cat === 'combos'  || cat === 'combo')           return muttonBiryaniImg;
+  return heroBiryaniImg;
 };
 
 const genCode = (userId, cycle) => {
@@ -881,7 +901,7 @@ const Cart = () => {
                   {cart.map(item => (
                     <motion.div key={item._id || item.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}
                       className="flex items-center gap-5 bg-secondary/30 border border-white/5 rounded-2xl p-5 hover:border-white/10 transition-all">
-                      <img src={getItemImage(item)} alt={item.name} className="w-20 h-20 rounded-xl object-cover shrink-0" />
+                      <img src={getItemImage(item)} alt={item.name} className="w-20 h-20 rounded-xl object-cover shrink-0" onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = heroBiryani; }} />
                       <div className="flex-1 min-w-0">
                         <h3 className="font-black text-white text-base truncate">{item.name}</h3>
                         <p className="text-text-muted text-xs font-bold uppercase tracking-widest">{item.category}</p>

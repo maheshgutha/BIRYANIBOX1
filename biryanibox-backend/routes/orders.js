@@ -594,7 +594,7 @@ router.post('/', protect, async (req, res, next) => {
 });
 
 // ── PATCH /api/orders/:id/confirm — Accept or Reject a dine-in order ──────
-router.patch('/:id/confirm', protect, authorize('owner', 'manager'), async (req, res, next) => {
+router.patch('/:id/confirm', protect, authorize('owner', 'manager', 'captain'), async (req, res, next) => {
   try {
     const { action } = req.body; // 'accept' | 'reject'
     if (!['accept', 'reject'].includes(action))

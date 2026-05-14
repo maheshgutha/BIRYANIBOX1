@@ -603,7 +603,7 @@ const seed = async () => {
   console.log('  Loyalty Tiers : 3  (Bronze, Silver, Gold)');
   console.log('═══════════════════════════════════════════════════');
   console.log('\nLogin credentials:');
-  console.log('  Owner:    owner@biryanibox.com    / owner123');
+  console.log('  Owner:    biryanibox2026@gmail.com    / owner123');
   console.log('  Manager:  manager@biryanibox.com  / manager123');
   console.log('  Captain1: captain1@biryanibox.com / captain123  (Tables 1-3)');
   console.log('  Captain2: captain2@biryanibox.com / captain123  (Tables 4-6)');

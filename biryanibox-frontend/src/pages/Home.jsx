@@ -854,72 +854,98 @@ const PreviousOrderPopup = ({ onAccept, onDismiss, lastOrder, secondsLeft }) => 
     .map(i => i.name || i.item_name)
     .filter(Boolean);
   // Countdown ring: 0–60 mapped to stroke-dashoffset
-  const radius = 10;
+  const radius = 12;
   const circumference = 2 * Math.PI * radius;
   const progress = (secondsLeft / 60);
   const strokeOffset = circumference * (1 - progress);
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 80, scale: 0.95 }}
+      initial={{ opacity: 0, x: 100, scale: 0.92 }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: 80, scale: 0.95 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-      className="fixed top-20 right-4 z-[200] w-80"
+      exit={{ opacity: 0, x: 100, scale: 0.92 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+      className="fixed top-20 right-4 z-[200] w-96"
     >
-      <div className="bg-secondary border border-primary/40 rounded-3xl shadow-2xl shadow-primary/20 p-5 overflow-hidden relative">
-        {/* Top accent line — shrinks as time runs out */}
-        <div className="absolute top-0 left-0 h-1 bg-gradient-to-r from-primary to-primary-hover rounded-t-3xl transition-all duration-1000"
+      <div className="bg-[#1a1a1a] border border-primary/50 rounded-3xl shadow-2xl shadow-primary/30 overflow-hidden relative">
+        {/* Animated top progress bar */}
+        <div className="absolute top-0 left-0 h-1.5 bg-gradient-to-r from-primary via-yellow-400 to-primary-hover rounded-t-3xl transition-all duration-1000"
           style={{ width: `${progress * 100}%` }} />
 
-        {/* Header row: icon + text + countdown */}
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center text-2xl shrink-0">
-            🍛
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">
-              Continue Where You Left Off
-            </p>
-            <p className="text-white font-bold text-sm mb-1">Order Again?</p>
-            <p className="text-text-muted text-xs truncate">
-              {previewItems.join(', ')}
-              {itemCount > 3 ? ` +${itemCount - 3} more` : ''}
-            </p>
-          </div>
-          {/* Countdown ring only — no skip here */}
-          <div className="flex flex-col items-center gap-1 shrink-0">
-            <div className="relative w-9 h-9">
-              <svg viewBox="0 0 24 24" className="w-9 h-9 -rotate-90">
-                <circle cx="12" cy="12" r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2.5" />
-                <circle cx="12" cy="12" r={radius} fill="none" stroke="rgb(229,138,48)" strokeWidth="2.5"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={strokeOffset}
-                  strokeLinecap="round"
-                  style={{ transition: 'stroke-dashoffset 1s linear' }}
-                />
-              </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-black text-white/70">
-                {secondsLeft}
-              </span>
+        {/* Gradient background glow */}
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-transparent to-transparent pointer-events-none" />
+
+        <div className="relative p-6">
+          {/* Header row */}
+          <div className="flex items-start gap-4 mb-5">
+            {/* Food icon */}
+            <div className="w-14 h-14 bg-primary/25 border border-primary/30 rounded-2xl flex items-center justify-center text-3xl shrink-0 shadow-lg">
+              🍛
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-black text-primary uppercase tracking-[0.18em] mb-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block animate-pulse" />
+                Continue Where You Left Off
+              </p>
+              <p className="text-white font-black text-base mb-1">Order Again?</p>
+              <p className="text-white/55 text-xs leading-relaxed truncate">
+                {previewItems.join(' · ')}
+                {itemCount > 3 ? ` +${itemCount - 3} more` : ''}
+              </p>
+            </div>
+
+            {/* Countdown ring */}
+            <div className="flex flex-col items-center shrink-0">
+              <div className="relative w-11 h-11">
+                <svg viewBox="0 0 28 28" className="w-11 h-11 -rotate-90">
+                  <circle cx="14" cy="14" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="2.5" />
+                  <circle cx="14" cy="14" r={radius} fill="none" stroke="rgb(229,138,48)" strokeWidth="2.5"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={strokeOffset}
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dashoffset 1s linear' }}
+                  />
+                </svg>
+                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-white/80">
+                  {secondsLeft}
+                </span>
+              </div>
+              <span className="text-[9px] text-white/35 font-bold mt-0.5 uppercase tracking-wider">sec</span>
             </div>
           </div>
-        </div>
 
-        {/* Action buttons */}
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={onAccept}
-            className="flex-1 py-3 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-primary-hover transition-all flex items-center justify-center gap-2"
-          >
-            <ShoppingBag size={14} /> Add to Cart & Continue
-          </button>
-          <button
-            onClick={onDismiss}
-            className="px-4 py-3 bg-white/8 border border-white/15 text-white/70 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-400 transition-all flex items-center justify-center gap-1.5"
-          >
-            <X size={13} /> Cancel
-          </button>
+          {/* Item pills */}
+          {previewItems.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-5">
+              {previewItems.map((name, i) => (
+                <span key={i} className="px-3 py-1 bg-white/8 border border-white/10 rounded-full text-[10px] font-bold text-white/70 truncate max-w-[140px]">
+                  {name}
+                </span>
+              ))}
+              {itemCount > 3 && (
+                <span className="px-3 py-1 bg-primary/15 border border-primary/25 rounded-full text-[10px] font-bold text-primary">
+                  +{itemCount - 3} more
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex gap-3">
+            <button
+              onClick={onAccept}
+              className="flex-1 py-3.5 bg-gradient-to-r from-primary to-primary-hover text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/30"
+            >
+              <ShoppingBag size={15} /> Add to Cart & Continue
+            </button>
+            <button
+              onClick={onDismiss}
+              className="px-4 py-3.5 bg-white/6 border border-white/12 text-white/60 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-500/15 hover:border-red-500/35 hover:text-red-400 transition-all flex items-center justify-center gap-1.5"
+            >
+              <X size={13} /> No
+            </button>
+          </div>
         </div>
       </div>
     </motion.div>
@@ -950,7 +976,9 @@ const Home = () => {
           o => o.status === 'paid' || o.status === 'served' || o.status === 'completed'
         );
         if (paidOrders.length > 0) {
-          const last = paidOrders[paidOrders.length - 1];
+          // History API returns sorted newest-first (sort: updated_at -1),
+          // so index 0 is always the most recent order
+          const last = paidOrders[0];
           if (last.items && last.items.length > 0) {
             setPrevOrder(last);
             setShowPrevOrderPopup(true);
@@ -987,12 +1015,17 @@ const Home = () => {
     clearTimeout(autoHideTimerRef.current);
     clearInterval(countdownRef.current);
     prevOrder.items.forEach(item => {
+      // normalizeOrderItem stores the actual MenuItem ObjectId in menu_item_id
+      // That is what the backend expects for MenuItem.findById()
+      const menuItemId = item.menu_item_id || item.menu_item || item._id || item.id;
       addToCart({
-        id:       item.menu_item || item._id || item.id,
-        _id:      item.menu_item || item._id || item.id,
-        name:     item.name || item.item_name || 'Item',
-        price:    item.price || item.unit_price || 0,
-        category: item.category || '',
+        id:        menuItemId,
+        _id:       menuItemId,
+        name:      item.name || item.item_name || 'Item',
+        price:     item.price || item.unit_price || 0,
+        category:  item.category || '',
+        image_url: item.image_url || item.image || '',
+        image:     item.image || item.image_url || '',
       });
     });
     setShowPrevOrderPopup(false);

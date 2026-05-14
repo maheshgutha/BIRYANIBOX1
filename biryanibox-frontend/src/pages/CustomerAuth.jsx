@@ -11,7 +11,7 @@ const OTP_DURATION = 60;
 const inputCls = "w-full bg-white/5 border border-white/10 rounded-2xl py-3.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50 transition-all";
 
 const CustomerAuth = () => {
-  const { login } = useAuth();
+  const { login, commitLogin } = useAuth();
   const navigate  = useNavigate();
   const location  = useLocation();
   const fromPath  = location.state?.from || '/';
@@ -59,8 +59,13 @@ const CustomerAuth = () => {
     if (!password.trim()) { setError('Password is required'); return; }
     setError('');
     const result = await login(email, password);
-    if (result.success) navigate(fromPath, { replace: true });
-    else setError(result.error || 'Invalid credentials');
+    if (result.success) {
+      // Commit token + user to localStorage and context state
+      commitLogin(result.user, result.token);
+      navigate(fromPath, { replace: true });
+    } else {
+      setError(result.error || 'Invalid credentials');
+    }
   };
 
   const handleSendOTP = async (e) => {

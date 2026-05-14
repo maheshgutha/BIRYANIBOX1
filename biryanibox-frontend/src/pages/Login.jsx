@@ -6,7 +6,7 @@ import { Lock, User, ShieldCheck, ChefHat, Truck, Eye, EyeOff, Mail, Loader, Key
 import { authAPI } from '../services/api';
 
 const Login = () => {
-  const { login, loading } = useAuth();
+  const { login, commitLogin, loading } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('owner');
   const [email,    setEmail]    = useState('');
@@ -56,23 +56,24 @@ const Login = () => {
     if (!email.trim())    { setError('Email is required'); return; }
     if (!password.trim()) { setError('Password is required'); return; }
     setError('');
+    // Step 1: Verify credentials with backend — does NOT touch localStorage or context state
     const result = await login(email.trim(), password);
-    if (result.success) {
-      const loggedRole = result.user?.role || result.data?.role;
-      const allowed = ROLE_PERMISSIONS[activeTab] || [];
-      // Role mismatch — logged in but wrong tab selected
-      if (loggedRole && !allowed.includes(loggedRole)) {
-        // Log them out of context and show clear error
-        localStorage.removeItem('bb_token');
-        const roleLabel = loggedRole.charAt(0).toUpperCase() + loggedRole.slice(1);
-        const tabLabel  = active?.label;
-        setError(`These credentials belong to a ${roleLabel} account. Please select the ${roleLabel} tab to sign in.`);
-        return;
-      }
-      navigate(active.redirect);
-    } else {
-      setError(result.error || 'Invalid email or password. Please try again.');
+    if (!result.success) {
+      setError('Invalid credentials. Please check your email and password.');
+      return;
     }
+    // Step 2: Check that the returned role matches the selected tab
+    const loggedRole = result.user?.role;
+    const allowed    = ROLE_PERMISSIONS[activeTab] || [];
+    if (!loggedRole || !allowed.includes(loggedRole)) {
+      // Wrong role for this tab — reject silently with generic message
+      // commitLogin is NOT called so no state is ever written
+      setError('Invalid credentials. Please check your email and password.');
+      return;
+    }
+    // Step 3: Role matches — now commit to localStorage + context state
+    commitLogin(result.user, result.token);
+    navigate(active.redirect);
   };
 
   const handleSendFpOTP = async () => {

@@ -35,7 +35,13 @@ const request = async (path, options = {}) => {
 
   // 401 = token expired or invalid — clear it to stop cascade errors
   if (res.status === 401) {
-    if (!path.includes('/auth/login') && !path.includes('/auth/register')) {
+    if (path.includes('/auth/login') || path.includes('/auth/staff-login')) {
+      // For login routes: read the actual error message from the response
+      let errData;
+      try { errData = await res.json(); } catch { errData = {}; }
+      throw new Error(errData.message || 'Invalid credentials. Please check your email and password.');
+    }
+    if (!path.includes('/auth/register')) {
       clearAuthOnUnauthorized();
     }
     throw new Error('401');
